@@ -20,6 +20,7 @@ from datetime import UTC, datetime
 from influxdb_client_3 import Point
 
 from labmon.influx import INFLUXDB_DATABASE, get_client
+from labmon.writer import PointWriter
 
 
 class TemperatureWalk:
@@ -48,11 +49,11 @@ def run(sensor_id: str, interval: float, setpoint: float) -> None:
     Runs until a SIGINT (Ctrl+C) or SIGTERM (e.g. `docker stop`) is
     received, at which point the InfluxDB client is closed cleanly.
     """
-    client = get_client()
+    writer = PointWriter(get_client())
     walk = TemperatureWalk(setpoint=setpoint)
 
     def shutdown(signum, frame):
-        client.close()
+        writer.close()
         sys.exit(0)
 
     signal.signal(signal.SIGINT, shutdown)
@@ -70,7 +71,7 @@ def run(sensor_id: str, interval: float, setpoint: float) -> None:
             .field("value", temperature)
             .time(reading_time, write_precision="ms")
         )
-        client.write(point)
+        writer.write(point)
         print(f"{sensor_id}: {temperature}°C")
         time.sleep(interval)
 
