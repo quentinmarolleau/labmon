@@ -7,6 +7,7 @@
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/quentinmarolleau/labmon/pulls)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![Maturity: alpha](https://img.shields.io/badge/maturity-alpha-orange)](https://github.com/quentinmarolleau/labmon)
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fquentinmarolleau%2Flabmon.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2Fquentinmarolleau%2Flabmon?ref=badge_shield)
 
 Flexible laboratory monitoring system, built on InfluxDB 3.
 
@@ -69,3 +70,6 @@ agent-oriented version of the same document).
 ## License
 
 GPLv3 — see [LICENSE](LICENSE).
+
+
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fquentinmarolleau%2Flabmon.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2Fquentinmarolleau%2Flabmon?ref=badge_large)
