@@ -1,0 +1,95 @@
+{
+  "title": "Lab Overview",
+  "uid": "lab-overview",
+  "schemaVersion": 39,
+  "version": 1,
+  "timezone": "browser",
+  "refresh": "5s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Room Temperature",
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 0 },
+      "datasource": { "type": "influxdb", "uid": "influxdb3" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "celsius"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "influxdb", "uid": "influxdb3" },
+          "format": "time_series",
+          "rawSql": "SELECT time, sensor_id, value FROM temperature WHERE sensor_id IN ('room-1', 'room-2') AND $__timeFrom() <= time AND time <= $__timeTo() ORDER BY time"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Cryogenic Zone",
+      "gridPos": { "h": 9, "w": 18, "x": 0, "y": 9 },
+      "datasource": { "type": "influxdb", "uid": "influxdb3" },
+      "timeFrom": "5m",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "kelvin",
+          "custom": {
+            "drawStyle": "line",
+            "lineStyle": { "fill": "solid" },
+            "showPoints": "never",
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "influxdb", "uid": "influxdb3" },
+          "format": "time_series",
+          "rawSql": "SELECT time, sensor_id, value FROM temperature WHERE sensor_id IN ('cryo-77k', 'cryo-4k') AND $__timeFrom() <= time AND time <= $__timeTo() ORDER BY time"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "gauge",
+      "title": "Science Chamber Pressure (mbar)",
+      "gridPos": { "h": 9, "w": 6, "x": 18, "y": 9 },
+      "datasource": { "type": "influxdb", "uid": "influxdb3" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "sci",
+          "decimals": 2,
+          "min": 0,
+          "max": 3e-7,
+          "color": { "mode": "continuous-GrYlRd" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "influxdb", "uid": "influxdb3" },
+          "format": "table",
+          "rawSql": "SELECT time, value FROM pressure WHERE sensor_id = 'chamber-1' ORDER BY time DESC LIMIT 1"
+        }
+      ]
+    }
+  ]
+}

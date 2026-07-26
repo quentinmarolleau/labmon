@@ -15,12 +15,11 @@ Flexible laboratory monitoring system, built on InfluxDB 3.
 ```bash
 cp .env.example .env   # fill in INFLUXDB_NODE_ID and INFLUXDB3_AUTH_TOKEN
 docker compose up -d --wait
-uv sync
-uv run mock-sensor
 ```
 
-Then open [Grafana](http://localhost:3000) (`admin`/`admin`) to watch the
-data live — see [`docs/grafana.md`](docs/grafana.md).
+That's it — five demo mock sensors start writing data automatically. Open
+[Grafana](http://localhost:3000) (`admin`/`admin`) to watch it live — see
+[`docs/grafana.md`](docs/grafana.md).
 
 ## Architecture
 
@@ -28,12 +27,15 @@ data live — see [`docs/grafana.md`](docs/grafana.md).
 
 This is the target architecture — microcontrollers and edge devices
 (Arduino, Raspberry Pi, etc.) feeding InfluxDB directly aren't built yet.
-What's implemented today: sensor scripts run on the host (via `uv run`)
-and write into InfluxDB through a queue-backed writer, so producers are
-never blocked by write latency. InfluxDB and Grafana run as containers
-managed by `docker-compose.yml`. Grafana queries InfluxDB via its SQL
-(Flight SQL) mode — see [`docs/grafana.md`](docs/grafana.md) for why that
-mode specifically, and its macro quirks.
+What's implemented today: sensor scripts write into InfluxDB through a
+queue-backed writer, so producers are never blocked by write latency. The
+demo mock sensors, InfluxDB, and Grafana all run as containers managed by
+`docker-compose.yml` (labmon's own code is built via `Dockerfile`); you
+can also run an extra sensor script directly on the host via `uv run
+mock-sensor` (see [`docs/mock-sensor.md`](docs/mock-sensor.md)). Grafana
+queries InfluxDB via its SQL (Flight SQL) mode — see
+[`docs/grafana.md`](docs/grafana.md) for why that mode specifically, and
+its macro quirks.
 
 ## Project structure
 
@@ -45,7 +47,8 @@ mode specifically, and its macro quirks.
 - `docs/` — usage docs per component
 - `typings/` — local type stubs for untyped third-party dependencies
 - `grafana/` — provisioned datasource and dashboards
-- `docker-compose.yml` — local InfluxDB and Grafana instances
+- `Dockerfile` — builds labmon's own code for the containerized mock sensors
+- `docker-compose.yml` — local InfluxDB, Grafana, and mock sensor instances
 - `CONTRIBUTING.md` / `AGENTS.md` — workflow, commit conventions, testing policy
 
 ## Development
