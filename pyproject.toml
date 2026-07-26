@@ -18,7 +18,7 @@ dev = [
 ]
 
 [project.scripts]
-mock-temperature-sensor = "labmon.sensors.mock_temperature:main"
+mock-sensor = "labmon.sensors.mock_sensor:main"
 
 [build-system]
 requires = ["hatchling"]

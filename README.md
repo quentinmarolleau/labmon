@@ -16,7 +16,7 @@ Flexible laboratory monitoring system, built on InfluxDB 3.
 cp .env.example .env   # fill in INFLUXDB_NODE_ID and INFLUXDB3_AUTH_TOKEN
 docker compose up -d --wait
 uv sync
-uv run mock-temperature-sensor
+uv run mock-sensor
 ```
 
 Then open [Grafana](http://localhost:3000) (`admin`/`admin`) to watch the
@@ -57,8 +57,8 @@ uv run basedpyright
 uv run typos
 ```
 
-See [`docs/mock-temperature-sensor.md`](docs/mock-temperature-sensor.md)
-for sensor usage and how to inspect the data it writes.
+See [`docs/mock-sensor.md`](docs/mock-sensor.md) for sensor usage and how
+to inspect the data it writes.
 
 ## Contributing
 
