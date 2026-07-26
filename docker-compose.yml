@@ -25,3 +25,32 @@ services:
       timeout: 2s
       retries: 30
       start_period: 5s
+
+  grafana:
+    image: grafana/grafana:13.1.1
+    container_name: grafana
+    depends_on:
+      influxdb:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    environment:
+      - INFLUXDB3_AUTH_TOKEN=${INFLUXDB3_AUTH_TOKEN}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+    volumes:
+      - type: bind
+        source: ./grafana/provisioning
+        target: /etc/grafana/provisioning
+      - type: bind
+        source: ./grafana/dashboards
+        target: /var/lib/grafana/dashboards
+      - type: bind
+        # Grafana's own state (users, sessions, dashboard edits made via the UI)
+        source: .grafana/data
+        target: /var/lib/grafana
+    healthcheck:
+      test: ["CMD", "curl", "-s", "-o", "/dev/null", "http://127.0.0.1:3000/api/health"]
+      interval: 1s
+      timeout: 2s
+      retries: 30
+      start_period: 5s
