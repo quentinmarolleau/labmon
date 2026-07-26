@@ -45,7 +45,7 @@ All four must pass locally — they're exactly what CI runs.
   is a floor, not a target to game: don't pad coverage with tests that
   don't assert anything meaningful.
 - Mock at the I/O boundary, not the internals. For example, testing
-  `run()` in `mock_temperature.py` patches `signal.signal`, `time.sleep`,
+  `run()` in `mock_sensor.py` patches `signal.signal`, `time.sleep`,
   and `get_client()` — enough to exercise the real logic without touching
   a live InfluxDB instance or blocking forever — rather than mocking
   `PointWriter` itself.
@@ -57,7 +57,7 @@ All four must pass locally — they're exactly what CI runs.
 ## Docs
 
 - Component usage docs live in `docs/` (one file per component, e.g.
-  `docs/grafana.md`, `docs/mock-temperature-sensor.md`).
+  `docs/grafana.md`, `docs/mock-sensor.md`).
 - See [`AGENTS.md`](AGENTS.md) for a condensed, agent-oriented version of
   this document.
 
