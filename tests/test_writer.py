@@ -4,21 +4,21 @@ import time
 from labmon.writer import PointWriter
 
 
-class FakeClient:
-    def __init__(self):
-        self.batches = []
-        self.closed = threading.Event()
+class FakeClient[T]:
+    def __init__(self) -> None:
+        self.batches: list[list[T]] = []
+        self.closed: threading.Event = threading.Event()
 
-    def write(self, batch):
+    def write(self, batch: list[T]) -> None:
         self.batches.append(list(batch))
 
-    def close(self):
+    def close(self) -> None:
         self.closed.set()
 
 
-def test_write_does_not_block_the_caller():
-    client = FakeClient()
-    writer = PointWriter(client)
+def test_write_does_not_block_the_caller() -> None:
+    client = FakeClient[int]()
+    writer = PointWriter[int](client)
 
     start = time.monotonic()
     for i in range(50):
@@ -29,9 +29,9 @@ def test_write_does_not_block_the_caller():
     assert elapsed < 0.1
 
 
-def test_close_flushes_all_queued_points_and_closes_client():
-    client = FakeClient()
-    writer = PointWriter(client)
+def test_close_flushes_all_queued_points_and_closes_client() -> None:
+    client = FakeClient[int]()
+    writer = PointWriter[int](client)
 
     for i in range(10):
         writer.write(i)

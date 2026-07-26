@@ -2,9 +2,15 @@
 
 import queue
 import threading
+from typing import Protocol
 
 
-class PointWriter:
+class _Writable[T](Protocol):
+    def write(self, batch: list[T], /) -> None: ...
+    def close(self) -> None: ...
+
+
+class PointWriter[T]:
     """Buffers points in a queue and writes them from a background thread.
 
     write() only enqueues and returns immediately; a dedicated thread drains
@@ -13,14 +19,16 @@ class PointWriter:
     across a batch instead of paying it once per point.
     """
 
-    def __init__(self, client, maxsize: int = 10_000):
-        self._client = client
-        self._queue: queue.Queue = queue.Queue(maxsize=maxsize)
-        self._stop = threading.Event()
-        self._thread = threading.Thread(target=self._run, daemon=True)
+    def __init__(self, client: _Writable[T], maxsize: int = 10_000) -> None:
+        self._client: _Writable[T] = client
+        self._queue: queue.Queue[T] = queue.Queue(maxsize=maxsize)
+        self._stop: threading.Event = threading.Event()
+        self._thread: threading.Thread = threading.Thread(
+            target=self._run, daemon=True
+        )
         self._thread.start()
 
-    def write(self, point) -> None:
+    def write(self, point: T) -> None:
         """Queue a point to be written; never blocks on network I/O."""
         self._queue.put(point)
 
@@ -33,7 +41,7 @@ class PointWriter:
     def _run(self) -> None:
         while not self._stop.is_set() or not self._queue.empty():
             try:
-                batch = [self._queue.get(timeout=0.5)]
+                batch: list[T] = [self._queue.get(timeout=0.5)]
             except queue.Empty:
                 continue
             while True:
