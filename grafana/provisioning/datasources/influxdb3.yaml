@@ -1,0 +1,17 @@
+apiVersion: 1
+
+datasources:
+  - name: InfluxDB3
+    uid: influxdb3
+    type: influxdb
+    access: proxy
+    url: http://influxdb:8181
+    isDefault: true
+    jsonData:
+      version: SQL
+      dbName: lab
+      # influxdb has no TLS in this local setup; Flight SQL (gRPC) needs to
+      # be told explicitly not to expect it.
+      insecureGrpc: true
+    secureJsonData:
+      token: ${INFLUXDB3_AUTH_TOKEN}

@@ -21,6 +21,9 @@ coverage.xml
 # InfluxDB local data
 .influxdb3/
 
+# Grafana local data
+.grafana/data/
+
 # Personal experimentation (marimo notebooks, not part of the package)
 __marimo__/
 /test.py

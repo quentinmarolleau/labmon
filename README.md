@@ -19,6 +19,9 @@ uv sync
 uv run mock-temperature-sensor
 ```
 
+Then open [Grafana](http://localhost:3000) (`admin`/`admin`) to watch the
+data live — see [`docs/grafana.md`](docs/grafana.md).
+
 ## Project structure
 
 - `src/labmon/` — application code
@@ -28,7 +31,8 @@ uv run mock-temperature-sensor
 - `tests/` — pytest suite
 - `docs/` — usage docs per component
 - `typings/` — local type stubs for untyped third-party dependencies
-- `docker-compose.yml` — local InfluxDB instance
+- `grafana/` — provisioned datasource and dashboards
+- `docker-compose.yml` — local InfluxDB and Grafana instances
 
 ## Development
 
