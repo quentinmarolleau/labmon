@@ -21,6 +21,11 @@ That's it — five demo mock sensors start writing data automatically. Open
 [Grafana](http://localhost:3000) (`admin`/`admin`) to watch it live — see
 [`docs/grafana.md`](docs/grafana.md).
 
+![Lab Overview dashboard: room temperature and cryogenic zone time series plus a science chamber pressure gauge](docs/assets/images/lab-overview-screenshot.png)
+
+The **Lab Overview** dashboard you get out of the box, running against the
+demo mock sensors from `docker compose up`.
+
 ## Architecture
 
 ![labmon architecture: sensors and edge devices feed InfluxDB 3, which Grafana queries for dashboards](docs/assets/images/diagram.png)
