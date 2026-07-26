@@ -1,0 +1,11 @@
+.venv
+.git
+.github
+.grafana
+.influxdb3
+__marimo__
+__pycache__
+.pytest_cache
+.ruff_cache
+*.egg-info
+test.py
