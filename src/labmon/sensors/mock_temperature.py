@@ -15,6 +15,7 @@ import random
 import signal
 import sys
 import time
+from datetime import UTC, datetime
 
 from influxdb_client_3 import Point
 
@@ -61,9 +62,13 @@ def run(sensor_id: str, interval: float, setpoint: float) -> None:
         f"Writing mock readings for '{sensor_id}' to {INFLUXDB_DATABASE} every {interval}s"
     )
     while True:
+        reading_time = datetime.now(UTC)
         temperature = walk.next()
         point = (
-            Point("temperature").tag("sensor_id", sensor_id).field("value", temperature)
+            Point("temperature")
+            .tag("sensor_id", sensor_id)
+            .field("value", temperature)
+            .time(reading_time, write_precision="ms")
         )
         client.write(point)
         print(f"{sensor_id}: {temperature}°C")
