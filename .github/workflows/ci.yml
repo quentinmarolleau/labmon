@@ -49,7 +49,7 @@ jobs:
         with:
           enable-cache: true
           python-version: ${{ matrix.python-version }}
-      - run: uv run --locked pytest --cov=src --cov-report=xml
+      - run: uv run --locked pytest --cov=src --cov-report=xml --cov-fail-under=100
       - if: matrix.python-version == '3.14'
         uses: codecov/codecov-action@e53489f4d376d79066609109e7a95a29eb3740b1 # v7.0.0
         with:

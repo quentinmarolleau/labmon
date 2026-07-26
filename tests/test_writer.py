@@ -40,3 +40,15 @@ def test_close_flushes_all_queued_points_and_closes_client() -> None:
     written = [point for batch in client.batches for point in batch]
     assert written == list(range(10))
     assert client.closed.is_set()
+
+
+def test_survives_idle_polling_before_a_point_arrives() -> None:
+    client = FakeClient[int]()
+    writer = PointWriter[int](client, poll_interval=0.01)
+
+    time.sleep(0.05)
+    writer.write(1)
+    writer.close()
+
+    written = [point for batch in client.batches for point in batch]
+    assert written == [1]
