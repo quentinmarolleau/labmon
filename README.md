@@ -24,30 +24,16 @@ data live — see [`docs/grafana.md`](docs/grafana.md).
 
 ## Architecture
 
-```mermaid
-flowchart LR
-    subgraph "Host machine"
-        Sensor["mock-temperature-sensor<br/>(uv run)"]
-    end
+![labmon architecture: sensors and edge devices feed InfluxDB 3, which Grafana queries for dashboards](docs/assets/images/diagram.png)
 
-    subgraph "docker compose"
-        InfluxDB[("InfluxDB 3 Core<br/>lab database")]
-        Grafana["Grafana<br/>SQL / Flight SQL datasource"]
-    end
-
-    Browser(["Browser"])
-
-    Sensor -->|"PointWriter<br/>(queued writes)"| InfluxDB
-    Grafana -->|"query"| InfluxDB
-    Browser -->|":3000"| Grafana
-```
-
-Sensor scripts run on the host (via `uv run`) and write into InfluxDB
-through a queue-backed writer, so producers are never blocked by write
-latency. InfluxDB and Grafana run as containers managed by
-`docker-compose.yml`. Grafana queries InfluxDB via its SQL (Flight SQL)
-mode — see [`docs/grafana.md`](docs/grafana.md) for why that mode
-specifically, and its macro quirks.
+This is the target architecture — microcontrollers and edge devices
+(Arduino, Raspberry Pi, etc.) feeding InfluxDB directly aren't built yet.
+What's implemented today: sensor scripts run on the host (via `uv run`)
+and write into InfluxDB through a queue-backed writer, so producers are
+never blocked by write latency. InfluxDB and Grafana run as containers
+managed by `docker-compose.yml`. Grafana queries InfluxDB via its SQL
+(Flight SQL) mode — see [`docs/grafana.md`](docs/grafana.md) for why that
+mode specifically, and its macro quirks.
 
 ## Project structure
 
