@@ -6,6 +6,10 @@ dist/
 wheels/
 *.egg-info
 
+# Test coverage artifacts
+.coverage
+coverage.xml
+
 # Environment variables
 .env
 .env.*
