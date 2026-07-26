@@ -96,12 +96,10 @@ def run(
     while True:
         reading_time = datetime.now(UTC)
         reading = walk.next()
-        point = (
-            Point(measurement)
-            .tag("sensor_id", sensor_id)
-            .field(field, reading)
-            .time(reading_time, write_precision="ms")
-        )
+        point = Point(measurement).tag("sensor_id", sensor_id)
+        if unit:
+            point = point.tag("unit", unit)
+        point = point.field(field, reading).time(reading_time, write_precision="ms")
         writer.write(point)
         print(f"{sensor_id}: {reading:.4g}{unit_suffix}")
         time.sleep(interval)
@@ -149,7 +147,8 @@ def main() -> None:
     _ = parser.add_argument(
         "--unit",
         default="",
-        help="Cosmetic unit suffix for console output only (e.g. '°C', 'K', 'mbar')",
+        help="Unit of the reading (e.g. '°C', 'K', 'mbar'). Written as an "
+        + "InfluxDB tag (when set) and shown in the console output.",
     )
     args = parser.parse_args()
 

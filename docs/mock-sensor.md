@@ -44,7 +44,7 @@ process closes its InfluxDB connection cleanly on SIGINT/SIGTERM.
 | `--field`          | `value`        | InfluxDB field name for the reading                                |
 | `--noise`          | `0.1`          | Std dev of Gaussian noise added each step                         |
 | `--log-scale`      | off            | Perform the walk in log10 space (see below)                       |
-| `--unit`           | `""`           | Cosmetic unit suffix for console output only (e.g. `°C`, `K`, `mbar`) |
+| `--unit`           | `""`           | Unit of the reading (e.g. `°C`, `K`, `mbar`) — written as an InfluxDB `unit` tag when set, and shown in the console output |
 
 ### `--log-scale`
 
@@ -57,6 +57,15 @@ pressure. With `--log-scale`, the walk operates on `log10(reading)`
 internally, so `--noise` becomes a proportional (log10) quantity — jitter
 and mean-reversion scale with magnitude, and the reading can never go
 non-positive. `--setpoint` stays in ordinary linear units either way.
+
+### `--unit`
+
+When set, `--unit` is written as an InfluxDB **tag** (`unit=...`), not a
+field — units are metadata you filter/group by (e.g. picking a unit-aware
+Grafana display, or distinguishing `K` from `°C` readings in the same
+`temperature` measurement), not a measured value, so they belong in
+InfluxDB's indexed tag space rather than mixed in with the numeric field
+data. Left unset (the default), no `unit` tag is written at all.
 
 ## Configuration
 

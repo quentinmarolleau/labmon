@@ -138,7 +138,7 @@ def test_run_writes_points_with_custom_measurement_field_and_log_scale(
     [batch] = fake_client.batches
     [point] = batch
     line = point.to_line_protocol()
-    assert line.startswith("pressure,sensor_id=chamber-1 reading=")
+    assert line.startswith("pressure,sensor_id=chamber-1,unit=mbar reading=")
 
 
 def test_main_parses_defaults_and_calls_run(monkeypatch: pytest.MonkeyPatch) -> None:
