@@ -1,7 +1,7 @@
 # labmon
 
 [![License: GPLv3](https://img.shields.io/github/license/quentinmarolleau/labmon)](LICENSE)
-[![Python 3.14+](https://img.shields.io/badge/python-3.14%2B-blue)](pyproject.toml)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue)](pyproject.toml)
 [![codecov](https://codecov.io/gh/quentinmarolleau/labmon/branch/main/graph/badge.svg)](https://codecov.io/gh/quentinmarolleau/labmon)
 [![Repo size](https://img.shields.io/github/repo-size/quentinmarolleau/labmon)](https://github.com/quentinmarolleau/labmon)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/quentinmarolleau/labmon/pulls)
