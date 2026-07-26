@@ -1,0 +1,18 @@
+services:
+  influxdb:
+    image: influxdb:3-core
+    container_name: influxdb
+    ports:
+      - "8181:8181"
+    command:
+      - influxdb3
+      - serve
+      - --node-id=${INFLUXDB_NODE_ID}
+      - --object-store=file
+      - --data-dir=/var/lib/influxdb3/data
+    volumes:
+      - type: bind
+        # Path to store data on host system
+        source: .influxdb3/data
+        # Path to store data in the container
+        target: /var/lib/influxdb3/data

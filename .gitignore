@@ -1,0 +1,22 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Virtual environments
+.venv
+
+# InfluxDB local data
+.influxdb3/
+
+# Personal experimentation (marimo notebooks, not part of the package)
+__marimo__/
+/test.py
