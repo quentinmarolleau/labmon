@@ -42,7 +42,9 @@
         "defaults": {
           "unit": "kelvin",
           "custom": {
-            "lineStyle": { "fill": "solid" }
+            "drawStyle": "line",
+            "lineStyle": { "fill": "solid" },
+            "showPoints": "never"
           }
         },
         "overrides": []
