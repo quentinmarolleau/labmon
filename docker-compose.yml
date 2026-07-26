@@ -16,3 +16,12 @@ services:
         source: .influxdb3/data
         # Path to store data in the container
         target: /var/lib/influxdb3/data
+    # influxdb3 takes a few seconds to start accepting connections after the
+    # container starts, so `docker compose up -d --wait` needs this to know
+    # when the server is actually ready (any HTTP response counts, even 401).
+    healthcheck:
+      test: ["CMD", "curl", "-s", "-o", "/dev/null", "http://127.0.0.1:8181/health"]
+      interval: 1s
+      timeout: 2s
+      retries: 30
+      start_period: 5s
