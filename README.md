@@ -1,7 +1,6 @@
 # labmon
 
 [![License: GPLv3](https://img.shields.io/github/license/quentinmarolleau/labmon)](LICENSE)
-[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fquentinmarolleau%2Flabmon.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2Fquentinmarolleau%2Flabmon?ref=badge_shield)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue)](pyproject.toml)
 [![codecov](https://codecov.io/gh/quentinmarolleau/labmon/branch/main/graph/badge.svg)](https://codecov.io/gh/quentinmarolleau/labmon)
 [![Repo size](https://img.shields.io/github/repo-size/quentinmarolleau/labmon)](https://github.com/quentinmarolleau/labmon)

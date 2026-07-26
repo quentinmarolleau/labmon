@@ -55,23 +55,3 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
-
-  license-scan:
-    name: license-scan
-    runs-on: ubuntu-latest
-    # Not a required check yet: let it run for a while to confirm it's
-    # reliable before it can block merges.
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # run-tests: true only runs `fossa test`, checking a revision that
-      # must already have been analyzed — it does not analyze/upload
-      # itself. Run the action once plain (analyze/upload this commit),
-      # then again with run-tests: true to check the result.
-      - uses: fossas/fossa-action@29693cc50323968e039056be419b32989fc5880c # v2.0.0
-        with:
-          api-key: ${{ secrets.FOSSA_API_KEY }}
-      - uses: fossas/fossa-action@29693cc50323968e039056be419b32989fc5880c # v2.0.0
-        with:
-          api-key: ${{ secrets.FOSSA_API_KEY }}
-          run-tests: true
