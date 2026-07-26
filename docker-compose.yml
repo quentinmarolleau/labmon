@@ -113,6 +113,5 @@ services:
       - --sensor-id=chamber-1
       - --measurement=pressure
       - --setpoint=1e-7
-      - --noise=0.05
-      - --log-scale
+      - --noise=1e-8
       - --unit=mbar

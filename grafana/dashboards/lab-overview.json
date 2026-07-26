@@ -14,7 +14,7 @@
       "id": 1,
       "type": "timeseries",
       "title": "Room Temperature",
-      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 0 },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 0 },
       "datasource": { "type": "influxdb", "uid": "influxdb3" },
       "fieldConfig": {
         "defaults": {
@@ -35,12 +35,15 @@
       "id": 2,
       "type": "timeseries",
       "title": "Cryogenic Zone",
-      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 0 },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 9 },
       "datasource": { "type": "influxdb", "uid": "influxdb3" },
       "timeFrom": "5m",
       "fieldConfig": {
         "defaults": {
-          "unit": "kelvin"
+          "unit": "kelvin",
+          "custom": {
+            "lineStyle": { "fill": "solid" }
+          }
         },
         "overrides": []
       },
@@ -57,11 +60,14 @@
       "id": 3,
       "type": "gauge",
       "title": "Science Chamber Pressure",
-      "gridPos": { "h": 9, "w": 6, "x": 0, "y": 9 },
+      "gridPos": { "h": 9, "w": 6, "x": 0, "y": 18 },
       "datasource": { "type": "influxdb", "uid": "influxdb3" },
       "fieldConfig": {
         "defaults": {
-          "unit": "pressurembar"
+          "unit": "pressurembar",
+          "min": 0,
+          "max": 2e-7,
+          "color": { "mode": "continuous-GrYlRd" }
         },
         "overrides": []
       },
