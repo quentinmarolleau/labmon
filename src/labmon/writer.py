@@ -17,11 +17,18 @@ class PointWriter[T]:
     the queue and calls the client's write() with as many points as have
     accumulated since the last flush, amortizing the cost of each call
     across a batch instead of paying it once per point.
+
+    poll_interval bounds how long close() can take to notice a stop
+    request when the queue is empty (the background thread re-checks for
+    a stop roughly every poll_interval seconds while idle).
     """
 
-    def __init__(self, client: _Writable[T], maxsize: int = 10_000) -> None:
+    def __init__(
+        self, client: _Writable[T], maxsize: int = 10_000, poll_interval: float = 0.5
+    ) -> None:
         self._client: _Writable[T] = client
         self._queue: queue.Queue[T] = queue.Queue(maxsize=maxsize)
+        self._poll_interval: float = poll_interval
         self._stop: threading.Event = threading.Event()
         self._thread: threading.Thread = threading.Thread(
             target=self._run, daemon=True
@@ -41,7 +48,7 @@ class PointWriter[T]:
     def _run(self) -> None:
         while not self._stop.is_set() or not self._queue.empty():
             try:
-                batch: list[T] = [self._queue.get(timeout=0.5)]
+                batch: list[T] = [self._queue.get(timeout=self._poll_interval)]
             except queue.Empty:
                 continue
             while True:
