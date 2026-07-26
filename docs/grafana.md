@@ -70,6 +70,17 @@ SELECT time, value FROM pressure WHERE sensor_id = 'chamber-1' ORDER BY time DES
 
 The **Science Chamber Pressure** gauge uses exactly this pattern.
 
+### Scientific notation and custom units don't combine
+
+Grafana's `unit` field can't produce both exponential notation and a
+custom suffix at once — `unit: "sci"` gives exact scientific notation
+(e.g. `1.58e-7`) with no suffix, while any custom unit string (including
+`suffix:mbar`) always renders through a plain fixed-decimal formatter,
+never exponential (confirmed directly in Grafana's `toFixedUnit`/`sci`
+source). For a value like chamber pressure that needs both, put the unit
+in the panel/field title instead (e.g. "Science Chamber Pressure (mbar)")
+and use `unit: "sci"` for the value itself.
+
 ## Adding more dashboards
 
 Drop a dashboard JSON file into `grafana/dashboards/`; the file provider

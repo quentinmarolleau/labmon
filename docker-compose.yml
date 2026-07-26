@@ -112,6 +112,6 @@ services:
     command:
       - --sensor-id=chamber-1
       - --measurement=pressure
-      - --setpoint=1e-7
-      - --noise=1e-8
+      - --setpoint=1.5e-7
+      - --noise=5e-9
       - --unit=mbar
