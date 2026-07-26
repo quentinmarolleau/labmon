@@ -10,6 +10,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "basedpyright>=1.39.9",
     "pytest>=8.0.0",
     "ruff>=0.16.0",
 ]
@@ -20,3 +21,7 @@ mock-temperature-sensor = "labmon.sensors.mock_temperature:main"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.basedpyright]
+include = ["src", "tests"]
+stubPath = "typings"

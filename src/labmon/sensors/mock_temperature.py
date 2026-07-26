@@ -16,6 +16,8 @@ import signal
 import sys
 import time
 from datetime import UTC, datetime
+from types import FrameType
+from typing import cast
 
 from influxdb_client_3 import Point
 
@@ -31,10 +33,10 @@ class TemperatureWalk:
     mimic real sensor jitter.
     """
 
-    def __init__(self, setpoint: float, noise: float = 0.1):
-        self.setpoint = setpoint
-        self.noise = noise
-        self.value = setpoint
+    def __init__(self, setpoint: float, noise: float = 0.1) -> None:
+        self.setpoint: float = setpoint
+        self.noise: float = noise
+        self.value: float = setpoint
 
     def next(self) -> float:
         """Advance the walk by one step and return the new reading."""
@@ -49,15 +51,15 @@ def run(sensor_id: str, interval: float, setpoint: float) -> None:
     Runs until a SIGINT (Ctrl+C) or SIGTERM (e.g. `docker stop`) is
     received, at which point the InfluxDB client is closed cleanly.
     """
-    writer = PointWriter(get_client())
+    writer: PointWriter[Point] = PointWriter[Point](get_client())
     walk = TemperatureWalk(setpoint=setpoint)
 
-    def shutdown(signum, frame):
+    def shutdown(_signum: int, _frame: FrameType | None) -> None:
         writer.close()
         sys.exit(0)
 
-    signal.signal(signal.SIGINT, shutdown)
-    signal.signal(signal.SIGTERM, shutdown)
+    _ = signal.signal(signal.SIGINT, shutdown)
+    _ = signal.signal(signal.SIGTERM, shutdown)
 
     print(
         f"Writing mock readings for '{sensor_id}' to {INFLUXDB_DATABASE} every {interval}s"
@@ -76,23 +78,27 @@ def run(sensor_id: str, interval: float, setpoint: float) -> None:
         time.sleep(interval)
 
 
-def main():
+def main() -> None:
     """CLI entry point (see module docstring for usage examples)."""
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--sensor-id", default="mock-temp-1", help="Tag identifying the sensor"
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--interval", type=float, default=5.0, help="Seconds between readings"
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--setpoint", type=float, default=21.0, help="Baseline temperature in °C"
     )
     args = parser.parse_args()
 
-    run(sensor_id=args.sensor_id, interval=args.interval, setpoint=args.setpoint)
+    sensor_id = cast(str, args.sensor_id)
+    interval = cast(float, args.interval)
+    setpoint = cast(float, args.setpoint)
+
+    run(sensor_id=sensor_id, interval=interval, setpoint=setpoint)
 
 
 if __name__ == "__main__":
