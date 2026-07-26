@@ -44,7 +44,8 @@
           "custom": {
             "drawStyle": "line",
             "lineStyle": { "fill": "solid" },
-            "showPoints": "never"
+            "showPoints": "never",
+            "spanNulls": true
           }
         },
         "overrides": []
