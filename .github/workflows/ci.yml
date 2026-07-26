@@ -45,4 +45,7 @@ jobs:
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           enable-cache: true
-      - run: uv run --locked pytest
+      - run: uv run --locked pytest --cov=src --cov-report=xml
+      - uses: codecov/codecov-action@e53489f4d376d79066609109e7a95a29eb3740b1 # v7.0.0
+        with:
+          fail_ci_if_error: false
