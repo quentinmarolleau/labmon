@@ -13,6 +13,7 @@ dev = [
     "basedpyright>=1.39.9",
     "pytest>=8.0.0",
     "ruff>=0.16.0",
+    "typos>=1.48.0",
 ]
 
 [project.scripts]
