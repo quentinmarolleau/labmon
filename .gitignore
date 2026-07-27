@@ -14,6 +14,7 @@ coverage.xml
 .env
 .env.*
 !.env.example
+!.env.client.example
 
 # Virtual environments
 .venv

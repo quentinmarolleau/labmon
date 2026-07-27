@@ -1,0 +1,48 @@
+# Compose file for a client machine (e.g. a Raspberry Pi) pushing sensor
+# data to a remote labmon server — see docs/client-setup.md and
+# docs/deployment.md. Unlike docker-compose.yml, there's no InfluxDB or
+# Grafana here: this machine only runs sensor(s) that write to the server
+# over the network.
+#
+# Usage:
+#   cp .env.client.example .env
+#   docker compose -f docker-compose.client.yml build
+#   docker compose -f docker-compose.client.yml up -d --wait
+#
+# There's no real hardware acquisition script yet (see docs/client-setup.md
+# for why), so this still runs `mock-sensor` — useful on real client
+# hardware to prove it can reach the server before any real acquisition
+# code exists. `--setpoint`/`--noise`/`--log-scale` only shape the
+# simulated random walk; a real acquisition script won't take them at all,
+# so don't spend time tuning them here — this section will be replaced
+# wholesale (image/command) once that script exists.
+#
+# Running several sensors on this device in parallel: give each its own
+# service extending the x-labmon-sensor anchor below, its own
+# container_name, and a command with a distinct --sensor-id (see the
+# commented-out `sensor-2` example).
+x-labmon-sensor: &labmon-sensor
+  build: .
+  image: labmon:latest
+  restart: unless-stopped
+  environment:
+    - INFLUXDB_HOST=${INFLUXDB_HOST}
+    - INFLUXDB_DATABASE=${INFLUXDB_DATABASE:-lab}
+    - INFLUXDB3_AUTH_TOKEN=${INFLUXDB3_AUTH_TOKEN}
+
+services:
+  sensor-1:
+    <<: *labmon-sensor
+    container_name: labmon-sensor-1
+    command:
+      - --sensor-id=CHANGE-ME-1
+      - --measurement=CHANGE-ME
+      - --unit=CHANGE-ME
+
+  # sensor-2:
+  #   <<: *labmon-sensor
+  #   container_name: labmon-sensor-2
+  #   command:
+  #     - --sensor-id=CHANGE-ME-2
+  #     - --measurement=CHANGE-ME
+  #     - --unit=CHANGE-ME
