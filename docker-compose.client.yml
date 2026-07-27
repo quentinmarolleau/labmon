@@ -1,0 +1,31 @@
+# Compose file for a client machine (e.g. a Raspberry Pi) pushing sensor
+# data to a remote labmon server — see docs/client-setup.md and
+# docs/deployment.md. Unlike docker-compose.yml, there's no InfluxDB or
+# Grafana here: this machine only runs sensor(s) that write to the server
+# over the network.
+#
+# Usage:
+#   cp .env.client.example .env
+#   docker compose -f docker-compose.client.yml build
+#   docker compose -f docker-compose.client.yml up -d --wait
+#
+# Running more than one sensor on this device? Copy the `sensor` service
+# below, give the copy its own name and `container_name`, and edit its
+# `command` — same pattern as the demo sensors in docker-compose.yml.
+services:
+  sensor:
+    build: .
+    image: labmon:latest
+    container_name: labmon-sensor
+    restart: unless-stopped
+    environment:
+      - INFLUXDB_HOST=${INFLUXDB_HOST}
+      - INFLUXDB_DATABASE=${INFLUXDB_DATABASE:-lab}
+      - INFLUXDB3_AUTH_TOKEN=${INFLUXDB3_AUTH_TOKEN}
+    # Edit this to describe the sensor actually attached to this device.
+    command:
+      - --sensor-id=CHANGE-ME
+      - --measurement=temperature
+      - --setpoint=21
+      - --noise=0.15
+      - --unit=°C

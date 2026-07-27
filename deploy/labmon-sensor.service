@@ -1,0 +1,27 @@
+# Example systemd unit for running a sensor directly on a client machine
+# (bare install, no Docker) — see docs/client-setup.md. Copy this file to
+# /etc/systemd/system/labmon-sensor.service, edit the paths/command below
+# for your setup, then:
+#
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now labmon-sensor.service
+#
+# Run more than one sensor on this device? Copy this file under a
+# different name (e.g. labmon-sensor-2.service) with its own ExecStart.
+
+[Unit]
+Description=labmon sensor client
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/labmon
+EnvironmentFile=/home/pi/labmon/.env
+ExecStart=/home/pi/labmon/.venv/bin/mock-sensor --sensor-id=CHANGE-ME --measurement=temperature --setpoint=21 --noise=0.15 --unit=°C
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

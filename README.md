@@ -54,6 +54,8 @@ its macro quirks.
 - `grafana/` — provisioned datasource and dashboards
 - `Dockerfile` — builds labmon's own code for the containerized mock sensors
 - `docker-compose.yml` — local InfluxDB, Grafana, and mock sensor instances
+- `docker-compose.client.yml` — sensor-only compose file for a remote client machine
+- `deploy/` — example systemd unit for a bare-install client
 - `CONTRIBUTING.md` / `AGENTS.md` — workflow, commit conventions, testing policy
 
 ## Development
