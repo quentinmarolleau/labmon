@@ -6,7 +6,7 @@ x-mock-sensor: &mock-sensor
       condition: service_healthy
   environment:
     - INFLUXDB_HOST=http://influxdb:8181
-    - INFLUXDB_DATABASE=lab
+    - INFLUXDB_DATABASE=${INFLUXDB_DATABASE:-lab}
     - INFLUXDB3_AUTH_TOKEN=${INFLUXDB3_AUTH_TOKEN}
 
 services:
@@ -47,6 +47,7 @@ services:
       - "3000:3000"
     environment:
       - INFLUXDB3_AUTH_TOKEN=${INFLUXDB3_AUTH_TOKEN}
+      - INFLUXDB_DATABASE=${INFLUXDB_DATABASE:-lab}
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
     volumes:
       - type: bind

@@ -27,9 +27,14 @@ auto-refreshing every 5 seconds:
 datasource using Grafana's built-in InfluxDB data source in **SQL** mode,
 which talks to InfluxDB 3's Flight SQL (gRPC) interface rather than the
 legacy InfluxQL/Flux modes. Since this stack has no TLS between containers,
-`insecureGrpc: true` tells Grafana not to expect it. The auth token is
-injected from the `INFLUXDB3_AUTH_TOKEN` environment variable via
-provisioning's `${VAR}` expansion — never hardcoded into the file.
+`insecureGrpc: true` tells Grafana not to expect it. The auth token and
+database name are injected from the `INFLUXDB3_AUTH_TOKEN` and
+`INFLUXDB_DATABASE` environment variables via provisioning's `${VAR}`
+expansion (confirmed against Grafana's provisioning source — this
+expansion applies to any field, not just `secureJsonData`) — never
+hardcoded into the file. `docker-compose.yml` passes both through to the
+`grafana` service with a `:-lab` fallback, so `INFLUXDB_DATABASE` is always
+set even if `.env` doesn't define it.
 
 ## Writing your own panel query
 
