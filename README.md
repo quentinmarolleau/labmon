@@ -1,12 +1,12 @@
 # labmon
 
 [![License: GPLv3](https://img.shields.io/github/license/quentinmarolleau/labmon)](LICENSE)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/quentinmarolleau/labmon/pulls)
+[![Repo size](https://img.shields.io/github/repo-size/quentinmarolleau/labmon)](https://github.com/quentinmarolleau/labmon)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue)](pyproject.toml)
 [![Tests](https://img.shields.io/github/actions/workflow/status/quentinmarolleau/labmon/ci.yml?branch=main&label=tests&job=test%20%283.14%29)](https://github.com/quentinmarolleau/labmon/actions/workflows/ci.yml)
-[![basedpyright](https://img.shields.io/github/actions/workflow/status/quentinmarolleau/labmon/ci.yml?branch=main&label=basedpyright&job=typecheck)](https://github.com/DetachHead/basedpyright)
 [![codecov](https://codecov.io/gh/quentinmarolleau/labmon/branch/main/graph/badge.svg)](https://codecov.io/gh/quentinmarolleau/labmon)
-[![Repo size](https://img.shields.io/github/repo-size/quentinmarolleau/labmon)](https://github.com/quentinmarolleau/labmon)
-[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/quentinmarolleau/labmon/pulls)
+[![basedpyright](https://img.shields.io/github/actions/workflow/status/quentinmarolleau/labmon/ci.yml?branch=main&label=basedpyright&job=typecheck)](https://github.com/DetachHead/basedpyright)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![Maturity: alpha](https://img.shields.io/badge/maturity-alpha-orange)](https://github.com/quentinmarolleau/labmon)
 
