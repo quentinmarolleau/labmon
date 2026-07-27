@@ -469,7 +469,53 @@ def test_load_calibration_rejects_too_few_points(tmp_path: Path) -> None:
         _ = load_calibration(path)
 
 
-def test_load_calibration_rejects_non_increasing_voltages(tmp_path: Path) -> None:
+def test_load_calibration_accepts_a_falling_voltage_response(tmp_path: Path) -> None:
+    # An NTC thermistor's divider voltage drops as it warms, so the
+    # measured series runs high-to-low. That must work as-is.
+    path = _write_config(
+        tmp_path,
+        """
+        [channels.A0]
+        sensor_id = "ntc-1"
+        measurement = "temperature"
+        mode = "piecewise_linear"
+        voltages = [3.0, 2.0, 1.0]
+        values = [273.15, 293.15, 313.15]
+        value_unit = "kelvin"
+        """,
+    )
+
+    conversion = load_calibration(path)["A0"].conversion
+
+    # Each measured point still maps to its own value after the internal
+    # flip, and interpolation between them stays correct.
+    assert conversion.apply(3.0 * ureg.volt).magnitude == pytest.approx(273.15)
+    assert conversion.apply(2.0 * ureg.volt).magnitude == pytest.approx(293.15)
+    assert conversion.apply(1.0 * ureg.volt).magnitude == pytest.approx(313.15)
+    assert conversion.apply(2.5 * ureg.volt).magnitude == pytest.approx(283.15)
+
+
+def test_load_calibration_accepts_a_falling_spline_response(tmp_path: Path) -> None:
+    path = _write_config(
+        tmp_path,
+        """
+        [channels.A0]
+        sensor_id = "ntc-1"
+        measurement = "temperature"
+        mode = "spline"
+        voltages = [3.0, 2.0, 1.0, 0.5]
+        values = [273.15, 293.15, 313.15, 333.15]
+        value_unit = "kelvin"
+        """,
+    )
+
+    conversion = load_calibration(path)["A0"].conversion
+
+    assert conversion.apply(3.0 * ureg.volt).magnitude == pytest.approx(273.15)
+    assert conversion.apply(0.5 * ureg.volt).magnitude == pytest.approx(333.15)
+
+
+def test_load_calibration_rejects_non_monotonic_voltages(tmp_path: Path) -> None:
     path = _write_config(
         tmp_path,
         """
@@ -483,7 +529,7 @@ def test_load_calibration_rejects_non_increasing_voltages(tmp_path: Path) -> Non
         """,
     )
 
-    with pytest.raises(CalibrationError, match="strictly increasing"):
+    with pytest.raises(CalibrationError, match="strictly monotonic"):
         _ = load_calibration(path)
 
 

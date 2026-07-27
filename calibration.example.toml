@@ -19,31 +19,33 @@
 # value against sensor voltage. The reading's unit is derived from the
 # factor, so there's no separate unit to declare (or get wrong).
 [channels.A0]
-sensor_id = "cryo-77k"
-measurement = "temperature"
-conversion_factor = "42.5 kelvin / volt"   # 3.3V full scale -> ~140 K
+sensor_id = "photodiode-1"
+measurement = "power"
+conversion_factor = "50.0 mW / volt"   # 3.3V full scale -> ~165 mW
 
 # --- affine: a factor plus an offset ------------------------------------
 # Same, for a fit that doesn't pass through the origin. The offset must
 # be dimensionally consistent with factor x volts, which is checked at
 # startup — "5 mbar" here would be rejected rather than silently wrong.
 [channels.A1]
-sensor_id = "room-1"
-measurement = "temperature"
+sensor_id = "pressure-transducer"
+measurement = "pressure"
 mode = "affine"
-conversion_factor = "100 kelvin / volt"
-offset = "273.15 kelvin"
+conversion_factor = "40.0 kPa / volt"
+offset = "-12.5 kPa"
 
 # --- spline: a cubic through measured points ----------------------------
 # For a curved response characterised by calibration measurements.
 # Needs scipy:  pip install 'labmon[spline]'
 # Note this EXTRAPOLATES beyond the measured range rather than clamping.
+# Voltages must be monotonic, but may fall as well as rise — as they do
+# here, an NTC's voltage dropping while temperature climbs.
 [channels.A2]
-sensor_id = "diode-1"
+sensor_id = "NTC-thermistor"
 measurement = "temperature"
 mode = "spline"
-voltages = [0.0, 0.5, 1.0, 2.0, 3.3]
-values = [4.2, 20.0, 50.0, 150.0, 300.0]
+voltages = [3.3, 2.78, 2.12, 1.4, 0.72, 0.18] # voltages being here an image of the resistance
+values = [273.15, 283.15, 293.15, 308.15, 328.15, 353.15]
 value_unit = "kelvin"
 
 # --- piecewise_linear: straight segments between the same points --------
@@ -51,12 +53,12 @@ value_unit = "kelvin"
 # dependency on a small client. Unlike the spline this CLAMPS outside
 # the measured range, holding the end values.
 [channels.A3]
-sensor_id = "diode-2"
-measurement = "temperature"
+sensor_id = "photodiode-2"
+measurement = "power"
 mode = "piecewise_linear"
-voltages = [0.0, 0.5, 1.0, 2.0, 3.3]
-values = [4.2, 20.0, 50.0, 150.0, 300.0]
-value_unit = "kelvin"
+voltages = [0.0, 1.0, 2.0, 3.3]
+values = [0.0, 100.1, 101.2, 332.3]
+value_unit = "mW"
 
 # --- expression: an arbitrary formula in v ------------------------------
 # For a response with a known closed form. `v` is the voltage in volts.
