@@ -343,9 +343,20 @@ def _require_measured_points(
         )
     if len(voltages) < 2:
         raise CalibrationError(f"{where} needs at least two measured points")
-    if any(later <= earlier for earlier, later in itertools.pairwise(voltages)):
-        raise CalibrationError(f"{where} voltages must be strictly increasing")
-    return voltages, values
+
+    pairs = list(itertools.pairwise(voltages))
+    if all(later > earlier for earlier, later in pairs):
+        return voltages, values
+    if all(later < earlier for earlier, later in pairs):
+        # A falling response is perfectly normal (an NTC thermistor's
+        # divider voltage drops as it warms). Both interpolators need
+        # ascending voltages, so flip the series rather than making the
+        # user rewrite their measurements backwards.
+        return tuple(reversed(voltages)), tuple(reversed(values))
+    raise CalibrationError(
+        f"{where} voltages must be strictly monotonic"
+        + " (either increasing or decreasing throughout)"
+    )
 
 
 def _require_floats(
