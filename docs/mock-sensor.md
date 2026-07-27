@@ -77,6 +77,16 @@ Read from the environment (see `.env`, loaded automatically via direnv):
 | `INFLUXDB_HOST`         | `http://localhost:8181`  | InfluxDB server URL               |
 | `INFLUXDB_DATABASE`     | `lab`                    | Target database                   |
 
+`INFLUXDB_DATABASE` is in `.env.example`, so it applies uniformly to a
+host-side run, the containerized mock sensors, and Grafana's datasource.
+`INFLUXDB_HOST` is deliberately left out of `.env.example`: the
+containerized mock sensors need the Docker network hostname
+(`http://influxdb:8181`, hardcoded in `docker-compose.yml`), while a
+host-side run like this one needs `http://localhost:8181` (the default
+above) — one `.env` value can't satisfy both, so set it inline for an
+ad hoc host-side run only, e.g. `INFLUXDB_HOST=http://elsewhere:8181
+uv run mock-sensor ...`.
+
 ## Inspecting written data
 
 Via the InfluxDB3 CLI, inside the running container:

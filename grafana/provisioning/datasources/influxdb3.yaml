@@ -9,7 +9,7 @@ datasources:
     isDefault: true
     jsonData:
       version: SQL
-      dbName: lab
+      dbName: ${INFLUXDB_DATABASE}
       # influxdb has no TLS in this local setup; Flight SQL (gRPC) needs to
       # be told explicitly not to expect it.
       insecureGrpc: true
