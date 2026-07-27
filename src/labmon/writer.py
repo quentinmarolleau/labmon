@@ -1,8 +1,14 @@
 """Background, queue-backed writer so producers never block on InfluxDB I/O."""
 
+import logging
 import queue
 import threading
 from typing import Protocol
+
+logger: logging.Logger = logging.getLogger(__name__)
+
+_INITIAL_BACKOFF_SECONDS = 1.0
+_MAX_BACKOFF_SECONDS = 30.0
 
 
 class _Writable[T](Protocol):
@@ -21,6 +27,13 @@ class PointWriter[T]:
     poll_interval bounds how long close() can take to notice a stop
     request when the queue is empty (the background thread re-checks for
     a stop roughly every poll_interval seconds while idle).
+
+    A batch that fails to write is retried with exponential backoff
+    (capped, and interruptible by close()) rather than being dropped or
+    left to kill the background thread — a real network to a remote
+    server can have transient outages that a same-host connection never
+    would. A batch still failing when close() is called is logged and
+    dropped rather than retried indefinitely, so shutdown stays prompt.
     """
 
     def __init__(
@@ -56,4 +69,35 @@ class PointWriter[T]:
                     batch.append(self._queue.get_nowait())
                 except queue.Empty:
                     break
-            self._client.write(batch)
+            self._write_with_retry(batch)
+
+    def _write_with_retry(self, batch: list[T]) -> None:
+        """Write a batch, retrying with backoff on failure until it succeeds.
+
+        If close() is requested while a batch is failing, the batch is
+        logged and dropped instead of retried forever, so close() stays
+        responsive even during a sustained outage.
+        """
+        backoff = _INITIAL_BACKOFF_SECONDS
+        attempt = 1
+        while True:
+            try:
+                self._client.write(batch)
+                return
+            except Exception:
+                logger.warning(
+                    "Write attempt %d failed for a batch of %d point(s);"
+                    + " retrying in %.0fs",
+                    attempt,
+                    len(batch),
+                    backoff,
+                    exc_info=True,
+                )
+            if self._stop.wait(timeout=backoff):
+                logger.error(
+                    "Dropping a batch of %d point(s) still unwritten at shutdown",
+                    len(batch),
+                )
+                return
+            backoff = min(backoff * 2, _MAX_BACKOFF_SECONDS)
+            attempt += 1
