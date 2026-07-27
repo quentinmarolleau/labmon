@@ -5,7 +5,9 @@ description = "Flexible laboratory monitoring system"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "asteval>=1.0.9",
     "influxdb3-python>=0.20.0",
+    "pint>=0.25.3",
 ]
 
 [dependency-groups]
@@ -14,11 +16,18 @@ dev = [
     "pytest>=8.0.0",
     "pytest-cov>=7.1.0",
     "ruff>=0.16.0",
+    "scipy>=1.18.0",
+    "scipy-stubs>=1.18.0.1",
     "typos>=1.48.0",
 ]
 
 [project.scripts]
 mock-sensor = "labmon.sensors.mock_sensor:main"
+
+[project.optional-dependencies]
+spline = [
+    "scipy>=1.18.0",
+]
 
 [build-system]
 requires = ["hatchling"]

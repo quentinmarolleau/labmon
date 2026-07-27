@@ -1,0 +1,73 @@
+# Example calibration file. Copy to calibration.toml and edit for the
+# sensors actually wired to your board.
+#
+# One [channels.<name>] section per channel the board streams; <name>
+# must match what the firmware sends. Every section needs a sensor_id
+# and a measurement (the InfluxDB tag and table the reading lands in),
+# plus the fields for its conversion mode.
+#
+# Voltages are always in volts, the ADC's own output. A datasheet quoted
+# in millivolts gets scaled once, here, rather than at every reading.
+#
+# Offset units (degC, degF) can't be used anywhere in a conversion: pint
+# refuses to scale them, since 0 °C isn't "no temperature". Use kelvin
+# for an absolute temperature, or delta_degC for a relative span. A file
+# that gets this wrong is rejected at startup, not mid-run.
+
+# --- linear: one dimensioned factor -------------------------------------
+# For a response through the origin, e.g. from a linear fit of measured
+# value against sensor voltage. The reading's unit is derived from the
+# factor, so there's no separate unit to declare (or get wrong).
+[channels.A0]
+sensor_id = "photodiode-1"
+measurement = "power"
+conversion_factor = "50.0 mW / volt"   # 3.3V full scale -> ~165 mW
+
+# --- affine: a factor plus an offset ------------------------------------
+# Same, for a fit that doesn't pass through the origin. The offset must
+# be dimensionally consistent with factor x volts, which is checked at
+# startup — "5 mbar" here would be rejected rather than silently wrong.
+[channels.A1]
+sensor_id = "pressure-transducer"
+measurement = "pressure"
+mode = "affine"
+conversion_factor = "40.0 kPa / volt"
+offset = "-12.5 kPa"
+
+# --- spline: a cubic through measured points ----------------------------
+# For a curved response characterised by calibration measurements.
+# Needs scipy:  pip install 'labmon[spline]'
+# Note this EXTRAPOLATES beyond the measured range rather than clamping.
+# Voltages must be monotonic, but may fall as well as rise — as they do
+# here, an NTC's voltage dropping while temperature climbs.
+[channels.A2]
+sensor_id = "NTC-thermistor"
+measurement = "temperature"
+mode = "spline"
+voltages = [3.3, 2.78, 2.12, 1.4, 0.72, 0.18] # voltages being here an image of the resistance
+values = [273.15, 283.15, 293.15, 308.15, 328.15, 353.15]
+value_unit = "kelvin"
+
+# --- piecewise_linear: straight segments between the same points --------
+# When a spline is more than the data justifies, or to avoid the scipy
+# dependency on a small client. Unlike the spline this CLAMPS outside
+# the measured range, holding the end values.
+[channels.A3]
+sensor_id = "photodiode-2"
+measurement = "power"
+mode = "piecewise_linear"
+voltages = [0.0, 1.0, 2.0, 3.3]
+values = [0.0, 100.1, 101.2, 332.3]
+value_unit = "mW"
+
+# --- expression: an arbitrary formula in v ------------------------------
+# For a response with a known closed form. `v` is the voltage in volts.
+# Common maths functions are available (sqrt, log, log10, exp, sin, ...).
+# The expression is evaluated in a restricted interpreter — it can do
+# arithmetic, not import modules or touch the filesystem.
+[channels.A4]
+sensor_id = "chamber-1"
+measurement = "pressure"
+mode = "expression"
+expression = "10**(1.667*v - 11.33)"       # a typical Pirani gauge curve
+value_unit = "mbar"
