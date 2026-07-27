@@ -61,8 +61,10 @@ quoted in millivolts gets scaled once, visibly, in the config.
 
 ### Choosing between `spline` and `piecewise_linear`
 
-Both take the same measured `voltages`/`values` points. They differ in
-two ways worth knowing:
+Both take the same measured `voltages`/`values` points, which must be
+monotonic but may fall as well as rise — an NTC thermistor's voltage
+drops as it warms, and such a series is used as-is rather than needing
+to be written backwards. They differ in two ways worth knowing:
 
 - `spline` fits a smooth cubic (good for a genuinely curved response)
   and **extrapolates** beyond the measured range. `piecewise_linear`
