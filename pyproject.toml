@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "influxdb3-python>=0.20.0",
+    "pint>=0.25.3",
 ]
 
 [dependency-groups]
