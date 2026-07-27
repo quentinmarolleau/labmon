@@ -65,6 +65,7 @@ serial) aren't built yet; the mock sensors stand in for now.
 - `docker-compose.client.yml` — sensor-only compose file for a remote client machine
 - `deploy/` — example systemd unit for a bare-install client
 - `CONTRIBUTING.md` / `AGENTS.md` — workflow, commit conventions, testing policy
+- `BACKLOG.md` — planned/considered future work, roughly prioritized
 
 ## Development
 
