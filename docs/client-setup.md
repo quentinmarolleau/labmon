@@ -42,7 +42,7 @@ git clone <this repo> && cd labmon
 uv sync --no-dev
 cp .env.client.example .env   # fill in INFLUXDB_HOST and INFLUXDB3_AUTH_TOKEN
 set -a && source .env && set +a
-uv run mock-sensor --sensor-id=CHANGE-ME --measurement=temperature --unit=°C
+uv run mock-sensor --sensor-id=CHANGE-ME --measurement=CHANGE-ME --unit=CHANGE-ME
 ```
 
 To have it run in the background and survive a reboot, use the example

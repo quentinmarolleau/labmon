@@ -35,14 +35,14 @@ services:
     <<: *labmon-sensor
     container_name: labmon-sensor-1
     command:
-      - --sensor-id=CHANGE-ME
-      - --measurement=temperature
-      - --unit=°C
+      - --sensor-id=CHANGE-ME-1
+      - --measurement=CHANGE-ME
+      - --unit=CHANGE-ME
 
   # sensor-2:
   #   <<: *labmon-sensor
   #   container_name: labmon-sensor-2
   #   command:
   #     - --sensor-id=CHANGE-ME-2
-  #     - --measurement=temperature
-  #     - --unit=°C
+  #     - --measurement=CHANGE-ME
+  #     - --unit=CHANGE-ME
