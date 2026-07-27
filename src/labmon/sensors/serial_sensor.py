@@ -2,7 +2,7 @@
 
 Ties together the two halves of real sensor acquisition: raw counts
 arriving on a serial port (`labmon.sensors.serial_source`) and the
-per-channel factors that give them physical meaning
+per-channel conversions that give them physical meaning
 (`labmon.calibration`). Points reach InfluxDB through the same
 queue-backed writer the mock sensor uses, so a network hiccup is
 absorbed rather than losing readings.
@@ -31,10 +31,9 @@ from typing import cast
 from influxdb_client_3 import Point
 
 from labmon.calibration import (
-    DUE_RESOLUTION_BITS,
-    DUE_VREF_VOLTS,
+    ADC_RESOLUTION_BITS,
+    ADC_VREF_VOLTS,
     Calibration,
-    apply_calibration,
     load_calibration,
     raw_to_voltage,
 )
@@ -58,8 +57,8 @@ FIELD_NAME = "value"
 def run(
     source: RawSource,
     calibrations: dict[str, Calibration],
-    resolution_bits: int = DUE_RESOLUTION_BITS,
-    v_ref: float = DUE_VREF_VOLTS,
+    resolution_bits: int = ADC_RESOLUTION_BITS,
+    v_ref: float = ADC_VREF_VOLTS,
 ) -> None:
     """Write calibrated readings from `source` to InfluxDB until interrupted.
 
@@ -103,7 +102,7 @@ def run(
             continue
 
         voltage = raw_to_voltage(reading.raw_count, resolution_bits, v_ref)
-        value = apply_calibration(voltage, calibration.conversion_factor)
+        value = calibration.conversion.apply(voltage)
 
         # The board has no clock, so the host stamps the reading on
         # arrival; serial transit is negligible next to sample rates here.
@@ -129,7 +128,7 @@ def main() -> None:
     _ = parser.add_argument(
         "--calibration",
         required=True,
-        help="Path to the TOML file mapping channels to conversion factors",
+        help="Path to the TOML file mapping channels to conversions",
     )
     _ = parser.add_argument(
         "--baudrate",
@@ -142,14 +141,14 @@ def main() -> None:
     _ = parser.add_argument(
         "--resolution-bits",
         type=int,
-        default=DUE_RESOLUTION_BITS,
-        help="ADC resolution in bits (default matches the Arduino Due)",
+        default=ADC_RESOLUTION_BITS,
+        help="ADC resolution in bits (default suits a 12-bit part)",
     )
     _ = parser.add_argument(
         "--vref",
         type=float,
-        default=DUE_VREF_VOLTS,
-        help="ADC reference voltage (default matches the Arduino Due)",
+        default=ADC_VREF_VOLTS,
+        help="ADC reference voltage (default suits a 3.3V part)",
     )
     args = parser.parse_args()
 

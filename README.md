@@ -70,6 +70,7 @@ nothing in the code cares which.
 - `Dockerfile` — builds labmon's own code for the containerized mock sensors
 - `docker-compose.yml` — local InfluxDB, Grafana, and mock sensor instances
 - `docker-compose.client.yml` — sensor-only compose file for a remote client machine
+- `calibration.example.toml` — worked example of every sensor conversion mode
 - `deploy/` — example systemd unit for a bare-install client
 - `CONTRIBUTING.md` / `AGENTS.md` — workflow, commit conventions, testing policy
 - `BACKLOG.md` — planned/considered future work, roughly prioritized

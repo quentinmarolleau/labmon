@@ -8,7 +8,7 @@ from types import FrameType
 import pytest
 from influxdb_client_3 import Point
 
-from labmon.calibration import Calibration, ureg
+from labmon.calibration import Calibration, LinearConversion, ureg
 from labmon.sensors import serial_sensor
 from labmon.sensors.serial_sensor import main, run
 from labmon.sensors.serial_source import RawReading
@@ -52,7 +52,7 @@ def _temperature_calibration() -> Calibration:
     return Calibration(
         sensor_id="cryo-77k",
         measurement="temperature",
-        conversion_factor=ureg("42.5 kelvin / volt"),
+        conversion=LinearConversion(factor=ureg("42.5 kelvin / volt")),
     )
 
 

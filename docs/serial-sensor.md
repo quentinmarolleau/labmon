@@ -16,11 +16,10 @@ means lives on the host, where it can be changed without reflashing:
 1. The board streams one line per reading: `<channel>,<raw_count>`.
 2. The count is scaled to the voltage the ADC saw, using
    `--resolution-bits` and `--vref`.
-3. That voltage is multiplied by the channel's `conversion_factor` from
-   the calibration file. The factor carries its own units, so the
-   resulting physical unit is **derived** rather than declared.
+3. That voltage is converted to a physical quantity by the channel's
+   entry in the calibration file (see the modes below).
 4. The result is written as a point, tagged with the channel's
-   `sensor_id` and the derived `unit`.
+   `sensor_id` and its `unit`.
 
 A malformed line, or a channel with no calibration entry, is logged and
 skipped rather than being fatal — one bad line shouldn't stop a
@@ -28,8 +27,17 @@ long-running sensor.
 
 ## The calibration file
 
-See [`calibration.example.toml`](../calibration.example.toml). One
-section per channel:
+See [`calibration.example.toml`](../calibration.example.toml), which
+covers every mode. One section per channel, each naming a `sensor_id`, a
+`measurement`, and how to convert:
+
+| `mode` | Converts by | Needs |
+|---|---|---|
+| `linear` (default) | one dimensioned factor | `conversion_factor` |
+| `affine` | a factor plus an offset | `conversion_factor`, `offset` |
+| `spline` | a cubic through measured points | `voltages`, `values`, `value_unit` |
+| `piecewise_linear` | straight segments between the same points | `voltages`, `values`, `value_unit` |
+| `expression` | a formula in `v` | `expression`, `value_unit` |
 
 ```toml
 [channels.A0]
@@ -38,19 +46,59 @@ measurement = "temperature"
 conversion_factor = "42.5 kelvin / volt"
 ```
 
-Factors are parsed **and trial-applied at startup**, so a typo fails
-immediately rather than part-way through a run.
+Where the unit can be **derived** it is, rather than declared: volts
+times a factor in `kelvin / volt` gives kelvin, so `linear` and `affine`
+have no unit to state (or get wrong). The interpolation and expression
+modes can't derive one, so they name a `value_unit` explicitly.
+
+Every conversion is built **and trial-applied at startup**, so a typo
+fails immediately rather than part-way through a run. For `affine` that
+includes checking the offset is dimensionally consistent with
+factor × volts — adding millibars to kelvin is caught here.
+
+Voltages are always in **volts**, the ADC's own output. A datasheet
+quoted in millivolts gets scaled once, visibly, in the config.
+
+### Choosing between `spline` and `piecewise_linear`
+
+Both take the same measured `voltages`/`values` points. They differ in
+two ways worth knowing:
+
+- `spline` fits a smooth cubic (good for a genuinely curved response)
+  and **extrapolates** beyond the measured range. `piecewise_linear`
+  joins the points with straight lines and **clamps** to the end values
+  instead — safer when a reading strays outside what was characterised.
+- `spline` needs scipy: `pip install 'labmon[spline]'`. `piecewise_linear`
+  needs nothing beyond the base install, which matters on a small client.
 
 ### Offset units don't work
 
-`degC` and `degF` are offset units, and pint refuses to multiply by them
-(0°C isn't "no temperature", so scaling one is ambiguous). `serial-sensor`
-rejects such a file at startup with a message pointing here. Use `kelvin`
-for an absolute temperature, or `delta_degC` for a relative span:
+`degC` and `degF` are offset units, and pint refuses to scale them
+(0°C isn't "no temperature", so multiplying by it is ambiguous).
+`serial-sensor` rejects such a file at startup with a message pointing
+here. Use `kelvin` for an absolute temperature, or `delta_degC` for a
+relative span:
 
 ```toml
 conversion_factor = "10 delta_degC / volt"   # a 10°C change per volt
 ```
+
+### The `expression` mode
+
+`v` is the voltage in volts, and common maths functions are available
+(`sqrt`, `log`, `log10`, `exp`, `sin`, …):
+
+```toml
+mode = "expression"
+expression = "10**(1.667*v - 11.33)"
+value_unit = "mbar"
+```
+
+Expressions are evaluated by [asteval](https://github.com/lmfit/asteval)
+in a restricted interpreter — arithmetic only, with no ability to import
+modules or reach the filesystem. An expression that references an
+unknown name, or returns something that isn't a number, is rejected at
+startup.
 
 ## Options
 
