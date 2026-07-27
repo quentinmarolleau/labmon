@@ -21,6 +21,7 @@ dev = [
 
 [project.scripts]
 mock-sensor = "labmon.sensors.mock_sensor:main"
+serial-sensor = "labmon.sensors.serial_sensor:main"
 
 [build-system]
 requires = ["hatchling"]

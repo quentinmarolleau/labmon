@@ -1,0 +1,28 @@
+# Example systemd unit for reading a real board over serial on a client
+# machine (bare install, no Docker) — see docs/serial-sensor.md. Copy this
+# file to /etc/systemd/system/labmon-serial-sensor.service, edit the paths
+# and device below for your setup, then:
+#
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now labmon-serial-sensor.service
+#
+# The user running this must be able to read the serial device: on Debian
+# and Raspberry Pi OS that means being in the `dialout` group
+# (sudo usermod -aG dialout <user>, then log out and back in).
+
+[Unit]
+Description=labmon serial sensor client
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/labmon
+EnvironmentFile=/home/pi/labmon/.env
+ExecStart=/home/pi/labmon/.venv/bin/serial-sensor --port /dev/labmon-due --calibration /home/pi/labmon/calibration.toml
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
