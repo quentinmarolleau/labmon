@@ -1,27 +1,71 @@
-# Example calibration for `serial-sensor` — copy to calibration.toml and
-# edit for the sensors actually wired to your board.
+# Example calibration file. Copy to calibration.toml and edit for the
+# sensors actually wired to your board.
 #
-# One [channels.<name>] section per channel the board streams. The name
-# must match exactly what the firmware sends before the comma (see
-# firmware/due_native_serial/due_native_serial.ino). A channel the board
-# sends but this file doesn't list is logged once and ignored.
+# One [channels.<name>] section per channel the board streams; <name>
+# must match what the firmware sends. Every section needs a sensor_id
+# and a measurement (the InfluxDB tag and table the reading lands in),
+# plus the fields for its conversion mode.
 #
-# conversion_factor is what turns the measured voltage into a physical
-# quantity, and it carries its own units — the reading's unit is derived
-# from it, not declared separately. Anything pint understands works.
+# Voltages are always in volts, the ADC's own output. A datasheet quoted
+# in millivolts gets scaled once, here, rather than at every reading.
 #
-# Offset units (degC, degF) can't be used: pint refuses to multiply by
-# them, and serial-sensor rejects the file at startup if it finds one.
-# Use kelvin, or delta_degC for a relative span.
+# Offset units (degC, degF) can't be used anywhere in a conversion: pint
+# refuses to scale them, since 0 °C isn't "no temperature". Use kelvin
+# for an absolute temperature, or delta_degC for a relative span. A file
+# that gets this wrong is rejected at startup, not mid-run.
 
+# --- linear: one dimensioned factor -------------------------------------
+# For a response through the origin, e.g. from a linear fit of measured
+# value against sensor voltage. The reading's unit is derived from the
+# factor, so there's no separate unit to declare (or get wrong).
 [channels.A0]
 sensor_id = "cryo-77k"
 measurement = "temperature"
-# 42.5 K per volt: a full-scale 3.3V reading is ~140 K.
-conversion_factor = "42.5 kelvin / volt"
+conversion_factor = "42.5 kelvin / volt"   # 3.3V full scale -> ~140 K
 
+# --- affine: a factor plus an offset ------------------------------------
+# Same, for a fit that doesn't pass through the origin. The offset must
+# be dimensionally consistent with factor x volts, which is checked at
+# startup — "5 mbar" here would be rejected rather than silently wrong.
 [channels.A1]
+sensor_id = "room-1"
+measurement = "temperature"
+mode = "affine"
+conversion_factor = "100 kelvin / volt"
+offset = "273.15 kelvin"
+
+# --- spline: a cubic through measured points ----------------------------
+# For a curved response characterised by calibration measurements.
+# Needs scipy:  pip install 'labmon[spline]'
+# Note this EXTRAPOLATES beyond the measured range rather than clamping.
+[channels.A2]
+sensor_id = "diode-1"
+measurement = "temperature"
+mode = "spline"
+voltages = [0.0, 0.5, 1.0, 2.0, 3.3]
+values = [4.2, 20.0, 50.0, 150.0, 300.0]
+value_unit = "kelvin"
+
+# --- piecewise_linear: straight segments between the same points --------
+# When a spline is more than the data justifies, or to avoid the scipy
+# dependency on a small client. Unlike the spline this CLAMPS outside
+# the measured range, holding the end values.
+[channels.A3]
+sensor_id = "diode-2"
+measurement = "temperature"
+mode = "piecewise_linear"
+voltages = [0.0, 0.5, 1.0, 2.0, 3.3]
+values = [4.2, 20.0, 50.0, 150.0, 300.0]
+value_unit = "kelvin"
+
+# --- expression: an arbitrary formula in v ------------------------------
+# For a response with a known closed form. `v` is the voltage in volts.
+# Common maths functions are available (sqrt, log, log10, exp, sin, ...).
+# The expression is evaluated in a restricted interpreter — it can do
+# arithmetic, not import modules or touch the filesystem.
+[channels.A4]
 sensor_id = "chamber-1"
 measurement = "pressure"
-# A gauge whose output spans 0-3.3V over 0-3.3e-6 mbar.
-conversion_factor = "1e-6 mbar / volt"
+mode = "expression"
+expression = "10**(1.667*v - 11.33)"       # a typical Pirani gauge curve
+value_unit = "mbar"
