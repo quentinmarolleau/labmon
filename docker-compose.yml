@@ -1,6 +1,7 @@
 x-mock-sensor: &mock-sensor
   build: .
   image: labmon:latest
+  profiles: [demo]
   depends_on:
     influxdb:
       condition: service_healthy

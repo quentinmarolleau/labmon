@@ -30,17 +30,23 @@ demo mock sensors from `docker compose up`.
 
 ![labmon architecture: sensors and edge devices feed InfluxDB 3, which Grafana queries for dashboards](docs/assets/images/diagram.png)
 
-This is the target architecture — microcontrollers and edge devices
-(Arduino, Raspberry Pi, etc.) feeding InfluxDB directly aren't built yet.
-What's implemented today: sensor scripts write into InfluxDB through a
-queue-backed writer, so producers are never blocked by write latency. The
-demo mock sensors, InfluxDB, and Grafana all run as containers managed by
-`docker-compose.yml` (labmon's own code is built via `Dockerfile`); you
-can also run an extra sensor script directly on the host via `uv run
-mock-sensor` (see [`docs/mock-sensor.md`](docs/mock-sensor.md)). Grafana
-queries InfluxDB via its SQL (Flight SQL) mode — see
-[`docs/grafana.md`](docs/grafana.md) for why that mode specifically, and
-its macro quirks.
+This is the target architecture. Sensor scripts write into InfluxDB
+through a queue-backed writer (resilient to real network hiccups, not
+just same-host latency), so producers are never blocked or lost to a
+transient outage. The demo mock sensors, InfluxDB, and Grafana all run as
+containers managed by `docker-compose.yml` (labmon's own code is built
+via `Dockerfile`); you can also run an extra sensor script directly on
+the host via `uv run mock-sensor` (see
+[`docs/mock-sensor.md`](docs/mock-sensor.md)). Grafana queries InfluxDB
+via its SQL (Flight SQL) mode — see [`docs/grafana.md`](docs/grafana.md)
+for why that mode specifically, and its macro quirks.
+
+Beyond one machine, InfluxDB/Grafana can run on a central **server** with
+separate **client** machines (e.g. a Raspberry Pi) pushing sensor data to
+it over the LAN, and other computers in the room reaching Grafana in a
+browser — see [`docs/deployment.md`](docs/deployment.md). Real hardware
+sensor drivers (e.g. reading a microcontroller like an Arduino over
+serial) aren't built yet; the mock sensors stand in for now.
 
 ## Project structure
 
