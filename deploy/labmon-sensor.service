@@ -19,7 +19,7 @@ Type=simple
 User=pi
 WorkingDirectory=/home/pi/labmon
 EnvironmentFile=/home/pi/labmon/.env
-ExecStart=/home/pi/labmon/.venv/bin/mock-sensor --sensor-id=CHANGE-ME --measurement=temperature --setpoint=21 --noise=0.15 --unit=°C
+ExecStart=/home/pi/labmon/.venv/bin/mock-sensor --sensor-id=CHANGE-ME --measurement=temperature --unit=°C
 Restart=on-failure
 RestartSec=5
 
