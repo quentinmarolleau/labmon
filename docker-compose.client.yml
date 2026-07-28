@@ -46,3 +46,23 @@ services:
   #     - --sensor-id=CHANGE-ME-2
   #     - --measurement=CHANGE-ME
   #     - --unit=CHANGE-ME
+
+  # A real board read over serial, rather than a simulated sensor. See
+  # docs/serial-sensor.md — including the udev rule that gives the board
+  # the stable /dev/labmon-due name used here.
+  #
+  # entrypoint: overrides the image's baked-in ENTRYPOINT ["mock-sensor"].
+  # devices: passes the serial device through to the container.
+  # volumes: the calibration file is read at startup and never written.
+  #
+  # serial-sensor:
+  #   <<: *labmon-sensor
+  #   container_name: labmon-serial-sensor
+  #   entrypoint: ["serial-sensor"]
+  #   devices:
+  #     - /dev/labmon-due:/dev/labmon-due
+  #   volumes:
+  #     - ./calibration.toml:/app/calibration.toml:ro
+  #   command:
+  #     - --port=/dev/labmon-due
+  #     - --calibration=/app/calibration.toml

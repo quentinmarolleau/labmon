@@ -60,29 +60,24 @@ different name (e.g. `labmon-sensor-2.service`) with its own `ExecStart`.
 
 ## From mock sensor to real hardware
 
-There's no real acquisition script yet — both options above still run
-`mock-sensor`, which only simulates a reading (a mean-reverting random
-walk); it doesn't talk to any hardware. `--setpoint`/`--noise`/
-`--log-scale` are simulation-only knobs, not something to "tune" for a
-real sensor — ignore them here, which is why the commands above only set
-`--sensor-id`, `--measurement`, and `--unit`.
+Both options above run `mock-sensor`, which only simulates a reading (a
+mean-reverting random walk) and doesn't talk to any hardware — useful
+for proving a client can reach the server before wiring anything up.
+`--setpoint`/`--noise`/`--log-scale` are simulation-only knobs, not
+something to "tune" for a real sensor, which is why the commands above
+only set `--sensor-id`, `--measurement`, and `--unit`.
 
-Reading a real microcontroller (e.g. an Arduino over serial) is a
-separate, later piece of work, but the plumbing already in place is
-designed to be reused as-is by whatever that script ends up being:
-- `labmon.writer.PointWriter` and `labmon.influx.get_client` are
-  generic — they just take an already-built `Point` (measurement, tags,
-  a field value, a timestamp) and get it to InfluxDB reliably. Nothing
-  about them assumes the value came from a simulation.
-- The `--unit` tag is written as-is, with no conversion — so whatever
-  writes it must already hold a value in physical units. That means raw
-  sample → physical unit conversion (e.g. raw ADC counts/volts from the
-  microcontroller → kelvin via a calibration curve) belongs in that
-  future acquisition script, before it constructs the `Point` — not in
-  InfluxDB or Grafana. A real script would replace `mock-sensor` in the
-  `command:`/`ExecStart` above with something like `--device
-  /dev/ttyACM0 --calibration cal.json`, still writing through the same
-  `PointWriter`.
+To read an actual board, swap `mock-sensor` for **`serial-sensor`** in
+the `command:`/`ExecStart` above — see
+[`docs/serial-sensor.md`](serial-sensor.md) for the calibration file,
+the udev rule that gives the board a stable device name, and the
+Arduino Due specifics. Both deployment paths carry over unchanged:
+`docker-compose.client.yml` has a commented-out `serial-sensor` service,
+and `deploy/labmon-serial-sensor.service` is the matching systemd unit.
 
-No name is settled for that future script yet ("grabber," "acquirer,"
-and "reader" all fit) — that can wait until it's actually being built.
+The plumbing underneath is shared either way:
+`labmon.writer.PointWriter` and `labmon.influx.get_client` just take an
+already-built `Point` and get it to InfluxDB reliably, with no
+assumption about where the value came from. Raw → physical unit
+conversion happens in `labmon.calibration`, before the `Point` is
+constructed — never in InfluxDB or Grafana.

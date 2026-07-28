@@ -35,7 +35,9 @@ demo mock sensors from `docker compose up`.
 This is the target architecture. Sensor scripts write into InfluxDB
 through a queue-backed writer (resilient to real network hiccups, not
 just same-host latency), so producers are never blocked or lost to a
-transient outage. The demo mock sensors, InfluxDB, and Grafana all run as
+transient outage — [`docs/latency.md`](docs/latency.md) has the measured
+cost of each layer and why that writer exists. The demo mock sensors,
+InfluxDB, and Grafana all run as
 containers managed by `docker-compose.yml` (labmon's own code is built
 via `Dockerfile`); you can also run an extra sensor script directly on
 the host via `uv run mock-sensor` (see
@@ -46,16 +48,23 @@ for why that mode specifically, and its macro quirks.
 Beyond one machine, InfluxDB/Grafana can run on a central **server** with
 separate **client** machines (e.g. a Raspberry Pi) pushing sensor data to
 it over the LAN, and other computers in the room reaching Grafana in a
-browser — see [`docs/deployment.md`](docs/deployment.md). Real hardware
-sensor drivers (e.g. reading a microcontroller like an Arduino over
-serial) aren't built yet; the mock sensors stand in for now.
+browser — see [`docs/deployment.md`](docs/deployment.md).
+
+Real hardware is read by `serial-sensor`, which takes raw ADC counts
+from a board over a serial port and converts them to physical units via
+a per-channel calibration file — see
+[`docs/serial-sensor.md`](docs/serial-sensor.md). The board can be
+plugged into the server itself or into a separate client machine;
+nothing in the code cares which.
 
 ## Project structure
 
 - `src/labmon/` — application code
   - `influx.py` — shared InfluxDB client configuration
   - `writer.py` — queue-backed writer decoupling producers from InfluxDB I/O latency
-  - `sensors/` — sensor scripts (mock and, later, real)
+  - `calibration.py` — turns raw ADC counts into dimensioned physical quantities
+  - `sensors/` — sensor scripts (simulated, and real boards over serial)
+- `firmware/` — reference Arduino sketches for boards labmon reads
 - `tests/` — pytest suite
 - `docs/` — usage docs per component
 - `typings/` — local type stubs for untyped third-party dependencies
@@ -63,6 +72,7 @@ serial) aren't built yet; the mock sensors stand in for now.
 - `Dockerfile` — builds labmon's own code for the containerized mock sensors
 - `docker-compose.yml` — local InfluxDB, Grafana, and mock sensor instances
 - `docker-compose.client.yml` — sensor-only compose file for a remote client machine
+- `calibration.example.toml` — worked example of every sensor conversion mode
 - `deploy/` — example systemd unit for a bare-install client
 - `CONTRIBUTING.md` / `AGENTS.md` — workflow, commit conventions, testing policy
 - `BACKLOG.md` — planned/considered future work, roughly prioritized
