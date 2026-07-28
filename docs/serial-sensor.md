@@ -14,6 +14,8 @@ The board sends **raw ADC counts**, never physical units — what a count
 means lives on the host, where it can be changed without reflashing:
 
 1. The board streams one line per reading: `<channel>,<raw_count>`.
+   The count may be fractional (see [Averaging on the
+   board](#averaging-on-the-board) below).
 2. The count is scaled to the voltage the ADC saw, using
    `--resolution-bits` and `--vref`.
 3. That voltage is converted to a physical quantity by the channel's
@@ -142,6 +144,26 @@ readings.
   resets the sketch via DTR; the Native port doesn't, so `serial-sensor`
   can reconnect without disturbing a running sketch.
 - **Analog inputs are 3.3V max** — feeding them 5V damages the board.
+
+### Averaging on the board
+
+The reference sketch reports the mean of a burst of conversions rather
+than a single snapshot, sent as a fractional count (`A0,2048.31` — the
+decimals carry the sub-step resolution the averaging buys).
+
+The burst length is derived from `MAINS_FREQUENCY_HZ`, not set as a round
+number of milliseconds: integrating over a whole number of mains periods
+cancels 50/60 Hz pickup. **On a 60 Hz grid, change that constant** — at
+50 the rejection is lost. Widen the window to `2 *` or `3 *` a period for
+more averaging on a noisy channel; at one reading per second, 20 ms costs
+2% of the interval.
+
+The sketch also discards one conversion and pauses `ADC_SETTLING_US`
+after switching channels, before the burst. The Due's inputs share one
+ADC behind a multiplexer, so the first conversion after a switch is still
+pulled toward the previous channel's voltage — a constant offset, which
+averaging cannot remove. It is invisible on a single-channel setup and
+appears as soon as a second channel is added.
 
 ### A stable device path
 

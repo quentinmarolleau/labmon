@@ -8,11 +8,18 @@ No throughput here justifies a binary framing, and plain text stays
 debuggable with nothing more than `screen` or `minicom` when a board
 misbehaves.
 
+The count may be fractional: a board that averages several conversions
+per reading reports a mean, and rounding it back to a whole count would
+discard the sub-LSB resolution that averaging buys. Whole counts parse
+just as well, so a board that sends one snapshot per reading needs no
+change.
+
 Nothing in this module knows what a count *means* — turning one into a
 physical quantity is `labmon.calibration`'s job.
 """
 
 import logging
+import math
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -38,7 +45,7 @@ class RawReading:
     """One uncalibrated sample: which channel, and what count it reported."""
 
     channel: str
-    raw_count: int
+    raw_count: float
 
 
 class SerialPort(Protocol):
@@ -85,10 +92,18 @@ def parse_reading(line: bytes) -> RawReading | None:
         return None
 
     try:
-        return RawReading(channel=channel, raw_count=int(raw_count))
+        count = float(raw_count)
     except ValueError:
-        logger.warning("Skipping malformed line (count is not an integer): %r", line)
+        logger.warning("Skipping malformed line (count is not a number): %r", line)
         return None
+
+    # float() accepts "nan" and "inf", which would otherwise reach InfluxDB
+    # and poison every aggregate computed over the series.
+    if not math.isfinite(count):
+        logger.warning("Skipping malformed line (count is not finite): %r", line)
+        return None
+
+    return RawReading(channel=channel, raw_count=count)
 
 
 def open_serial_port(

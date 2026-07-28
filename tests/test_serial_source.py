@@ -40,6 +40,20 @@ def test_parse_reading_tolerates_surrounding_whitespace() -> None:
     )
 
 
+def test_parse_reading_keeps_a_fractional_count() -> None:
+    # A board averaging several conversions per reading resolves below one
+    # ADC step; rounding here would discard exactly that gain.
+    assert parse_reading(b"A0,2048.31\r\n") == RawReading(
+        channel="A0", raw_count=2048.31
+    )
+
+
+def test_parse_reading_accepts_scientific_notation() -> None:
+    assert parse_reading(b"A0,2.04831e3\r\n") == RawReading(
+        channel="A0", raw_count=2048.31
+    )
+
+
 def test_parse_reading_ignores_an_empty_read() -> None:
     # A read timeout yields no bytes; that is normal, not a malformed line.
     assert parse_reading(b"") is None
@@ -55,6 +69,11 @@ def test_parse_reading_ignores_a_blank_line() -> None:
         pytest.param(b"garbage\n", id="no-separator"),
         pytest.param(b"A0,2048,extra\n", id="too-many-fields"),
         pytest.param(b"A0,not-a-number\n", id="non-numeric-count"),
+        # float() would accept these where int() did not; a non-finite
+        # count reaching InfluxDB poisons every aggregate over the series.
+        pytest.param(b"A0,nan\n", id="nan-count"),
+        pytest.param(b"A0,inf\n", id="inf-count"),
+        pytest.param(b"A0,-inf\n", id="negative-inf-count"),
         pytest.param(b",2048\n", id="empty-channel"),
         pytest.param(b"\xff\xfe\n", id="undecodable-bytes"),
     ],

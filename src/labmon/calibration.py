@@ -148,7 +148,7 @@ class Calibration:
 
 
 def raw_to_voltage(
-    raw_count: int,
+    raw_count: float,
     resolution_bits: int = ADC_RESOLUTION_BITS,
     v_ref: float = ADC_VREF_VOLTS,
 ) -> pint.Quantity:
@@ -156,6 +156,9 @@ def raw_to_voltage(
 
     Defaults suit a 3.3V, 12-bit ADC; another part just passes its own
     resolution and reference voltage rather than needing a special case.
+
+    The count may be fractional, since a board that averages several
+    conversions per reading resolves below one ADC step.
     """
     # (1 << bits) - 1 is 2**bits - 1, the highest count the ADC reports.
     full_scale = (1 << resolution_bits) - 1
