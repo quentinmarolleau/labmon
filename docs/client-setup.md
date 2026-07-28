@@ -10,6 +10,12 @@ Both need the same three values from the server: `INFLUXDB_HOST` (its LAN
 IP/hostname), `INFLUXDB_DATABASE`, and `INFLUXDB3_AUTH_TOKEN`, copied out
 of band — see [`docs/deployment.md`](deployment.md#distributing-the-auth-token).
 
+Docker or bare install is only a packaging choice; either can run either
+sensor script. The examples below start with `mock-sensor` because it
+proves the network path works before any hardware is involved — see
+[From mock sensor to real hardware](#from-mock-sensor-to-real-hardware)
+for the switch to `serial-sensor`.
+
 ## Option 1: Docker
 
 Reuses the same `Dockerfile` as the local demo, built natively on the
@@ -60,12 +66,12 @@ different name (e.g. `labmon-sensor-2.service`) with its own `ExecStart`.
 
 ## From mock sensor to real hardware
 
-Both options above run `mock-sensor`, which only simulates a reading (a
-mean-reverting random walk) and doesn't talk to any hardware — useful
-for proving a client can reach the server before wiring anything up.
-`--setpoint`/`--noise`/`--log-scale` are simulation-only knobs, not
-something to "tune" for a real sensor, which is why the commands above
-only set `--sensor-id`, `--measurement`, and `--unit`.
+`mock-sensor` only simulates a reading (a mean-reverting random walk) and
+doesn't talk to any hardware. `--setpoint`/`--noise`/`--log-scale` are
+simulation-only knobs, not something to "tune" for a real sensor, which
+is why the commands above only set `--sensor-id`, `--measurement`, and
+`--unit`. Once a reading appears in Grafana, the client's network path,
+token, and database name are all confirmed working.
 
 To read an actual board, swap `mock-sensor` for **`serial-sensor`** in
 the `command:`/`ExecStart` above — see

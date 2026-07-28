@@ -12,7 +12,7 @@ characterised:
 - `affine` — a factor plus an offset, for a fit that doesn't pass
   through the origin.
 - `spline` — a cubic spline through measured (voltage, value) points,
-  for a curved response. Needs scipy (`pip install labmon[spline]`).
+  for a curved response. Needs scipy (`uv sync --extra spline`).
 - `piecewise_linear` — straight segments between the same measured
   points, when a spline is more than the data justifies.
 - `expression` — an arbitrary formula in `v`, for a response with a
@@ -296,7 +296,7 @@ def _import_cubic_spline(where: str) -> Callable[..., Callable[[float], float]]:
     except ImportError as error:  # pragma: no cover - depends on install extras
         raise CalibrationError(
             f"{where} uses mode 'spline', which needs scipy."
-            + " Install it with: pip install 'labmon[spline]'"
+            + " Install it with: uv sync --extra spline"
             + " (or use mode 'piecewise_linear', which needs nothing extra)."
         ) from error
     return cast(Callable[..., Callable[[float], float]], CubicSpline)

@@ -7,6 +7,9 @@ built without real hardware. Generalized enough to simulate several kinds
 of sensors, not just temperature — see `--measurement`/`--field`/
 `--log-scale` below.
 
+For reading an actual board rather than simulating one, see
+[`docs/serial-sensor.md`](serial-sensor.md).
+
 ## Usage
 
 ```bash

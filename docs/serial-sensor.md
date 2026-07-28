@@ -76,8 +76,11 @@ to be written backwards. They differ in two ways worth knowing:
   and **extrapolates** beyond the measured range. `piecewise_linear`
   joins the points with straight lines and **clamps** to the end values
   instead — safer when a reading strays outside what was characterised.
-- `spline` needs scipy: `pip install 'labmon[spline]'`. `piecewise_linear`
-  needs nothing beyond the base install, which matters on a small client.
+- `spline` needs scipy: `uv sync --extra spline`. `piecewise_linear` needs
+  nothing beyond the base install, which matters on a small client.
+  Note that the `Dockerfile` installs the base dependencies only, so a
+  containerized `serial-sensor` cannot use `spline` until that extra is
+  added to the image.
 
 ### Offset units don't work
 
