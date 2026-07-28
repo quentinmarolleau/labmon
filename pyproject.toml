@@ -8,6 +8,7 @@ dependencies = [
     "asteval>=1.0.9",
     "influxdb3-python>=0.20.0",
     "pint>=0.25.3",
+    "pyserial>=3.5",
 ]
 
 [dependency-groups]
