@@ -1,16 +1,23 @@
-# labmon
+<h1 align="center">
+  <img alt="labmon" src="docs/assets/images/header.png" width="420">
+</h1>
 
-[![License: GPLv3](https://img.shields.io/github/license/quentinmarolleau/labmon)](LICENSE)
-[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/quentinmarolleau/labmon/pulls)
-[![Repo size](https://img.shields.io/github/repo-size/quentinmarolleau/labmon)](https://github.com/quentinmarolleau/labmon)
-[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue)](pyproject.toml)
-[![Tests](https://img.shields.io/github/actions/workflow/status/quentinmarolleau/labmon/ci.yml?branch=main&label=tests&job=test%20%283.14%29)](https://github.com/quentinmarolleau/labmon/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/quentinmarolleau/labmon/branch/main/graph/badge.svg)](https://codecov.io/gh/quentinmarolleau/labmon)
-[![basedpyright](https://img.shields.io/github/actions/workflow/status/quentinmarolleau/labmon/ci.yml?branch=main&label=basedpyright&job=typecheck)](https://github.com/DetachHead/basedpyright)
-[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
-[![Maturity: alpha](https://img.shields.io/badge/maturity-alpha-orange)](https://github.com/quentinmarolleau/labmon)
+<p align="center">
+  <a href="LICENSE"><img alt="License: GPLv3" src="https://img.shields.io/github/license/quentinmarolleau/labmon"></a>
+  <a href="https://github.com/quentinmarolleau/labmon/pulls"><img alt="PRs welcome" src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg"></a>
+  <a href="https://github.com/quentinmarolleau/labmon"><img alt="Repo size" src="https://img.shields.io/github/repo-size/quentinmarolleau/labmon"></a>
+  <a href="pyproject.toml"><img alt="Python 3.12+" src="https://img.shields.io/badge/python-3.12%2B-blue"></a>
+  <br>
+  <a href="https://github.com/quentinmarolleau/labmon/actions/workflows/ci.yml"><img alt="Tests" src="https://img.shields.io/github/actions/workflow/status/quentinmarolleau/labmon/ci.yml?branch=main&amp;label=tests&amp;job=test%20%283.14%29"></a>
+  <a href="https://codecov.io/gh/quentinmarolleau/labmon"><img alt="codecov" src="https://codecov.io/gh/quentinmarolleau/labmon/branch/main/graph/badge.svg"></a>
+  <a href="https://github.com/DetachHead/basedpyright"><img alt="basedpyright" src="https://img.shields.io/github/actions/workflow/status/quentinmarolleau/labmon/ci.yml?branch=main&amp;label=basedpyright&amp;job=typecheck"></a>
+  <a href="https://github.com/astral-sh/ruff"><img alt="Ruff" src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json"></a>
+  <a href="https://github.com/quentinmarolleau/labmon"><img alt="Maturity: alpha" src="https://img.shields.io/badge/maturity-alpha-orange"></a>
+</p>
 
-**Know what your lab is doing — right now, and last Tuesday at 3 a.m.**
+<p align="center">
+  <strong>Know what your lab is doing — right now, and last Tuesday at 3 a.m.</strong>
+</p>
 
 labmon records whatever your experiment produces (cryostat temperature,
 chamber pressure, laser power, a magnet's current) into a time-series
