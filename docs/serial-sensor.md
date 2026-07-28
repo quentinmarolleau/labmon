@@ -25,6 +25,12 @@ A malformed line, or a channel with no calibration entry, is logged and
 skipped rather than being fatal — one bad line shouldn't stop a
 long-running sensor.
 
+Writing is decoupled from reading by `labmon.writer.PointWriter`, so a
+slow or briefly unreachable InfluxDB never stalls the read loop. The
+sustainable sample rate, and the point at which a long outage does start
+to push back on the board, are measured in
+[`docs/latency.md`](latency.md).
+
 ## The calibration file
 
 See [`calibration.example.toml`](../calibration.example.toml), which

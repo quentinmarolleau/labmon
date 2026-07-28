@@ -35,7 +35,9 @@ demo mock sensors from `docker compose up`.
 This is the target architecture. Sensor scripts write into InfluxDB
 through a queue-backed writer (resilient to real network hiccups, not
 just same-host latency), so producers are never blocked or lost to a
-transient outage. The demo mock sensors, InfluxDB, and Grafana all run as
+transient outage — [`docs/latency.md`](docs/latency.md) has the measured
+cost of each layer and why that writer exists. The demo mock sensors,
+InfluxDB, and Grafana all run as
 containers managed by `docker-compose.yml` (labmon's own code is built
 via `Dockerfile`); you can also run an extra sensor script directly on
 the host via `uv run mock-sensor` (see
