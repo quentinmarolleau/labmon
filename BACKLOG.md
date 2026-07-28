@@ -3,13 +3,23 @@
 Forward-looking ideas, unordered by nature — this file tracks them along
 with a coarse effort estimate and a suggested priority order. Not a
 commitment or a roadmap with dates, just a reference so ideas aren't
-lost.
+lost. Completed items stay here, marked **done**, with a note on how the
+delivered work differed from the original sketch.
 
 Effort scale: **S** (a PR or two, low uncertainty) / **M** (several PRs,
 some real design decisions) / **L** (substantial new subsystem, real
 hardware/external-library uncertainty) / **XL** (open-ended, R&D-flavored).
 
-## BL-1 — Data acquisition + conversion script for client machines
+## BL-1 — Data acquisition + conversion script for client machines — **done**
+
+Shipped as `serial-sensor` (PRs #21–#23): `src/labmon/calibration.py`,
+`src/labmon/sensors/serial_source.py`,
+`src/labmon/sensors/serial_sensor.py`, the reference sketch under
+`firmware/`, and [`docs/serial-sensor.md`](docs/serial-sensor.md).
+Calibration curves ended up richer than the original sketch below: five
+conversion modes (linear, affine, spline, piecewise-linear, expression)
+rather than a single factor. Still unverified against a physical Arduino
+Due — the board wasn't available.
 
 **What**: The first real (non-mock) sensor script — reads an actual
 microcontroller (e.g. an Arduino Due over serial), applies a calibration
@@ -28,7 +38,16 @@ unchanged — both are already generic over "a `Point` from somewhere."
 physical hardware in hand (tests will mostly mock the serial layer);
 calibration-curve handling is a genuine design surface on its own.
 
-## BL-2 — Dimensioned quantities via Pint
+## BL-2 — Dimensioned quantities via Pint — **done**
+
+Folded into BL-1 as predicted below. Pint carries units through
+`calibration.py` only: a conversion factor is parsed as a dimensioned
+`pint.Quantity`, so volt × (kelvin/volt) derives kelvin by dimensional
+analysis rather than by convention, and a dimensionally inconsistent
+config fails at startup. The resulting `Quantity` is split into a plain
+float and a `unit` tag immediately before the `Point` is built — no
+`Quantity` objects cross `PointWriter`. `mock_sensor.py` was deliberately
+left alone.
 
 **What**: Replace today's "unit is just a free-text tag, values are bare
 floats" approach with real dimensional analysis (via
@@ -122,34 +141,33 @@ to wire up; the real work is migrating/reorganizing existing content and
 deciding a navigation structure that still makes sense once BL-1/BL-2/
 BL-3 each add their own docs.
 
-**Note**: at 5 short markdown files today, this could be seen as ahead of
-actual need — but prioritized second regardless: the case for doing it
-early is that BL-1's hardware docs, BL-2's unit-handling docs, and
-BL-3's TLS/cert setup docs then get authored directly into the new
-structure as they land, rather than written into `docs/*.md` first and
-migrated/reorganized later.
+**Note**: originally prioritized early so that BL-1/BL-2's docs would be
+authored directly into the new structure. That didn't happen — those docs
+landed as plain `docs/*.md` — so the migration this item covers is now
+slightly larger than it would have been, and the same argument applies to
+BL-3's TLS docs.
 
 ## Suggested priority order
 
-1. **BL-1 (+ BL-2 folded in)** — the direct next step after the
-   networking work: it's what makes labmon monitor anything real instead
-   of a simulation, and everything built so far (server, client
-   packaging, resilience, dashboards) exists to support this. Do Pint
-   adoption as part of this work, scoped to the acquisition script's
-   conversion logic — not a standalone refactor of the mock/demo path,
-   which has no real unit-safety problem to solve.
-2. **BL-6 (Read the Docs)** — moved up from a later slot: getting the new
-   structure in place now means BL-1/BL-2/BL-3's own docs get authored
-   directly into it as they land, instead of written into `docs/*.md` and
-   migrated later.
-3. **BL-3 (TLS)** — worth doing if/when the deployment model extends past
+BL-1 and BL-2 are done; what remains, in order:
+
+1. **BL-6 (Read the Docs)** — now the top of the list. The docs it was
+   meant to get ahead of (`serial-sensor.md`, `latency.md`) have since
+   been written as plain `docs/*.md`, so some migration is already owed;
+   doing it before BL-3 keeps that debt from growing further.
+2. **BL-3 (TLS)** — worth doing if/when the deployment model extends past
    a single trusted lab LAN (e.g. a client reachable only over a VPN or
    less-trusted network). Not urgent for a genuinely local, physically
    secured lab network — revisit if that assumption changes.
-4. **BL-4 (mDNS/Avahi)** — pure convenience on top of an already-working
+3. **BL-4 (mDNS/Avahi)** — pure convenience on top of an already-working
    discovery mechanism (static IP/hostname). Nice polish, doesn't unblock
    or de-risk anything else.
-5. **BL-5 (digitization)** — highest effort, most uncertain payoff, and
+4. **BL-5 (digitization)** — highest effort, most uncertain payoff, and
    the least dependent on/blocking of the other items. Best tackled once
    there's a concrete gauge in hand to iterate against, rather than
    designed in the abstract.
+
+Not a backlog item, but worth noting alongside them: **`serial-sensor`
+has never run against a physical Arduino Due**. Verifying it against a
+known voltage, and correcting the reference sketch if needed, comes ahead
+of any of the above once a board is available.

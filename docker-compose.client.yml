@@ -9,13 +9,14 @@
 #   docker compose -f docker-compose.client.yml build
 #   docker compose -f docker-compose.client.yml up -d --wait
 #
-# There's no real hardware acquisition script yet (see docs/client-setup.md
-# for why), so this still runs `mock-sensor` — useful on real client
-# hardware to prove it can reach the server before any real acquisition
-# code exists. `--setpoint`/`--noise`/`--log-scale` only shape the
-# simulated random walk; a real acquisition script won't take them at all,
-# so don't spend time tuning them here — this section will be replaced
-# wholesale (image/command) once that script exists.
+# `sensor-1` below runs `mock-sensor`, which simulates readings rather
+# than reading hardware — useful on a fresh client to prove it can reach
+# the server before wiring anything up. `--setpoint`/`--noise`/
+# `--log-scale` only shape the simulated random walk and mean nothing for
+# a real sensor.
+#
+# To read an actual board, use the commented-out `serial-sensor` service
+# at the bottom of this file instead — see docs/serial-sensor.md.
 #
 # Running several sensors on this device in parallel: give each its own
 # service extending the x-labmon-sensor anchor below, its own
