@@ -24,7 +24,7 @@ chamber pressure, laser power, a magnet's current) into a time-series
 database, and puts it on a live dashboard anyone in the room can open in
 a browser. Two commands to start, no database or web experience needed.
 
-![Lab Overview dashboard: room temperature and cryogenic zone time series plus a science chamber pressure gauge](docs/assets/images/lab-overview-screenshot.png)
+![Example of Lab Overview dashboard: room temperature and cryogenic zone time series plus a science chamber pressure gauge](docs/assets/images/lab-overview-screenshot.png)
 
 *The **Lab Overview** dashboard you get out of the box, running against
 the demo sensors that start automatically.*
@@ -44,12 +44,11 @@ the demo sensors that start automatically.*
 
 ## What labmon gives you
 
-- **Live plots of anything you can measure.** Point a sensor at it, and
-  the reading shows up on a dashboard that refreshes itself.
-- **A permanent record.** Every reading is kept with its timestamp, so
-  "was the cryostat stable overnight?" is a question you can answer
-  afterwards instead of guessing.
-- **Physical units, checked.** Calibration lives in a small text file:
+- **Live plots of anything.** Point a sensor at it, and the reading shows
+  up on a dashboard that refreshes itself.
+- **A permanent record.** Every reading is kept with its timestamp, and
+  stays explorable in the future.
+- **Physical units, checked.** Calibration lives in a small serialized file:
   say that a channel reads `42.5 kelvin / volt` and labmon derives the
   result in kelvin — [dimensional analysis](https://pint.readthedocs.io/en/stable/)
   catches a mistake like adding millibars to kelvin before any data is
