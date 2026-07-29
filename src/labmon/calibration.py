@@ -34,7 +34,7 @@ import tomllib
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol, cast
+from typing import Protocol, cast, override
 
 import pint
 from asteval import Interpreter
@@ -70,6 +70,26 @@ _OFFSET_UNIT_MESSAGE = (
 
 class CalibrationError(ValueError):
     """Raised when a calibration file is malformed or unusable."""
+
+
+@dataclass(frozen=True)
+class Location:
+    """Where in a calibration file a problem was found.
+
+    Carried through parsing so an error names the channel as well as the
+    file — "is missing 'sensor_id'" is not much use across five channels.
+    Formats itself, so it drops into a message where a path alone would
+    otherwise have been interpolated.
+    """
+
+    path: Path
+    channel: str | None = None
+
+    @override
+    def __str__(self) -> str:
+        if self.channel is None:
+            return str(self.path)
+        return f"{self.path}: channel '{self.channel}'"
 
 
 class Conversion(Protocol):
@@ -185,12 +205,12 @@ def load_calibration(path: Path) -> dict[str, Calibration]:
 
     raw_channels: object = document.get("channels")
     if not isinstance(raw_channels, dict) or not raw_channels:
-        raise CalibrationError(f"{path}: no [channels.<name>] section found")
+        raise CalibrationError(f"{Location(path)}: no [channels.<name>] section found")
 
     # A top-level store_input sets the default for every channel; each
     # channel may still override it.
     default_store_input = _optional_bool(
-        str(path), document, "store_input", DEFAULT_STORE_INPUT
+        Location(path), document, "store_input", DEFAULT_STORE_INPUT
     )
 
     channels = cast(dict[str, object], raw_channels)
@@ -203,13 +223,11 @@ def load_calibration(path: Path) -> dict[str, Calibration]:
 def _parse_channel(
     path: Path, name: str, entry: object, default_store_input: bool
 ) -> Calibration:
+    where = Location(path, name)
     if not isinstance(entry, dict):
-        raise CalibrationError(
-            f"{path}: channel '{name}' must be a [channels.{name}] table"
-        )
+        raise CalibrationError(f"{where} must be a [channels.{name}] table")
 
     fields = cast(dict[str, object], entry)
-    where = f"{path}: channel '{name}'"
     common = {key: _require_str(where, fields, key) for key in _COMMON_KEYS}
     mode = _require_str(where, fields, "mode") if "mode" in fields else DEFAULT_MODE
 
@@ -230,7 +248,7 @@ def _parse_channel(
     )
 
 
-def _trial_apply(where: str, conversion: Conversion) -> None:
+def _trial_apply(where: Location, conversion: Conversion) -> None:
     """Convert a token voltage so a broken conversion fails at load time."""
     try:
         _ = conversion.apply(1.0 * ureg.volt)
@@ -246,20 +264,20 @@ def _trial_apply(where: str, conversion: Conversion) -> None:
         ) from error
 
 
-def _build_linear(where: str, fields: dict[str, object]) -> Conversion:
+def _build_linear(where: Location, fields: dict[str, object]) -> Conversion:
     return LinearConversion(
         factor=_require_quantity(where, fields, "conversion_factor")
     )
 
 
-def _build_affine(where: str, fields: dict[str, object]) -> Conversion:
+def _build_affine(where: Location, fields: dict[str, object]) -> Conversion:
     return AffineConversion(
         factor=_require_quantity(where, fields, "conversion_factor"),
         offset=_require_quantity(where, fields, "offset"),
     )
 
 
-def _build_spline(where: str, fields: dict[str, object]) -> Conversion:
+def _build_spline(where: Location, fields: dict[str, object]) -> Conversion:
     voltages, values = _require_measured_points(where, fields)
     cubic_spline = _import_cubic_spline(where)
     # scipy extrapolates beyond the measured range rather than clamping.
@@ -273,7 +291,7 @@ def _build_spline(where: str, fields: dict[str, object]) -> Conversion:
     )
 
 
-def _build_piecewise_linear(where: str, fields: dict[str, object]) -> Conversion:
+def _build_piecewise_linear(where: Location, fields: dict[str, object]) -> Conversion:
     voltages, values = _require_measured_points(where, fields)
 
     def interpolate(volts: float) -> float:
@@ -294,7 +312,7 @@ def _build_piecewise_linear(where: str, fields: dict[str, object]) -> Conversion
     )
 
 
-def _build_expression(where: str, fields: dict[str, object]) -> Conversion:
+def _build_expression(where: Location, fields: dict[str, object]) -> Conversion:
     expression = _require_str(where, fields, "expression")
     interpreter = Interpreter()
     return ExpressionConversion(
@@ -304,7 +322,7 @@ def _build_expression(where: str, fields: dict[str, object]) -> Conversion:
     )
 
 
-_MODE_BUILDERS: dict[str, Callable[[str, dict[str, object]], Conversion]] = {
+_MODE_BUILDERS: dict[str, Callable[[Location, dict[str, object]], Conversion]] = {
     "linear": _build_linear,
     "affine": _build_affine,
     "spline": _build_spline,
@@ -313,7 +331,7 @@ _MODE_BUILDERS: dict[str, Callable[[str, dict[str, object]], Conversion]] = {
 }
 
 
-def _import_cubic_spline(where: str) -> Callable[..., Callable[[float], float]]:
+def _import_cubic_spline(where: Location) -> Callable[..., Callable[[float], float]]:
     try:
         from scipy.interpolate import CubicSpline
     except ImportError as error:  # pragma: no cover - depends on install extras
@@ -325,7 +343,7 @@ def _import_cubic_spline(where: str) -> Callable[..., Callable[[float], float]]:
     return cast(Callable[..., Callable[[float], float]], CubicSpline)
 
 
-def _require_str(where: str, fields: dict[str, object], key: str) -> str:
+def _require_str(where: Location, fields: dict[str, object], key: str) -> str:
     if key not in fields:
         raise CalibrationError(f"{where} is missing '{key}'")
     value = fields[key]
@@ -335,7 +353,7 @@ def _require_str(where: str, fields: dict[str, object], key: str) -> str:
 
 
 def _optional_bool(
-    where: str, fields: dict[str, object], key: str, default: bool
+    where: Location, fields: dict[str, object], key: str, default: bool
 ) -> bool:
     if key not in fields:
         return default
@@ -345,7 +363,7 @@ def _optional_bool(
     return value
 
 
-def _require_quantity(where: str, fields: dict[str, object], key: str) -> pint.Quantity:
+def _require_quantity(where: Location, fields: dict[str, object], key: str) -> pint.Quantity:
     text = _require_str(where, fields, key)
     try:
         return ureg(text)
@@ -365,7 +383,7 @@ def _require_quantity(where: str, fields: dict[str, object], key: str) -> pint.Q
 
 
 def _require_measured_points(
-    where: str, fields: dict[str, object]
+    where: Location, fields: dict[str, object]
 ) -> tuple[tuple[float, ...], tuple[float, ...]]:
     voltages = _require_floats(where, fields, "voltages")
     values = _require_floats(where, fields, "values")
@@ -394,7 +412,7 @@ def _require_measured_points(
 
 
 def _require_floats(
-    where: str, fields: dict[str, object], key: str
+    where: Location, fields: dict[str, object], key: str
 ) -> tuple[float, ...]:
     if key not in fields:
         raise CalibrationError(f"{where} is missing '{key}'")

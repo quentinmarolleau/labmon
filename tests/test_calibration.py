@@ -9,6 +9,7 @@ from labmon.calibration import (
     ExpressionConversion,
     InterpolatedConversion,
     LinearConversion,
+    Location,
     _trial_apply,  # pyright: ignore[reportPrivateUsage]
     load_calibration,
     raw_to_voltage,
@@ -47,6 +48,22 @@ def test_raw_to_voltage_honours_custom_resolution_and_reference() -> None:
     assert raw_to_voltage(1023, resolution_bits=10, v_ref=5.0).magnitude == (
         pytest.approx(5.0)
     )
+
+
+# --------------------------------------------------------------------------
+# Location
+# --------------------------------------------------------------------------
+
+
+def test_location_names_the_channel_when_it_has_one() -> None:
+    assert str(Location(Path("calibration.toml"), "A0")) == (
+        "calibration.toml: channel 'A0'"
+    )
+
+
+def test_location_is_just_the_file_when_it_has_no_channel() -> None:
+    # File-level keys (a top-level store_input) have no channel to name.
+    assert str(Location(Path("calibration.toml"))) == "calibration.toml"
 
 
 # --------------------------------------------------------------------------
@@ -221,8 +238,9 @@ def test_trial_apply_wraps_an_unexpected_failure() -> None:
         def apply(self, _voltage: pint.Quantity, /) -> pint.Quantity:
             raise RuntimeError("sensor on fire")
 
+    where = Location(Path("calibration.toml"), "A0")
     with pytest.raises(CalibrationError, match="cannot be applied.*sensor on fire"):
-        _trial_apply("channel 'A0'", BrokenConversion())
+        _trial_apply(where, BrokenConversion())
 
 
 # --------------------------------------------------------------------------
