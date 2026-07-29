@@ -287,6 +287,99 @@ def test_load_calibration_reads_every_channel(tmp_path: Path) -> None:
     assert isinstance(channels["A1"].conversion, AffineConversion)
 
 
+def test_load_calibration_stores_the_conversion_input_by_default(
+    tmp_path: Path,
+) -> None:
+    path = _write_config(
+        tmp_path,
+        """
+        [channels.A0]
+        sensor_id = "cryo-77k"
+        measurement = "temperature"
+        conversion_factor = "42.5 kelvin / volt"
+        """,
+    )
+
+    assert load_calibration(path)["A0"].store_input is True
+
+
+def test_load_calibration_honours_a_per_channel_store_input(tmp_path: Path) -> None:
+    path = _write_config(
+        tmp_path,
+        """
+        [channels.A0]
+        sensor_id = "cryo-77k"
+        measurement = "temperature"
+        conversion_factor = "42.5 kelvin / volt"
+        store_input = false
+        """,
+    )
+
+    assert load_calibration(path)["A0"].store_input is False
+
+
+def test_load_calibration_lets_a_channel_override_the_file_default(
+    tmp_path: Path,
+) -> None:
+    path = _write_config(
+        tmp_path,
+        """
+        store_input = false
+
+        [channels.A0]
+        sensor_id = "cryo-77k"
+        measurement = "temperature"
+        conversion_factor = "42.5 kelvin / volt"
+
+        [channels.A1]
+        sensor_id = "chamber-1"
+        measurement = "pressure"
+        conversion_factor = "1e-6 mbar / volt"
+        store_input = true
+        """,
+    )
+
+    channels = load_calibration(path)
+
+    assert channels["A0"].store_input is False
+    assert channels["A1"].store_input is True
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param(
+            """
+            store_input = "yes"
+
+            [channels.A0]
+            sensor_id = "cryo-77k"
+            measurement = "temperature"
+            conversion_factor = "42.5 kelvin / volt"
+            """,
+            id="file-level",
+        ),
+        pytest.param(
+            """
+            [channels.A0]
+            sensor_id = "cryo-77k"
+            measurement = "temperature"
+            conversion_factor = "42.5 kelvin / volt"
+            store_input = "yes"
+            """,
+            id="channel-level",
+        ),
+    ],
+)
+def test_load_calibration_rejects_a_non_boolean_store_input(
+    tmp_path: Path, body: str
+) -> None:
+    path = _write_config(tmp_path, body)
+
+    with pytest.raises(CalibrationError, match="must be true or false"):
+        _ = load_calibration(path)
+
+
 def test_load_calibration_rejects_a_file_without_channels(tmp_path: Path) -> None:
     path = _write_config(tmp_path, "title = 'not a calibration file'\n")
 

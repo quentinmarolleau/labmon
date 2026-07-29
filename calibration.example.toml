@@ -14,6 +14,12 @@
 # for an absolute temperature, or delta_degC for a relative span. A file
 # that gets this wrong is rejected at startup, not mid-run.
 
+# Every reading is written with the voltage it was converted from, in an
+# input_volts field, so a calibration corrected later can be applied to
+# readings already stored. Uncomment to turn that off for every channel
+# below; individual channels can override it either way.
+# store_input = false
+
 # --- linear: one dimensioned factor -------------------------------------
 # For a response through the origin, e.g. from a linear fit of measured
 # value against sensor voltage. The reading's unit is derived from the

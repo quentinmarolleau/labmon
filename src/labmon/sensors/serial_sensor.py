@@ -36,6 +36,7 @@ from labmon.calibration import (
     Calibration,
     load_calibration,
     raw_to_voltage,
+    ureg,
 )
 from labmon.influx import INFLUXDB_DATABASE, get_client
 from labmon.sensors.serial_source import (
@@ -52,6 +53,12 @@ logger: logging.Logger = logging.getLogger(__name__)
 # sensor's --field, there's nothing to vary here: a channel's identity
 # lives in its sensor_id tag, not in the field name.
 FIELD_NAME = "value"
+
+# The voltage a reading was converted from, written alongside the
+# converted value unless the channel opts out (see Calibration.store_input).
+# Named for its unit because the `unit` tag describes the converted value,
+# not this.
+INPUT_FIELD_NAME = "input_volts"
 
 
 def run(
@@ -113,6 +120,11 @@ def run(
             .field(FIELD_NAME, value.magnitude)
             .time(datetime.now(UTC), write_precision="ms")
         )
+        if calibration.store_input:
+            # Keeping the conversion's input makes a wrong calibration
+            # correctable after the fact; without it, readings already
+            # written can't be recomputed.
+            point = point.field(INPUT_FIELD_NAME, voltage.to(ureg.volt).magnitude)
         writer.write(point)
         logger.info("%s: %.4g %s", calibration.sensor_id, value.magnitude, value.units)
 

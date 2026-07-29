@@ -19,7 +19,9 @@ means lives on the host, where it can be changed without reflashing:
 3. That voltage is converted to a physical quantity by the channel's
    entry in the calibration file (see the modes below).
 4. The result is written as a point, tagged with the channel's
-   `sensor_id` and its `unit`.
+   `sensor_id` and its `unit`, in a `value` field — alongside an
+   `input_volts` field holding the voltage from step 2 (see
+   [Keeping the conversion's input](#keeping-the-conversions-input)).
 
 A malformed line, or a channel with no calibration entry, is logged and
 skipped rather than being fatal — one bad line shouldn't stop a
@@ -64,6 +66,41 @@ factor × volts — adding millibars to kelvin is caught here.
 
 Voltages are always in **volts**, the ADC's own output. A datasheet
 quoted in millivolts gets scaled once, visibly, in the config.
+
+### Keeping the conversion's input
+
+Each reading is stored twice: the converted `value`, and the voltage it
+came from in an `input_volts` field.
+
+The second one is what makes a calibration correctable after the fact.
+Conversions are not generally invertible — `piecewise_linear` clamps
+outside its measured range, so every out-of-range reading collapsed onto
+the same endpoint, and `expression` is arbitrary — so a `value` alone
+cannot be recomputed under a corrected calibration. It also distinguishes
+a fault in the instrument from one in the config: if `value` jumps while
+`input_volts` is flat, the sensor is fine and the calibration isn't. A
+floating or saturated input shows up as `input_volts` pinned at 0 or at
+`--vref`, which a clamping conversion would otherwise hide behind a
+plausible-looking physical value.
+
+It costs one float per reading. Turn it off per channel, or file-wide:
+
+```toml
+store_input = false          # file-wide default
+
+[channels.A0]
+sensor_id = "cryo-77k"
+measurement = "temperature"
+conversion_factor = "42.5 kelvin / volt"
+store_input = true           # ... overridden for this channel
+```
+
+Existing Grafana panels are unaffected: they select `value` explicitly
+and won't pick up the new field unless asked.
+
+Note that `--vref` and `--resolution-bits` are *not* recorded. They don't
+need to be — both scale the stored voltage linearly, so getting either
+wrong stays correctable with a query.
 
 ### Choosing between `spline` and `piecewise_linear`
 

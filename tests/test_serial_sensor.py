@@ -48,11 +48,12 @@ class FakeRawSource:
         self.closed = True
 
 
-def _temperature_calibration() -> Calibration:
+def _temperature_calibration(store_input: bool = True) -> Calibration:
     return Calibration(
         sensor_id="cryo-77k",
         measurement="temperature",
         conversion=LinearConversion(factor=ureg("42.5 kelvin / volt")),
+        store_input=store_input,
     )
 
 
@@ -91,8 +92,51 @@ def test_run_writes_a_calibrated_point(
     [point] = batch
     line = point.to_line_protocol()
     # A full-scale count is ~3.3V, so 3.3 * 42.5 K/V is ~140.25 K, and
-    # the unit tag comes from pint's own short-form symbol.
-    assert line.startswith("temperature,sensor_id=cryo-77k,unit=K value=140.2")
+    # the unit tag comes from pint's own short-form symbol. Line protocol
+    # orders fields alphabetically, so the input precedes the value.
+    assert line.startswith("temperature,sensor_id=cryo-77k,unit=K ")
+    assert "value=140.2" in line
+    assert "input_volts=3.3" in line
+
+
+def test_run_stores_the_conversion_input_by_default(
+    fake_client: FakeInfluxClient, registered_handlers: dict[int, SignalHandler]
+) -> None:
+    # Half of full scale is ~1.65V; keeping it makes a wrong calibration
+    # correctable after the fact.
+    source = FakeRawSource([RawReading(channel="A0", raw_count=2048)])
+
+    with pytest.raises(_StopLoop):
+        run(source=source, calibrations={"A0": _temperature_calibration()})
+
+    # The writer batches on a background thread; closing it flushes.
+    with pytest.raises(SystemExit):
+        registered_handlers[signal.SIGINT](signal.SIGINT, None)
+
+    [batch] = fake_client.batches
+    [point] = batch
+    assert "input_volts=1.65" in point.to_line_protocol()
+
+
+def test_run_omits_the_conversion_input_when_the_channel_opts_out(
+    fake_client: FakeInfluxClient, registered_handlers: dict[int, SignalHandler]
+) -> None:
+    source = FakeRawSource([RawReading(channel="A0", raw_count=4095)])
+
+    with pytest.raises(_StopLoop):
+        run(
+            source=source,
+            calibrations={"A0": _temperature_calibration(store_input=False)},
+        )
+
+    with pytest.raises(SystemExit):
+        registered_handlers[signal.SIGINT](signal.SIGINT, None)
+
+    [batch] = fake_client.batches
+    [point] = batch
+    line = point.to_line_protocol()
+    assert "input_volts" not in line
+    assert "value=140.2" in line
 
 
 @pytest.mark.usefixtures("fake_client")
