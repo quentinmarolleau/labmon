@@ -32,13 +32,13 @@ conversion_factor = "50.0 mW / volt"   # 3.3V full scale -> ~165 mW
 # --- affine: a factor plus an offset ------------------------------------
 # Same, for a fit that doesn't pass through the origin. The offset must
 # be dimensionally consistent with factor x volts, which is checked at
-# startup — "5 mbar" here would be rejected rather than silently wrong.
+# startup.
 [channels.A1]
-sensor_id = "pressure-transducer"
-measurement = "pressure"
+sensor_id = "voltage-1"
+measurement = "voltage" # remapping the [0, 3.3]V Arduino input range onto the [-15, 15] V range
 mode = "affine"
-conversion_factor = "40.0 kPa / volt"
-offset = "-12.5 kPa"
+conversion_factor = "9.0909091"
+offset = "-15 V"
 
 # --- spline: a cubic through measured points ----------------------------
 # For a curved response characterised by calibration measurements.
