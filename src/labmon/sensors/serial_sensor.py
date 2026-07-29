@@ -60,6 +60,30 @@ FIELD_NAME = "value"
 # not this.
 INPUT_FIELD_NAME = "input_volts"
 
+# Identifies which conversion produced a reading. A tag rather than a
+# field so it can be filtered and grouped on; cardinality stays low
+# because a calibration changes a handful of times over a sensor's life.
+CALIBRATION_ID_TAG = "calibration_id"
+
+
+def _log_calibrations(calibrations: dict[str, Calibration]) -> None:
+    """Record which calibration each channel started with.
+
+    The journal then says what was in force during a run, so a reading
+    can be traced back even if the file has since been edited.
+    """
+    for channel, calibration in sorted(calibrations.items()):
+        details = ", ".join(
+            f"{key}={value!r}" for key, value in calibration.provenance.items()
+        )
+        logger.info(
+            "Channel %s: %s calibration %s%s",
+            channel,
+            calibration.sensor_id,
+            calibration.calibration_id,
+            f" ({details})" if details else "",
+        )
+
 
 def run(
     source: RawSource,
@@ -88,6 +112,7 @@ def run(
         ", ".join(sorted(calibrations)) or "(none configured)",
         INFLUXDB_DATABASE,
     )
+    _log_calibrations(calibrations)
 
     # A board may stream channels this host has no calibration for;
     # warn once each rather than on every reading forever.
@@ -117,6 +142,7 @@ def run(
             Point(calibration.measurement)
             .tag("sensor_id", calibration.sensor_id)
             .tag("unit", f"{value.units:~}")
+            .tag(CALIBRATION_ID_TAG, calibration.calibration_id)
             .field(FIELD_NAME, value.magnitude)
             .time(datetime.now(UTC), write_precision="ms")
         )

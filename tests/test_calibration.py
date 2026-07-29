@@ -17,6 +17,9 @@ from labmon.calibration import (
 
 
 def _write_config(tmp_path: Path, body: str) -> Path:
+    # mkdir so callers can pass a subdirectory to write two configs that
+    # differ only in content, not in name.
+    tmp_path.mkdir(parents=True, exist_ok=True)
     path = tmp_path / "calibration.toml"
     _ = path.write_text(body, encoding="utf-8")
     return path
@@ -221,6 +224,9 @@ def test_trial_apply_wraps_an_unexpected_failure() -> None:
         def apply(self, _voltage: pint.Quantity, /) -> pint.Quantity:
             raise RuntimeError("sensor on fire")
 
+        def fingerprint(self) -> str:
+            return "broken"
+
     with pytest.raises(CalibrationError, match="cannot be applied.*sensor on fire"):
         _trial_apply("channel 'A0'", BrokenConversion())
 
@@ -377,6 +383,158 @@ def test_load_calibration_rejects_a_non_boolean_store_input(
     path = _write_config(tmp_path, body)
 
     with pytest.raises(CalibrationError, match="must be true or false"):
+        _ = load_calibration(path)
+
+
+def _linear_config(factor: str, extra: str = "") -> str:
+    return f"""
+        [channels.A0]
+        sensor_id = "cryo-77k"
+        measurement = "temperature"
+        conversion_factor = "{factor}"
+        {extra}
+        """
+
+
+def test_calibration_id_is_stable_across_equivalent_spellings(
+    tmp_path: Path,
+) -> None:
+    # The id describes the conversion, not the file's text: reformatting
+    # the factor must not look like a recalibration.
+    spaced = load_calibration(
+        _write_config(tmp_path / "a", _linear_config("42.5 kelvin / volt"))
+    )["A0"]
+    tight = load_calibration(
+        _write_config(tmp_path / "b", _linear_config("42.5 kelvin/volt"))
+    )["A0"]
+
+    assert spaced.calibration_id == tight.calibration_id
+
+
+def test_calibration_id_ignores_the_unit_a_factor_is_written_in(
+    tmp_path: Path,
+) -> None:
+    # 1e-6 mbar/V and 1e-4 Pa/V are the same conversion.
+    in_mbar = load_calibration(
+        _write_config(tmp_path / "a", _linear_config("1e-6 mbar / volt"))
+    )["A0"]
+    in_pascal = load_calibration(
+        _write_config(tmp_path / "b", _linear_config("1e-4 Pa / volt"))
+    )["A0"]
+
+    assert in_mbar.calibration_id == in_pascal.calibration_id
+
+
+def test_calibration_id_changes_when_the_conversion_does(tmp_path: Path) -> None:
+    before = load_calibration(
+        _write_config(tmp_path / "a", _linear_config("42.5 kelvin / volt"))
+    )["A0"]
+    after = load_calibration(
+        _write_config(tmp_path / "b", _linear_config("42.6 kelvin / volt"))
+    )["A0"]
+
+    assert before.calibration_id != after.calibration_id
+
+
+def test_calibration_id_survives_an_edit_to_the_provenance(tmp_path: Path) -> None:
+    # Correcting a note is not a recalibration.
+    without = load_calibration(
+        _write_config(tmp_path / "a", _linear_config("42.5 kelvin / volt"))
+    )["A0"]
+    with_notes = load_calibration(
+        _write_config(
+            tmp_path / "b",
+            _linear_config(
+                "42.5 kelvin / volt",
+                extra='\n[channels.A0.provenance]\nnotes = "against a Lakeshore 336"',
+            ),
+        )
+    )["A0"]
+
+    assert without.calibration_id == with_notes.calibration_id
+
+
+def test_calibration_id_distinguishes_the_interpolation_modes(
+    tmp_path: Path,
+) -> None:
+    # Same measured points, different curve between them.
+    points = """
+        sensor_id = "cryo-77k"
+        measurement = "temperature"
+        voltages = [0.0, 1.0, 2.0]
+        values = [10.0, 20.0, 45.0]
+        value_unit = "kelvin"
+        """
+    spline = load_calibration(
+        _write_config(tmp_path / "a", f'[channels.A0]\nmode = "spline"\n{points}')
+    )["A0"]
+    piecewise = load_calibration(
+        _write_config(
+            tmp_path / "b", f'[channels.A0]\nmode = "piecewise_linear"\n{points}'
+        )
+    )["A0"]
+
+    assert spline.calibration_id != piecewise.calibration_id
+
+
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [
+        pytest.param(
+            'mode = "affine"\nconversion_factor = "1 kelvin / volt"\noffset = "2 kelvin"',
+            'mode = "affine"\nconversion_factor = "1 kelvin / volt"\noffset = "3 kelvin"',
+            id="affine-offset",
+        ),
+        pytest.param(
+            'mode = "expression"\nexpression = "v * 2"\nvalue_unit = "kelvin"',
+            'mode = "expression"\nexpression = "v * 3"\nvalue_unit = "kelvin"',
+            id="expression-formula",
+        ),
+    ],
+)
+def test_calibration_id_covers_every_conversion_parameter(
+    tmp_path: Path, first: str, second: str
+) -> None:
+    header = '[channels.A0]\nsensor_id = "s"\nmeasurement = "m"\n'
+    before = load_calibration(_write_config(tmp_path / "a", header + first))["A0"]
+    after = load_calibration(_write_config(tmp_path / "b", header + second))["A0"]
+
+    assert before.calibration_id != after.calibration_id
+
+
+def test_load_calibration_reads_the_provenance_table(tmp_path: Path) -> None:
+    path = _write_config(
+        tmp_path,
+        """
+        [channels.A0]
+        sensor_id = "cryo-77k"
+        measurement = "temperature"
+        conversion_factor = "42.5 kelvin / volt"
+
+        [channels.A0.provenance]
+        date = "2026-07-28"
+        operator = "QM"
+        """,
+    )
+
+    provenance = load_calibration(path)["A0"].provenance
+
+    assert provenance == {"date": "2026-07-28", "operator": "QM"}
+
+
+def test_load_calibration_defaults_to_an_empty_provenance(tmp_path: Path) -> None:
+    path = _write_config(tmp_path, _linear_config("42.5 kelvin / volt"))
+
+    assert load_calibration(path)["A0"].provenance == {}
+
+
+def test_load_calibration_rejects_a_non_table_provenance(tmp_path: Path) -> None:
+    path = _write_config(
+        tmp_path,
+        _linear_config("42.5 kelvin / volt", extra='provenance = "calibrated once"'),
+    )
+
+    with pytest.raises(CalibrationError, match="must be a table"):
         _ = load_calibration(path)
 
 
