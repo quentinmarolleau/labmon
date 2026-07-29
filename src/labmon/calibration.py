@@ -29,11 +29,13 @@ in millivolts gets scaled once, visibly, when writing the config.
 """
 
 import bisect
+import hashlib
 import itertools
 import tomllib
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from types import MappingProxyType
 from typing import Protocol, cast, override
 
 import pint
@@ -58,6 +60,25 @@ DEFAULT_MODE = "linear"
 # without the input, correcting a wrong calibration cannot reach readings
 # already written.
 DEFAULT_STORE_INPUT = True
+
+# Length of the calibration_id tag, in hex characters. Long enough that
+# a lab's handful of calibrations will not collide, short enough to read
+# in a Grafana legend. Not a security boundary, so truncation is fine.
+CALIBRATION_ID_LENGTH = 8
+
+# Significant digits kept when fingerprinting a quantity. Enough to tell
+# any two real calibrations apart, few enough that unit conversion noise
+# doesn't invent a new id (see _quantity_key).
+FINGERPRINT_SIGNIFICANT_DIGITS = 12
+
+# Free-form documentation about how a calibration was obtained. Read and
+# logged at startup, never written to InfluxDB, and excluded from the
+# fingerprint so correcting a typo in a note doesn't look like a new
+# calibration.
+PROVENANCE_KEY = "provenance"
+
+# Shared empty default; safe because it can't be mutated.
+NO_PROVENANCE: Mapping[str, object] = MappingProxyType({})
 
 _COMMON_KEYS = ("sensor_id", "measurement")
 
@@ -97,6 +118,15 @@ class Conversion(Protocol):
 
     def apply(self, voltage: pint.Quantity, /) -> pint.Quantity: ...
 
+    def fingerprint(self) -> str:
+        """A canonical description of this conversion, for hashing.
+
+        Built from resolved parameters rather than the file's text, so
+        rewriting '42.5 kelvin / volt' as '42.5 kelvin/volt' does not
+        look like a new calibration.
+        """
+        ...
+
 
 @dataclass(frozen=True)
 class LinearConversion:
@@ -106,6 +136,9 @@ class LinearConversion:
 
     def apply(self, voltage: pint.Quantity, /) -> pint.Quantity:
         return voltage * self.factor
+
+    def fingerprint(self) -> str:
+        return f"linear|{_quantity_key(self.factor)}"
 
 
 @dataclass(frozen=True)
@@ -117,6 +150,9 @@ class AffineConversion:
 
     def apply(self, voltage: pint.Quantity, /) -> pint.Quantity:
         return voltage * self.factor + self.offset
+
+    def fingerprint(self) -> str:
+        return f"affine|{_quantity_key(self.factor)}|{_quantity_key(self.offset)}"
 
 
 @dataclass(frozen=True)
@@ -130,9 +166,22 @@ class InterpolatedConversion:
 
     interpolate: Callable[[float], float]
     unit: pint.Quantity
+    # Kept for the fingerprint: the callable above can't describe itself,
+    # and spline and piecewise_linear share this class.
+    mode: str
+    voltages: tuple[float, ...]
+    values: tuple[float, ...]
 
     def apply(self, voltage: pint.Quantity, /) -> pint.Quantity:
         return self.interpolate(voltage.to(ureg.volt).magnitude) * self.unit
+
+    def fingerprint(self) -> str:
+        digits = FINGERPRINT_SIGNIFICANT_DIGITS
+        points = ",".join(
+            f"{volts:.{digits}g}:{value:.{digits}g}"
+            for volts, value in zip(self.voltages, self.values, strict=True)
+        )
+        return f"{self.mode}|{_quantity_key(self.unit)}|{points}"
 
 
 @dataclass(frozen=True)
@@ -145,6 +194,11 @@ class ExpressionConversion:
 
     def apply(self, voltage: pint.Quantity, /) -> pint.Quantity:
         return self._evaluate(voltage.to(ureg.volt).magnitude) * self.unit
+
+    def fingerprint(self) -> str:
+        # The expression is kept verbatim: whitespace inside a formula is
+        # not worth normalising, and a rewritten formula is worth a new id.
+        return f"expression|{_quantity_key(self.unit)}|{self.expression}"
 
     def _evaluate(self, volts: float) -> float:
         self.interpreter.symtable[VOLTAGE_SYMBOL] = volts
@@ -173,6 +227,18 @@ class Calibration:
     measurement: str
     conversion: Conversion
     store_input: bool = DEFAULT_STORE_INPUT
+    provenance: Mapping[str, object] = NO_PROVENANCE
+
+    @property
+    def calibration_id(self) -> str:
+        """Short hash identifying which conversion produced a reading.
+
+        Written as a tag so a stored reading can be matched back to the
+        calibration file that produced it — the file itself is in version
+        control, so the database only needs to say *which* revision.
+        """
+        digest = hashlib.sha256(self.conversion.fingerprint().encode()).hexdigest()
+        return digest[:CALIBRATION_ID_LENGTH]
 
 
 def raw_to_voltage(
@@ -245,6 +311,7 @@ def _parse_channel(
         measurement=common["measurement"],
         conversion=conversion,
         store_input=_optional_bool(where, fields, "store_input", default_store_input),
+        provenance=_optional_provenance(where, fields),
     )
 
 
@@ -287,7 +354,11 @@ def _build_spline(where: Location, fields: dict[str, object]) -> Conversion:
         return float(spline(volts))
 
     return InterpolatedConversion(
-        interpolate=interpolate, unit=_require_quantity(where, fields, "value_unit")
+        interpolate=interpolate,
+        unit=_require_quantity(where, fields, "value_unit"),
+        mode="spline",
+        voltages=voltages,
+        values=values,
     )
 
 
@@ -308,7 +379,11 @@ def _build_piecewise_linear(where: Location, fields: dict[str, object]) -> Conve
         return value_low + (value_high - value_low) * span
 
     return InterpolatedConversion(
-        interpolate=interpolate, unit=_require_quantity(where, fields, "value_unit")
+        interpolate=interpolate,
+        unit=_require_quantity(where, fields, "value_unit"),
+        mode="piecewise_linear",
+        voltages=voltages,
+        values=values,
     )
 
 
@@ -350,6 +425,36 @@ def _require_str(where: Location, fields: dict[str, object], key: str) -> str:
     if not isinstance(value, str):
         raise CalibrationError(f"{where} key '{key}' must be a string")
     return value
+
+
+def _quantity_key(quantity: pint.Quantity) -> str:
+    """Canonical text for a quantity, for use in a fingerprint.
+
+    Reducing to base units means '1e-6 mbar / volt' and '1e-4 Pa / volt'
+    fingerprint alike, as they should — they are the same conversion.
+    Converting them lands a unit in the last bits apart, though
+    (9.999999999999999e-05 against 0.0001), so the magnitude is rounded
+    to FINGERPRINT_SIGNIFICANT_DIGITS to absorb that. Well beyond any
+    precision a calibration is actually known to, and the alternative is
+    an id that changes when nothing did.
+    """
+    base = quantity.to_base_units()
+    magnitude = f"{base.magnitude:.{FINGERPRINT_SIGNIFICANT_DIGITS}g}"
+    return f"{magnitude} {base.units}"
+
+
+def _optional_provenance(
+    where: Location, fields: dict[str, object]
+) -> Mapping[str, object]:
+    if PROVENANCE_KEY not in fields:
+        return NO_PROVENANCE
+    value = fields[PROVENANCE_KEY]
+    if not isinstance(value, dict):
+        raise CalibrationError(
+            f"{where} key '{PROVENANCE_KEY}' must be a table"
+            + f" (a [channels.<name>.{PROVENANCE_KEY}] section)"
+        )
+    return MappingProxyType(dict(cast(dict[str, object], value)))
 
 
 def _optional_bool(

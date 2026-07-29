@@ -93,8 +93,9 @@ def test_run_writes_a_calibrated_point(
     line = point.to_line_protocol()
     # A full-scale count is ~3.3V, so 3.3 * 42.5 K/V is ~140.25 K, and
     # the unit tag comes from pint's own short-form symbol. Line protocol
-    # orders fields alphabetically, so the input precedes the value.
-    assert line.startswith("temperature,sensor_id=cryo-77k,unit=K ")
+    # sorts tags and fields alphabetically.
+    assert line.startswith("temperature,calibration_id=")
+    assert ",sensor_id=cryo-77k,unit=K " in line
     assert "value=140.2" in line
     assert "input_volts=3.3" in line
 
@@ -137,6 +138,43 @@ def test_run_omits_the_conversion_input_when_the_channel_opts_out(
     line = point.to_line_protocol()
     assert "input_volts" not in line
     assert "value=140.2" in line
+
+
+def test_run_tags_readings_with_the_calibration_that_produced_them(
+    fake_client: FakeInfluxClient, registered_handlers: dict[int, SignalHandler]
+) -> None:
+    calibration = _temperature_calibration()
+    source = FakeRawSource([RawReading(channel="A0", raw_count=4095)])
+
+    with pytest.raises(_StopLoop):
+        run(source=source, calibrations={"A0": calibration})
+
+    with pytest.raises(SystemExit):
+        registered_handlers[signal.SIGINT](signal.SIGINT, None)
+
+    [batch] = fake_client.batches
+    [point] = batch
+    assert f"calibration_id={calibration.calibration_id}" in point.to_line_protocol()
+
+
+@pytest.mark.usefixtures("fake_client", "registered_handlers")
+def test_run_logs_the_calibration_and_provenance_of_every_channel(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # The journal is the secondary record of what was in force during a
+    # run, for when the file has since been edited.
+    calibration = Calibration(
+        sensor_id="cryo-77k",
+        measurement="temperature",
+        conversion=LinearConversion(factor=ureg("42.5 kelvin / volt")),
+        provenance={"date": "2026-07-28", "reference": "Lakeshore 336"},
+    )
+
+    with caplog.at_level(logging.INFO), pytest.raises(_StopLoop):
+        run(source=FakeRawSource([]), calibrations={"A0": calibration})
+
+    assert f"calibration {calibration.calibration_id}" in caplog.text
+    assert "Lakeshore 336" in caplog.text
 
 
 @pytest.mark.usefixtures("fake_client")

@@ -21,8 +21,9 @@ means lives on the host, where it can be changed without reflashing:
 3. That voltage is converted to a physical quantity by the channel's
    entry in the calibration file (see the modes below).
 4. The result is written as a point, tagged with the channel's
-   `sensor_id` and its `unit`, in a `value` field — alongside an
-   `input_volts` field holding the voltage from step 2 (see
+   `sensor_id`, its `unit`, and the `calibration_id` that produced it, in
+   a `value` field — alongside an `input_volts` field holding the voltage
+   from step 2 (see
    [Keeping the conversion's input](#keeping-the-conversions-input)).
 
 A malformed line, or a channel with no calibration entry, is logged and
@@ -103,6 +104,53 @@ and won't pick up the new field unless asked.
 Note that `--vref` and `--resolution-bits` are *not* recorded. They don't
 need to be — both scale the stored voltage linearly, so getting either
 wrong stays correctable with a query.
+
+### Recording which calibration produced a reading
+
+Every point carries a `calibration_id` tag — a short hash of the
+channel's conversion, computed at startup. It answers "was this reading
+taken under the old calibration or the new one?", which nothing else in
+the data can.
+
+It's derived from the conversion's *resolved* parameters, not the file's
+text, so:
+
+- rewriting `"42.5 kelvin / volt"` as `"42.5 kelvin/volt"` keeps the same
+  id, as does expressing a factor in different units (`1e-6 mbar / volt`
+  and `1e-4 Pa / volt` are the same conversion);
+- changing any number, the mode, or a measured point changes it;
+- editing the `[provenance]` notes below does *not* change it.
+
+The tag is always written. Cardinality stays low — a calibration changes
+a handful of times over a sensor's life — and provenance that can be
+switched off is provenance you can't rely on afterwards.
+
+The file itself is the record of *what* each id was; the database only
+says *which*. Keep `calibration.toml` in version control and an id maps
+back to a specific revision.
+
+### Documenting how a calibration was obtained
+
+An optional `[channels.<name>.provenance]` table holds free-form notes.
+Its contents are logged at startup and never written to InfluxDB, so the
+journal also records what was in force during a run:
+
+```toml
+[channels.A0]
+sensor_id = "cryo-77k"
+measurement = "temperature"
+conversion_factor = "42.5 kelvin / volt"
+
+[channels.A0.provenance]
+date = "2026-07-28"
+operator = "QM"
+reference = "Lakeshore 336, ch. B"
+notes = "residuals < 0.2 K over 60-300 K"
+```
+
+Any keys are accepted; nothing is required. Only the table's presence is
+validated, so a bare `provenance = "..."` string is rejected rather than
+silently ignored.
 
 ### Choosing between `spline` and `piecewise_linear`
 

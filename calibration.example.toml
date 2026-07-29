@@ -77,3 +77,18 @@ measurement = "pressure"
 mode = "expression"
 expression = "10**(1.667*v - 11.33)"       # a typical Pirani gauge curve
 value_unit = "mbar"
+
+# --- provenance: how a calibration was obtained -------------------------
+# Optional, free-form, one table per channel. Logged at startup and never
+# written to InfluxDB, so it documents the file without touching the
+# data. Any keys are accepted; nothing is required.
+#
+# Readings are tagged with a calibration_id — a short hash of the
+# channel's conversion — so a stored point can be matched back to the
+# revision of this file that produced it. Editing the notes below does
+# not change that id; editing a number above does.
+[channels.A4.provenance]
+date = "2026-07-28"
+operator = "QM"
+reference = "compared against the chamber's own Pfeiffer gauge"
+notes = "valid from 1e-8 to 1 mbar; extrapolates badly above that"
