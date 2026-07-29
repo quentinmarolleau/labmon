@@ -52,6 +52,13 @@ VOLTAGE_SYMBOL = "v"
 
 DEFAULT_MODE = "linear"
 
+# Whether to store the voltage a reading was converted from alongside the
+# converted value. On by default: a conversion is not generally
+# invertible (piecewise_linear clamps, expression is arbitrary), so
+# without the input, correcting a wrong calibration cannot reach readings
+# already written.
+DEFAULT_STORE_INPUT = True
+
 _COMMON_KEYS = ("sensor_id", "measurement")
 
 _OFFSET_UNIT_MESSAGE = (
@@ -145,6 +152,7 @@ class Calibration:
     sensor_id: str
     measurement: str
     conversion: Conversion
+    store_input: bool = DEFAULT_STORE_INPUT
 
 
 def raw_to_voltage(
@@ -179,13 +187,22 @@ def load_calibration(path: Path) -> dict[str, Calibration]:
     if not isinstance(raw_channels, dict) or not raw_channels:
         raise CalibrationError(f"{path}: no [channels.<name>] section found")
 
+    # A top-level store_input sets the default for every channel; each
+    # channel may still override it.
+    default_store_input = _optional_bool(
+        str(path), document, "store_input", DEFAULT_STORE_INPUT
+    )
+
     channels = cast(dict[str, object], raw_channels)
     return {
-        name: _parse_channel(path, name, entry) for name, entry in channels.items()
+        name: _parse_channel(path, name, entry, default_store_input)
+        for name, entry in channels.items()
     }
 
 
-def _parse_channel(path: Path, name: str, entry: object) -> Calibration:
+def _parse_channel(
+    path: Path, name: str, entry: object, default_store_input: bool
+) -> Calibration:
     if not isinstance(entry, dict):
         raise CalibrationError(
             f"{path}: channel '{name}' must be a [channels.{name}] table"
@@ -209,6 +226,7 @@ def _parse_channel(path: Path, name: str, entry: object) -> Calibration:
         sensor_id=common["sensor_id"],
         measurement=common["measurement"],
         conversion=conversion,
+        store_input=_optional_bool(where, fields, "store_input", default_store_input),
     )
 
 
@@ -229,7 +247,9 @@ def _trial_apply(where: str, conversion: Conversion) -> None:
 
 
 def _build_linear(where: str, fields: dict[str, object]) -> Conversion:
-    return LinearConversion(factor=_require_quantity(where, fields, "conversion_factor"))
+    return LinearConversion(
+        factor=_require_quantity(where, fields, "conversion_factor")
+    )
 
 
 def _build_affine(where: str, fields: dict[str, object]) -> Conversion:
@@ -311,6 +331,17 @@ def _require_str(where: str, fields: dict[str, object], key: str) -> str:
     value = fields[key]
     if not isinstance(value, str):
         raise CalibrationError(f"{where} key '{key}' must be a string")
+    return value
+
+
+def _optional_bool(
+    where: str, fields: dict[str, object], key: str, default: bool
+) -> bool:
+    if key not in fields:
+        return default
+    value = fields[key]
+    if not isinstance(value, bool):
+        raise CalibrationError(f"{where} key '{key}' must be true or false")
     return value
 
 
