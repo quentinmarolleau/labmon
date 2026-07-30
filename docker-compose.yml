@@ -11,9 +11,46 @@ x-mock-sensor: &mock-sensor
     - INFLUXDB3_AUTH_TOKEN=${INFLUXDB3_AUTH_TOKEN}
 
 services:
+  # Prepares the two bind-mounted state directories, then exits. Docker
+  # creates a missing bind-mount source as root:root, which leaves influxdb3
+  # (uid 1500) and Grafana (uid 472) unable to write to their own data dirs —
+  # so on a fresh clone InfluxDB dies with "failed to initialize catalog:
+  # Permission denied" and every other service fails its dependency. Doing it
+  # here rather than in a documented `sudo chown` keeps the quickstart to two
+  # commands and needs no host privileges beyond Docker itself.
+  #
+  # The parent directories are handed to whoever owns the repo, read at run
+  # time rather than guessed, so they stay removable without root. Re-running
+  # is a no-op once the ownership is already right.
+  init-state-dirs:
+    image: influxdb:3-core
+    container_name: labmon-init-state-dirs
+    user: "0:0"
+    # The repo root has to be writable to create .influxdb3/ and .grafana/
+    # themselves; nothing outside those two paths is touched.
+    volumes:
+      - type: bind
+        source: .
+        target: /repo
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        owner="$$(stat -c '%u:%g' /repo)"
+        mkdir -p /repo/.influxdb3/data /repo/.grafana/data
+        chown "$$owner" /repo/.influxdb3 /repo/.grafana
+        chown 1500:1500 /repo/.influxdb3/data
+        chown 472:0 /repo/.grafana/data
+        chmod 755 /repo/.influxdb3/data /repo/.grafana/data
+        echo "state directories ready"
+
   influxdb:
     image: influxdb:3-core
     container_name: influxdb
+    depends_on:
+      init-state-dirs:
+        condition: service_completed_successfully
     ports:
       - "8181:8181"
     command:
@@ -31,6 +68,13 @@ services:
     # influxdb3 takes a few seconds to start accepting connections after the
     # container starts, so `docker compose up -d --wait` needs this to know
     # when the server is actually ready (any HTTP response counts, even 401).
+    #
+    # It stays unauthenticated on purpose: the token is issued by this server,
+    # so during first-time setup there is no token to send yet, and a check
+    # that required one would never go healthy. The cost is that /health
+    # answers 401 and influxdb3 logs "the request was not authenticated" once
+    # per interval, forever. That line is expected and is not a real failure —
+    # see docs/deployment.md.
     healthcheck:
       test: ["CMD", "curl", "-s", "-o", "/dev/null", "http://127.0.0.1:8181/health"]
       interval: 1s
@@ -42,6 +86,8 @@ services:
     image: grafana/grafana:13.1.1
     container_name: grafana
     depends_on:
+      init-state-dirs:
+        condition: service_completed_successfully
       influxdb:
         condition: service_healthy
     ports:
