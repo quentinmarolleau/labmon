@@ -41,3 +41,9 @@ stubPath = "typings"
 
 [tool.coverage.run]
 source = ["src"]
+
+[tool.typos.default.extend-identifiers]
+# Misspelled in the D3 Gauge panel plugin's own options schema, so the
+# dashboard JSON has to spell it the same way. Scoped to the full identifier
+# so a bare "tickness" is still reported.
+ticknessGaugeBasis = "ticknessGaugeBasis"

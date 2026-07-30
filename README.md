@@ -24,10 +24,11 @@ chamber pressure, laser power, a magnet's current) into a time-series
 database, and puts it on a live dashboard anyone in the room can open in
 a browser. Two commands to start, no database or web experience needed.
 
-![Example of Lab Overview dashboard: room temperature and cryogenic zone time series plus a science chamber pressure gauge](docs/assets/images/lab-overview-screenshot.png)
+![The Lab Overview dashboard: a row of current-value tiles for cold finger, chamber pressure, laser power and bias rail; a panel plotting a calibrated temperature against the raw ADC voltage it came from; cryogenic and room temperature, vacuum and laser power time series; a needle dial for laser detuning; an XY plot of beam position; and a table listing every sensor with its unit, raw input, calibration id and whether it is simulated or calibrated](docs/assets/images/lab-overview-screenshot.png)
 
 *The **Lab Overview** dashboard you get out of the box, running against
-the demo sensors that start automatically.*
+the demo stack that starts automatically — an example of what can be put
+together visually.*
 
 ## Contents
 
@@ -73,19 +74,45 @@ You need [Docker](https://docs.docker.com/get-started/get-docker/). No
 sensors, no hardware, nothing else.
 
 ```bash
-cp .env.example .env   # fill in INFLUXDB_NODE_ID and INFLUXDB3_AUTH_TOKEN
+cp .env.example .env
+```
+
+Set `INFLUXDB_NODE_ID` to any name you like (`node0` is fine). The auth token
+has to come from InfluxDB itself, so start it on its own first and ask it for
+one:
+
+```bash
+docker compose up -d --wait influxdb
+docker compose exec influxdb influxdb3 create token --admin
+```
+
+Put that token in `.env` as `INFLUXDB3_AUTH_TOKEN` — it is shown once and
+only one admin token exists per instance, so keep it. Then start everything:
+
+```bash
 docker compose up -d --wait
 ```
 
 Open [http://localhost:3000](http://localhost:3000) and log in with
 `admin` / `admin`.
 
-Five simulated sensors — two room thermometers, two cryogenic sensors and
-a vacuum gauge — start writing data immediately, so the dashboard is
-already alive. They are there to explore with; see
-[`docs/mock-sensor.md`](docs/mock-sensor.md) for how to add more or
-change what they simulate, and [`docs/grafana.md`](docs/grafana.md) for
-what the dashboard is made of.
+Two things start writing immediately, so the dashboard is alive before
+you have any hardware:
+
+- **Five simulated sensors** — two room thermometers, two cryogenic
+  sensors and a vacuum gauge — inventing readings already in physical
+  units. See [`docs/mock-sensor.md`](docs/mock-sensor.md) to add more or
+  change what they simulate.
+- **Four calibrated channels** running the *real* acquisition path: raw
+  ADC counts stream over TCP in the firmware's wire format, and
+  `serial-sensor` converts them exactly as it would for a board on a
+  serial port. Nothing is mocked but the board itself — see
+  [`docs/demo-stack.md`](docs/demo-stack.md).
+
+That second half is what the dashboard's **Calibration layer** panel
+draws: the voltage the ADC saw, next to the physical quantity the
+calibration file turned it into. [`docs/grafana.md`](docs/grafana.md)
+covers what the rest of the dashboard is made of.
 
 Turning the simulated sensors off (for a real deployment) is a single
 setting — see [`docs/deployment.md`](docs/deployment.md#demo-vs-server-compose_profiles).
@@ -211,6 +238,7 @@ this repository.
   - `calibration.py` — turns raw ADC counts into dimensioned physical quantities
   - `sensors/` — sensor scripts (simulated, and real boards over serial)
 - `firmware/` — reference Arduino sketches for boards labmon reads
+- `demo/` — stands in for a board so the demo runs the real acquisition path
 - `tests/` — pytest suite
 - `docs/` — usage docs per component
 - `typings/` — local type stubs for untyped third-party dependencies

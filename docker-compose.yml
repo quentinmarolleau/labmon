@@ -11,9 +11,46 @@ x-mock-sensor: &mock-sensor
     - INFLUXDB3_AUTH_TOKEN=${INFLUXDB3_AUTH_TOKEN}
 
 services:
+  # Prepares the two bind-mounted state directories, then exits. Docker
+  # creates a missing bind-mount source as root:root, which leaves influxdb3
+  # (uid 1500) and Grafana (uid 472) unable to write to their own data dirs —
+  # so on a fresh clone InfluxDB dies with "failed to initialize catalog:
+  # Permission denied" and every other service fails its dependency. Doing it
+  # here rather than in a documented `sudo chown` keeps the quickstart to two
+  # commands and needs no host privileges beyond Docker itself.
+  #
+  # The parent directories are handed to whoever owns the repo, read at run
+  # time rather than guessed, so they stay removable without root. Re-running
+  # is a no-op once the ownership is already right.
+  init-state-dirs:
+    image: influxdb:3-core
+    container_name: labmon-init-state-dirs
+    user: "0:0"
+    # The repo root has to be writable to create .influxdb3/ and .grafana/
+    # themselves; nothing outside those two paths is touched.
+    volumes:
+      - type: bind
+        source: .
+        target: /repo
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        owner="$$(stat -c '%u:%g' /repo)"
+        mkdir -p /repo/.influxdb3/data /repo/.grafana/data
+        chown "$$owner" /repo/.influxdb3 /repo/.grafana
+        chown 1500:1500 /repo/.influxdb3/data
+        chown 472:0 /repo/.grafana/data
+        chmod 755 /repo/.influxdb3/data /repo/.grafana/data
+        echo "state directories ready"
+
   influxdb:
     image: influxdb:3-core
     container_name: influxdb
+    depends_on:
+      init-state-dirs:
+        condition: service_completed_successfully
     ports:
       - "8181:8181"
     command:
@@ -31,6 +68,13 @@ services:
     # influxdb3 takes a few seconds to start accepting connections after the
     # container starts, so `docker compose up -d --wait` needs this to know
     # when the server is actually ready (any HTTP response counts, even 401).
+    #
+    # It stays unauthenticated on purpose: the token is issued by this server,
+    # so during first-time setup there is no token to send yet, and a check
+    # that required one would never go healthy. The cost is that /health
+    # answers 401 and influxdb3 logs "the request was not authenticated" once
+    # per interval, forever. That line is expected and is not a real failure —
+    # see docs/deployment.md.
     healthcheck:
       test: ["CMD", "curl", "-s", "-o", "/dev/null", "http://127.0.0.1:8181/health"]
       interval: 1s
@@ -42,6 +86,8 @@ services:
     image: grafana/grafana:13.1.1
     container_name: grafana
     depends_on:
+      init-state-dirs:
+        condition: service_completed_successfully
       influxdb:
         condition: service_healthy
     ports:
@@ -50,6 +96,13 @@ services:
       - INFLUXDB3_AUTH_TOKEN=${INFLUXDB3_AUTH_TOKEN}
       - INFLUXDB_DATABASE=${INFLUXDB_DATABASE:-lab}
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      # Extra panel plugins, empty by default so a server install stays
+      # offline-capable; the demo's .env sets it (see docs/demo-stack.md).
+      # "_SYNC" installs before Grafana starts, so a provisioned dashboard
+      # never loads while its panel type is still missing. Note that
+      # GF_INSTALL_PLUGINS is deprecated in this image and ignored unless
+      # GF_INSTALL_PLUGINS_FORCE is also set.
+      - GF_PLUGINS_PREINSTALL_SYNC=${GRAFANA_PLUGINS:-}
     volumes:
       - type: bind
         source: ./grafana/provisioning
@@ -117,3 +170,56 @@ services:
       - --setpoint=1.5e-7
       - --noise=5e-9
       - --unit=mbar
+
+  # A wavemeter reads out a frequency directly rather than through an
+  # ADC, so it is simulated rather than calibrated. Stored in Hz so
+  # Grafana's own SI scaling turns it into THz, and so the few-MHz drift
+  # stays visible against a 276 THz carrier.
+  mock-wavemeter:
+    <<: *mock-sensor
+    container_name: mock-wavemeter
+    command:
+      - --sensor-id=wavemeter-1
+      - --measurement=frequency
+      - --setpoint=276561300000000
+      - --noise=400000
+      - --interval=2
+      - --unit=Hz
+
+  # The demo's second acquisition path. Unlike the mock sensors above,
+  # which invent a value already in physical units, these two run the
+  # real serial pipeline: a feeder streams raw ADC counts over TCP in the
+  # firmware's wire format, and `serial-sensor` reads them through a
+  # socket:// URL, calibrates them, and writes value + input_volts +
+  # calibration_id. Nothing here is mocked except the board itself.
+  demo-adc-feeder:
+    <<: *mock-sensor
+    container_name: demo-adc-feeder
+    # Overrides the image's ENTRYPOINT ["mock-sensor"]. The feeder is
+    # stdlib-only, so it runs in this image with nothing added.
+    entrypoint: ["python", "/app/demo/adc_feeder.py"]
+    # Replaces the anchor's environment rather than adding to it: a YAML
+    # merge key does not deep-merge lists. That is what we want here — the
+    # feeder writes nothing to InfluxDB, so it has no business holding the
+    # auth token. It binds every interface because demo-serial-sensor
+    # connects from another container; no ports are published, so this
+    # stays inside the compose network.
+    environment:
+      - ADC_FEEDER_HOST=0.0.0.0
+    volumes:
+      - ./demo:/app/demo:ro
+
+  demo-serial-sensor:
+    <<: *mock-sensor
+    container_name: demo-serial-sensor
+    entrypoint: ["serial-sensor"]
+    depends_on:
+      influxdb:
+        condition: service_healthy
+      demo-adc-feeder:
+        condition: service_started
+    volumes:
+      - ./demo:/app/demo:ro
+    command:
+      - --port=socket://demo-adc-feeder:5555
+      - --calibration=/app/demo/calibration.demo.toml

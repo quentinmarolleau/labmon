@@ -111,8 +111,16 @@ def open_serial_port(
     baudrate: int = DEFAULT_BAUDRATE,
     timeout: float = DEFAULT_READ_TIMEOUT_SECONDS,
 ) -> SerialPort:
-    """Open a serial device, ready to hand to SerialRawSource."""
-    return serial.Serial(port=port, baudrate=baudrate, timeout=timeout)
+    """Open a serial device, ready to hand to SerialRawSource.
+
+    Accepts a device path (`/dev/labmon-due`) or any pyserial URL. The
+    URL forms matter beyond the obvious: `rfc2217://host:port` reaches a
+    board plugged into a serial device server rather than into this
+    machine, and `socket://host:port` reaches anything speaking the wire
+    format over TCP — which is how the demo stack drives this code path
+    without hardware.
+    """
+    return serial.serial_for_url(port, baudrate=baudrate, timeout=timeout)
 
 
 class SerialRawSource:

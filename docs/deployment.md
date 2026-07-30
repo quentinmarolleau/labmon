@@ -28,6 +28,31 @@ machine's `.env`: `docker compose up -d --wait` then starts only
 `influxdb` and `grafana` — nothing simulates sensor data, since real
 clients will be doing that over the network instead.
 
+`GRAFANA_PLUGINS` is the other variable to leave blank on a server. It
+lists Grafana panel plugins to fetch at startup, and the demo sets it to
+the one plugin its detuning gauge needs. Unset, Grafana installs nothing
+and needs no network when it boots — which is usually what you want on a
+server, at the cost of that one panel not rendering. See
+[`docs/demo-stack.md`](demo-stack.md#the-dashboard-needs-one-panel-plugin).
+
+## Two things in the logs that look wrong and are not
+
+**InfluxDB logs `the request was not authenticated` once a second.** That is
+its own healthcheck. The token is issued by InfluxDB, so during first-time
+setup there is no token to send, and a healthcheck that required one could
+never go healthy — it therefore calls `/health` unauthenticated and treats
+any response, including 401, as proof the server is up. Every endpoint
+returns 401 without a token, so there is no quieter alternative. Worth
+knowing mainly because it masks *real* auth failures: to see those, filter
+the line out rather than trusting a plain grep for "unauthenticated".
+
+**A container called `labmon-init-state-dirs` exits immediately.** That is
+correct — it prepares `.influxdb3/data` and `.grafana/data` and stops. Docker
+creates a missing bind-mount source as `root:root`, which would leave
+InfluxDB (uid 1500) and Grafana (uid 472) unable to write to their own data
+directories, so on a fresh clone InfluxDB would fail to start at all. The
+other services wait for it via `service_completed_successfully`.
+
 ## Exposing the server to the LAN
 
 `docker-compose.yml`'s port bindings (`8181:8181` for InfluxDB, `3000:3000`
