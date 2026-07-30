@@ -11,15 +11,24 @@ http://localhost:3000
 
 Login: `admin` / `admin` (or `GRAFANA_ADMIN_PASSWORD` if set in `.env`).
 
-The **Lab Overview** dashboard (folder: `labmon`) has three panels,
-auto-refreshing every 5 seconds:
+The **Lab Overview** dashboard (folder: `labmon`) auto-refreshes every 5
+seconds over a 15 minute window, and is laid out in four bands:
 
-- **Room Temperature** — `room-1`/`room-2`, over the dashboard's default
-  1h window.
-- **Cryogenic Zone** — `cryo-77k`/`cryo-4k`, over its own 5min window
-  (see the `timeFrom` panel override below).
-- **Science Chamber Pressure** — a gauge showing the latest reading from
-  `chamber-1` (mbar, ~1e-7), not a time series.
+| Band | Panels |
+|---|---|
+| Current values | Cold finger, chamber pressure, laser power, bias rail |
+| The conversion itself | Calibration layer (follows the channel dropdown), Cryogenic zone |
+| Instruments | Laser detuning, Beam position, Vacuum |
+| Everything else | Laser power, Room temperature, and an inventory table |
+
+Two dropdowns drive it: **Calibrated channel** repoints the Calibration
+layer panel at any of the six calibrated channels, and **Rooms** picks
+which room thermometers to plot.
+
+What the dashboard is *showing* is covered in
+[`docs/demo-stack.md`](demo-stack.md), which also collects the Grafana
+constraints worth knowing before editing any of these panels. The rest of
+this page is about writing panels of your own.
 
 ## How the datasource is wired
 
@@ -51,43 +60,65 @@ ORDER BY time
 `ORDER BY time` must be ascending — the panel's `time_series` format
 rejects descending results. A result shaped as `(time, label_column,
 numeric_column)` is automatically split into one series per distinct label
-value (here, one line per `sensor_id`).
+value, which is how **Cryogenic zone**, **Vacuum** and **Room
+temperature** each draw several sensors from one query.
+
+The query goes in the target's `rawSql`. A `query` field alongside it is
+ignored: SQL mode reads `rawSql` on both the backend and in the editor.
 
 ## Giving one panel its own time window
 
 A panel can override the dashboard's time range independently by setting
-`"timeFrom": "5m"` (a bare relative duration) directly on the panel JSON —
-this is exactly how the **Cryogenic Zone** panel gets its own 5min window
-while **Room Temperature** stays on the dashboard's 1h default. This only
-works when the dashboard's own range is itself relative (e.g. `now-1h`),
-which is the case here.
+`"timeFrom": "5m"` (a bare relative duration) directly on the panel JSON.
+This only works when the dashboard's own range is itself relative (e.g.
+`now-15m`), which is the case here. No panel currently uses it.
 
-## Gauges and other "latest value" panels
+## "Latest value" panels
 
-A `gauge` panel wants the single most recent reading, not a time series —
-using `$__timeFrom()`/`$__timeTo()` and the ascending-order requirement
-described above doesn't apply here. Instead, use `format: "table"` (which
-has no ordering requirement) with a query that fetches just the latest row:
+A panel that wants the single most recent reading rather than a series —
+a stat tile, a gauge, or the marker showing where the beam is *now* — is
+not bound by the ascending-order rule above. Use `format: "table"`, which
+has no ordering requirement, with a query that fetches just the latest
+row:
 
 ```sql
 SELECT time, value FROM pressure WHERE sensor_id = 'chamber-1' ORDER BY time DESC LIMIT 1
 ```
 
-The **Science Chamber Pressure** gauge uses exactly this pattern.
+The stat tiles take the other route: they select the whole window and let
+`reduceOptions.calcs: ["lastNotNull"]` pick the last point, which is what
+lets them draw a sparkline behind the number.
 
-### Scientific notation and custom units don't combine
+### Units and scientific notation
 
-Grafana's `unit` field can't produce both exponential notation and a
-custom suffix at once — `unit: "sci"` gives exact scientific notation
-(e.g. `1.58e-7`) with no suffix, while any custom unit string (including
-`suffix:mbar`) always renders through a plain fixed-decimal formatter,
-never exponential (confirmed directly in Grafana's `toFixedUnit`/`sci`
-source). For a value like chamber pressure that needs both, put the unit
-in the panel/field title instead (e.g. "Science Chamber Pressure (mbar)")
-and use `unit: "sci"` for the value itself.
+A field's `unit` is the only place a stat panel can put a unit, and the
+two obvious choices behave differently than they look:
+
+- `unit: "sci"` gives exact scientific notation via `toExponential`, but
+  returns no suffix at all — the number appears bare, with no unit.
+- `unit: "suffix:mbar"` routes through `toFixed`, which returns
+  `String(rounded)` directly whenever that string contains an exponent.
+
+So the two *do* combine, but only with `decimals` left unset: auto
+decimals picks enough decimal places for small values that the string
+comes out exponential, giving `9.91e-10 mbar`. *Setting* `decimals`
+defeats it — at 2, a value of 9.9e-8 rounds to `0.00 mbar`.
+
+The trade-off is that trailing zeros are dropped, so the mantissa is
+sometimes shown to fewer digits. Where a steady width matters more than
+the unit, use `sci` and put the unit in the panel title instead.
+
+A table column has no equivalent escape: it carries one `decimals` for
+every row, so a column mixing magnitudes has to be formatted in SQL. The
+inventory panel does this — see
+[`docs/demo-stack.md`](demo-stack.md#grafana-wrinkles-worth-knowing-if-you-edit-the-dashboard).
 
 ## Adding more dashboards
 
 Drop a dashboard JSON file into `grafana/dashboards/`; the file provider
 (`grafana/provisioning/dashboards/dashboards.yaml`) picks it up automatically
 within `updateIntervalSeconds` (30s), no restart needed.
+
+Set `schemaVersion` to the version Grafana targets (42 — the final version
+of the v1 dashboard API). A lower number makes Grafana run its migration
+chain over the file on every load, and those migrations rewrite panels.
