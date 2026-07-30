@@ -74,7 +74,22 @@ You need [Docker](https://docs.docker.com/get-started/get-docker/). No
 sensors, no hardware, nothing else.
 
 ```bash
-cp .env.example .env   # fill in INFLUXDB_NODE_ID and INFLUXDB3_AUTH_TOKEN
+cp .env.example .env
+```
+
+Set `INFLUXDB_NODE_ID` to any name you like (`node0` is fine). The auth token
+has to come from InfluxDB itself, so start it on its own first and ask it for
+one:
+
+```bash
+docker compose up -d --wait influxdb
+docker compose exec influxdb influxdb3 create token --admin
+```
+
+Put that token in `.env` as `INFLUXDB3_AUTH_TOKEN` — it is shown once and
+only one admin token exists per instance, so keep it. Then start everything:
+
+```bash
 docker compose up -d --wait
 ```
 
