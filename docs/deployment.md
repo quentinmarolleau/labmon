@@ -28,6 +28,13 @@ machine's `.env`: `docker compose up -d --wait` then starts only
 `influxdb` and `grafana` — nothing simulates sensor data, since real
 clients will be doing that over the network instead.
 
+`GRAFANA_PLUGINS` is the other variable to leave blank on a server. It
+lists Grafana panel plugins to fetch at startup, and the demo sets it to
+the one plugin its detuning gauge needs. Unset, Grafana installs nothing
+and needs no network when it boots — which is usually what you want on a
+server, at the cost of that one panel not rendering. See
+[`docs/demo-stack.md`](demo-stack.md#the-dashboard-needs-one-panel-plugin).
+
 ## Exposing the server to the LAN
 
 `docker-compose.yml`'s port bindings (`8181:8181` for InfluxDB, `3000:3000`
