@@ -17,14 +17,18 @@ Stdlib only, so it runs in the labmon image as-is.
 """
 
 import math
+import os
 import random
 import socket
 import sys
 import time
 
-# Binds all interfaces: this is a demo container reachable only on the
-# compose network, never exposed by docker-compose.yml.
-HOST = "0.0.0.0"
+# Loopback by default, so running this directly on a workstation cannot
+# expose the feeder to the network. The demo container overrides it with
+# ADC_FEEDER_HOST=0.0.0.0, where binding every interface is the point:
+# demo-serial-sensor connects from another container, and the port is
+# deliberately never published to the host.
+HOST = os.environ.get("ADC_FEEDER_HOST", "127.0.0.1")
 PORT = 5555
 
 # Matches the sketch's defaults, and serial-sensor's.

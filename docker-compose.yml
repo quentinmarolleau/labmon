@@ -152,6 +152,14 @@ services:
     # Overrides the image's ENTRYPOINT ["mock-sensor"]. The feeder is
     # stdlib-only, so it runs in this image with nothing added.
     entrypoint: ["python", "/app/demo/adc_feeder.py"]
+    # Replaces the anchor's environment rather than adding to it: a YAML
+    # merge key does not deep-merge lists. That is what we want here — the
+    # feeder writes nothing to InfluxDB, so it has no business holding the
+    # auth token. It binds every interface because demo-serial-sensor
+    # connects from another container; no ports are published, so this
+    # stays inside the compose network.
+    environment:
+      - ADC_FEEDER_HOST=0.0.0.0
     volumes:
       - ./demo:/app/demo:ro
 
