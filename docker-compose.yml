@@ -117,3 +117,48 @@ services:
       - --setpoint=1.5e-7
       - --noise=5e-9
       - --unit=mbar
+
+  # A wavemeter reads out a frequency directly rather than through an
+  # ADC, so it is simulated rather than calibrated. Stored in Hz so
+  # Grafana's own SI scaling turns it into THz, and so the few-MHz drift
+  # stays visible against a 276 THz carrier.
+  mock-wavemeter:
+    <<: *mock-sensor
+    container_name: mock-wavemeter
+    command:
+      - --sensor-id=wavemeter-1
+      - --measurement=frequency
+      - --setpoint=276561300000000
+      - --noise=400000
+      - --interval=2
+      - --unit=Hz
+
+  # The demo's second acquisition path. Unlike the mock sensors above,
+  # which invent a value already in physical units, these two run the
+  # real serial pipeline: a feeder streams raw ADC counts over TCP in the
+  # firmware's wire format, and `serial-sensor` reads them through a
+  # socket:// URL, calibrates them, and writes value + input_volts +
+  # calibration_id. Nothing here is mocked except the board itself.
+  demo-adc-feeder:
+    <<: *mock-sensor
+    container_name: demo-adc-feeder
+    # Overrides the image's ENTRYPOINT ["mock-sensor"]. The feeder is
+    # stdlib-only, so it runs in this image with nothing added.
+    entrypoint: ["python", "/app/demo/adc_feeder.py"]
+    volumes:
+      - ./demo:/app/demo:ro
+
+  demo-serial-sensor:
+    <<: *mock-sensor
+    container_name: demo-serial-sensor
+    entrypoint: ["serial-sensor"]
+    depends_on:
+      influxdb:
+        condition: service_healthy
+      demo-adc-feeder:
+        condition: service_started
+    volumes:
+      - ./demo:/app/demo:ro
+    command:
+      - --port=socket://demo-adc-feeder:5555
+      - --calibration=/app/demo/calibration.demo.toml

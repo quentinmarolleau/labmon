@@ -1,0 +1,107 @@
+# Calibration for the demo stack, paired with demo/adc_feeder.py.
+#
+# Four channels, one per conversion mode that works without scipy, so
+# the demo dashboard shows the same voltage-to-quantity machinery a real
+# board would use. The feeder decides what voltage each channel puts
+# out; this file decides what that voltage means — which is the split
+# the whole architecture rests on.
+#
+# See calibration.example.toml for the annotated reference, including
+# the spline mode omitted here (the image ships without scipy).
+
+# --- piecewise_linear: a characterised curve ----------------------------
+# A silicon diode on a cold finger: its forward voltage rises as it
+# cools, non-linearly, so the response is captured as measured points
+# rather than a formula. Voltages ascend while values descend — a
+# falling response is used as measured, not written backwards.
+[channels.A0]
+sensor_id = "cryo-diode"
+measurement = "temperature"
+mode = "piecewise_linear"
+voltages = [0.50, 1.00, 1.15, 1.30]
+values = [300.0, 100.0, 40.0, 2.0]
+value_unit = "kelvin"
+
+[channels.A0.provenance]
+date = "2026-07-14"
+operator = "QM"
+reference = "calibrated thermometer on the same cold finger"
+notes = "four points during a cooldown; clamps below 2 K by design"
+
+# --- affine: an input outside the board's own range ---------------------
+# A bipolar rail monitor: a divider maps the supply's [-15, 15] V onto
+# the Arduino's [0, 3.3] V. The factor is dimensionless, so the unit
+# comes from the offset.
+[channels.A1]
+sensor_id = "bias-monitor"
+measurement = "voltage"
+mode = "affine"
+conversion_factor = "9.0909091"
+offset = "-15 V"
+
+[channels.A1.provenance]
+date = "2026-07-14"
+operator = "QM"
+reference = "bench multimeter across the divider output"
+notes = "divider ratio measured at both rails, not taken from the schematic"
+
+# --- expression: a known closed form ------------------------------------
+# A Pirani gauge, whose output is logarithmic in pressure. A small
+# voltage swing therefore covers decades — which is why the pressure
+# panel on the demo dashboard uses a log axis.
+[channels.A2]
+sensor_id = "pirani-1"
+measurement = "pressure"
+mode = "expression"
+expression = "10**(1.667*v - 11.33)"
+value_unit = "mbar"
+
+[channels.A2.provenance]
+date = "2026-07-14"
+operator = "QM"
+reference = "gauge datasheet"
+notes = "manufacturer curve, not verified against a reference gauge"
+
+# --- linear: one dimensioned factor -------------------------------------
+# A photodiode watching a laser. The unit is derived from the factor:
+# volts times mW/volt gives mW, with nothing to declare separately.
+[channels.A3]
+sensor_id = "laser-1"
+measurement = "power"
+conversion_factor = "50.0 mW / volt"
+
+[channels.A3.provenance]
+date = "2026-07-14"
+operator = "QM"
+reference = "thermal power meter head at the same wavelength"
+notes = "valid at one wavelength only; responsivity is wavelength dependent"
+
+# --- affine again: a beam-position monitor ------------------------------
+# The horizontal and vertical difference signals of a quadrant photodiode.
+# Each is centred on half the ADC range, so the offset puts a beam sitting
+# at mid-scale at the origin rather than at 99 µm.
+[channels.A4]
+sensor_id = "beam-x"
+measurement = "position"
+mode = "affine"
+conversion_factor = "60 micrometer / volt"
+offset = "-99 micrometer"
+
+[channels.A4.provenance]
+date = "2026-07-14"
+operator = "QM"
+reference = "translation stage, beam walked across the detector"
+notes = "linear only near the centre; ignore beyond about ±40 µm"
+
+[channels.A5]
+sensor_id = "beam-y"
+measurement = "position"
+mode = "affine"
+conversion_factor = "60 micrometer / volt"
+offset = "-99 micrometer"
+
+[channels.A5.provenance]
+date = "2026-07-14"
+operator = "QM"
+reference = "translation stage, beam walked across the detector"
+notes = "same calibration as beam-x; the detector is symmetric"
