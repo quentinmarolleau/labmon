@@ -107,23 +107,32 @@ def test_close_closes_the_underlying_port() -> None:
     assert port.closed
 
 
+@pytest.mark.parametrize(
+    "port",
+    [
+        pytest.param("/dev/labmon-due", id="device-path"),
+        # A board on a serial device server rather than this machine.
+        pytest.param("rfc2217://serial-server.lab:4001", id="rfc2217-url"),
+        # Anything speaking the wire format over TCP; the demo stack uses
+        # this to drive the real code path without hardware.
+        pytest.param("socket://feeder:5555", id="socket-url"),
+    ],
+)
 def test_open_serial_port_configures_the_device(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, port: str
 ) -> None:
     captured: dict[str, object] = {}
 
-    def fake_serial(*, port: str, baudrate: int, timeout: float) -> FakeSerialPort:
-        captured["port"] = port
+    def fake_serial_for_url(
+        url: str, *, baudrate: int, timeout: float
+    ) -> FakeSerialPort:
+        captured["port"] = url
         captured["baudrate"] = baudrate
         captured["timeout"] = timeout
         return FakeSerialPort([])
 
-    monkeypatch.setattr(serial, "Serial", fake_serial)
+    monkeypatch.setattr(serial, "serial_for_url", fake_serial_for_url)
 
-    _ = open_serial_port("/dev/labmon-due", baudrate=9600, timeout=2.5)
+    _ = open_serial_port(port, baudrate=9600, timeout=2.5)
 
-    assert captured == {
-        "port": "/dev/labmon-due",
-        "baudrate": 9600,
-        "timeout": 2.5,
-    }
+    assert captured == {"port": port, "baudrate": 9600, "timeout": 2.5}

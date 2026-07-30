@@ -296,8 +296,20 @@ as a systemd unit so it starts on boot and restarts on failure.
 
 ## Testing without hardware
 
-The full path can be exercised against a virtual serial port, which is
-useful for checking calibration values before a board arrives:
+`--port` accepts any pyserial URL as well as a device path, which gives
+two hardware-free options — and one that is useful with hardware:
+
+| `--port` | Reaches |
+|---|---|
+| `/dev/labmon-due` | A board on this machine |
+| `rfc2217://host:4001` | A board on a serial device server elsewhere on the LAN |
+| `socket://host:5555` | Anything streaming the wire format over TCP |
+
+The `socket://` form is how the demo stack drives this code path with no
+board at all — see [`docs/demo-stack.md`](demo-stack.md).
+
+A virtual serial port works too, and is closer to the real thing since it
+exercises the tty layer:
 
 ```bash
 # Terminal 1 — create a pty pair and note the two device names
