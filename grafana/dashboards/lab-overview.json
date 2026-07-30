@@ -1,93 +1,1163 @@
 {
-  "title": "Lab Overview",
   "uid": "lab-overview",
-  "schemaVersion": 39,
-  "version": 1,
+  "title": "Lab Overview",
+  "description": "The labmon demo stack: five simulated sensors and one real serial acquisition path, both landing in the same database.",
+  "tags": [
+    "labmon",
+    "demo"
+  ],
   "timezone": "browser",
+  "schemaVersion": 42,
+  "version": 2,
+  "editable": true,
+  "graphTooltip": 1,
   "refresh": "5s",
   "time": {
-    "from": "now-1h",
+    "from": "now-15m",
     "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "5s",
+      "10s",
+      "30s",
+      "1m",
+      "5m",
+      "15m",
+      "1h"
+    ]
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "channel",
+        "label": "Calibrated channel",
+        "type": "custom",
+        "query": "cryo-diode,pirani-1,laser-1,bias-monitor,beam-x,beam-y",
+        "current": {
+          "text": "cryo-diode",
+          "value": "cryo-diode"
+        },
+        "includeAll": false,
+        "multi": false
+      },
+      {
+        "name": "room",
+        "label": "Rooms",
+        "type": "custom",
+        "query": "room-1,room-2",
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "includeAll": true,
+        "multi": true
+      }
+    ]
   },
   "panels": [
     {
       "id": 1,
-      "type": "timeseries",
-      "title": "Room Temperature",
-      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 0 },
-      "datasource": { "type": "influxdb", "uid": "influxdb3" },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "celsius"
-        },
-        "overrides": []
+      "type": "stat",
+      "title": "Cold finger",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 0
       },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "influxdb", "uid": "influxdb3" },
-          "format": "time_series",
-          "rawSql": "SELECT time, sensor_id, value FROM temperature WHERE sensor_id IN ('room-1', 'room-2') AND $__timeFrom() <= time AND time <= $__timeTo() ORDER BY time"
-        }
-      ]
-    },
-    {
-      "id": 2,
-      "type": "timeseries",
-      "title": "Cryogenic Zone",
-      "gridPos": { "h": 9, "w": 18, "x": 0, "y": 9 },
-      "datasource": { "type": "influxdb", "uid": "influxdb3" },
-      "timeFrom": "5m",
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb3"
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "kelvin",
-          "custom": {
-            "drawStyle": "line",
-            "lineStyle": { "fill": "solid" },
-            "showPoints": "never",
-            "spanNulls": true
+          "decimals": 1,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 20
+              },
+              {
+                "color": "orange",
+                "value": 60
+              },
+              {
+                "color": "red",
+                "value": 150
+              }
+            ]
           }
         },
         "overrides": []
       },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "influxdb", "uid": "influxdb3" },
-          "format": "time_series",
-          "rawSql": "SELECT time, sensor_id, value FROM temperature WHERE sensor_id IN ('cryo-77k', 'cryo-4k') AND $__timeFrom() <= time AND time <= $__timeTo() ORDER BY time"
-        }
-      ]
-    },
-    {
-      "id": 3,
-      "type": "gauge",
-      "title": "Science Chamber Pressure (mbar)",
-      "gridPos": { "h": 9, "w": 6, "x": 18, "y": 9 },
-      "datasource": { "type": "influxdb", "uid": "influxdb3" },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "sci",
-          "decimals": 2,
-          "min": 0,
-          "max": 3e-7,
-          "color": { "mode": "continuous-GrYlRd" }
-        },
-        "overrides": []
-      },
       "options": {
+        "graphMode": "area",
+        "colorMode": "value",
         "reduceOptions": {
-          "calcs": ["lastNotNull"],
-          "fields": "",
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^value$/",
           "values": false
         }
       },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "influxdb", "uid": "influxdb3" },
-          "format": "table",
-          "rawSql": "SELECT time, value FROM pressure WHERE sensor_id = 'chamber-1' ORDER BY time DESC LIMIT 1"
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb3"
+          },
+          "rawSql": "SELECT time, value FROM temperature WHERE sensor_id = 'cryo-diode' AND $__timeFrom() <= time AND time <= $__timeTo() ORDER BY time"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Chamber pressure",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb3"
+      },
+      "description": "The Pirani channel's latest reading. Its response is logarithmic, so this value spans decades over a run and there is no sparkline here \u2014 the trend is in the Vacuum panel below, on a log axis.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:mbar",
+          "color": {
+            "mode": "continuous-GrYlRd"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "graphMode": "none",
+        "colorMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^value$/",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb3"
+          },
+          "rawSql": "SELECT time, value FROM pressure WHERE sensor_id = 'pirani-1' AND $__timeFrom() <= time AND time <= $__timeTo() ORDER BY time"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Laser power",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb3"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "mwatt",
+          "decimals": 1,
+          "color": {
+            "mode": "continuous-YlBl"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "graphMode": "area",
+        "colorMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^value$/",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb3"
+          },
+          "rawSql": "SELECT time, value FROM power WHERE sensor_id = 'laser-1' AND $__timeFrom() <= time AND time <= $__timeTo() ORDER BY time"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Bias rail",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb3"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "volt",
+          "decimals": 2,
+          "color": {
+            "mode": "continuous-BlPu"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "graphMode": "area",
+        "colorMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^value$/",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb3"
+          },
+          "rawSql": "SELECT time, value FROM voltage WHERE sensor_id = 'bias-monitor' AND $__timeFrom() <= time AND time <= $__timeTo() ORDER BY time"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Calibration layer \u2014 $channel",
+      "description": "The board only ever sends raw ADC counts. The dashed line is the voltage those counts represent; the solid line is what the channel's entry in calibration.toml turns it into. Switch channels with the dropdown above \u2014 the conversion is linear, affine, piecewise or a formula depending on which one you pick, and none of it lives on the board. The left axis has no fixed unit precisely because it changes with the channel \u2014 the legend carries the unit the conversion produced.",
+      "gridPos": {
+        "h": 10,
+        "w": 14,
+        "x": 0,
+        "y": 5
+      },
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb3"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 18,
+            "showPoints": "never",
+            "spanNulls": true,
+            "gradientMode": "opacity"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "input_volts"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "volt"
+              },
+              {
+                "id": "decimals",
+                "value": 4
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    8,
+                    4
+                  ]
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "text"
+                }
+              },
+              {
+                "id": "displayName",
+                "value": "raw input (V)"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "volts at the ADC"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "value"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "$channel (${__field.labels.unit})"
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 3
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb3"
+          },
+          "rawSql": "SELECT time, unit, input_volts, value FROM (\n     SELECT time, sensor_id, unit, input_volts, value FROM temperature\n     UNION ALL SELECT time, sensor_id, unit, input_volts, value FROM pressure\n     UNION ALL SELECT time, sensor_id, unit, input_volts, value FROM power\n     UNION ALL SELECT time, sensor_id, unit, input_volts, value FROM voltage\n     UNION ALL SELECT time, sensor_id, unit, input_volts, value FROM position\n   ) WHERE sensor_id = '$channel' AND $__timeFrom() <= time AND time <= $__timeTo() ORDER BY time"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb3"
+          },
+          "rawSql": "SELECT CASE unit\n       WHEN 'K' THEN 'kelvin'\n       WHEN 'mbar' THEN 'pressurembar'\n       WHEN 'mW' THEN 'mwatt'\n       WHEN 'V' THEN 'volt'\n       ELSE 'suffix:' || unit END AS unit_id\n   FROM (\n     SELECT time, sensor_id, unit, input_volts, value FROM temperature\n     UNION ALL SELECT time, sensor_id, unit, input_volts, value FROM pressure\n     UNION ALL SELECT time, sensor_id, unit, input_volts, value FROM power\n     UNION ALL SELECT time, sensor_id, unit, input_volts, value FROM voltage\n     UNION ALL SELECT time, sensor_id, unit, input_volts, value FROM position\n   ) WHERE sensor_id = '$channel' AND $__timeFrom() <= time AND time <= $__timeTo() ORDER BY time DESC LIMIT 1",
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "configFromData",
+          "options": {
+            "configRefId": "B",
+            "mappings": [
+              {
+                "fieldName": "unit_id",
+                "handlerKey": "unit"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Cryogenic zone",
+      "description": "Three zones spanning two decades of temperature, so the axis is logarithmic. cryo-diode arrives through the serial/calibration path; the other two are simulated.",
+      "gridPos": {
+        "h": 10,
+        "w": 10,
+        "x": 14,
+        "y": 5
+      },
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb3"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": true,
+            "gradientMode": "opacity",
+            "scaleDistribution": {
+              "type": "log",
+              "log": 10
+            }
+          },
+          "unit": "kelvin",
+          "displayName": "${__field.labels.sensor_id}"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb3"
+          },
+          "rawSql": "SELECT time, sensor_id, value FROM temperature WHERE sensor_id IN ('cryo-77k', 'cryo-4k', 'cryo-diode') AND $__timeFrom() <= time AND time <= $__timeTo() ORDER BY time"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "briangann-gauge-panel",
+      "title": "Laser detuning \u2014 1084 nm",
+      "description": "A wavemeter watching the 1084 nm laser, shown as the offset from 276.5613 THz rather than as the absolute frequency: a few MHz of drift on a 276 THz carrier is one part in 10^8, and would never be visible on an absolute scale. Unlike the calibrated channels, a wavemeter reports a frequency directly, so there is no conversion to record.",
+      "gridPos": {
+        "h": 10,
+        "w": 6,
+        "x": 0,
+        "y": 15
+      },
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb3"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "hertz",
+          "decimals": 2,
+          "min": -10000000,
+          "max": 10000000,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": -8000000
+              },
+              {
+                "color": "yellow",
+                "value": -5500000
+              },
+              {
+                "color": "green",
+                "value": -3000000
+              },
+              {
+                "color": "blue",
+                "value": -1000000
+              },
+              {
+                "color": "green",
+                "value": 1000000
+              },
+              {
+                "color": "yellow",
+                "value": 3000000
+              },
+              {
+                "color": "orange",
+                "value": 5500000
+              },
+              {
+                "color": "red",
+                "value": 8000000
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "operatorName": "lastNotNull",
+        "displayFormatted": "",
+        "displayValue": null,
+        "displayTitle": "",
+        "showTitle": false,
+        "showValue": true,
+        "showTickLabels": true,
+        "formatTickLabelsWithUnit": false,
+        "minValue": -10000000,
+        "maxValue": 10000000,
+        "wrapValues": false,
+        "tickSpacingMajor": 5000000,
+        "tickSpacingMinor": 1000000,
+        "showThresholdBandOnGauge": true,
+        "showThresholdBandLowerRange": true,
+        "showThresholdBandMiddleRange": true,
+        "showThresholdBandUpperRange": true,
+        "showThresholdStateOnValue": true,
+        "showThresholdStateOnTitle": false,
+        "showThresholdStateOnBackground": false,
+        "animateNeedleValueTransition": true,
+        "animateNeedleValueTransitionSpeed": 100,
+        "allowNeedleCrossLimits": true,
+        "needleCrossLimitDegrees": 10,
+        "markerEndEnabled": false,
+        "markerEndShape": "arrow",
+        "markerStartEnabled": false,
+        "markerStartShape": "circle",
+        "outerEdgeColor": "#2c3235",
+        "innerColor": "#111217",
+        "pivotColor": "#ccccdc",
+        "needleColor": "#f0f0f5",
+        "unitsLabelColor": "#ccccdc",
+        "tickLabelColor": "#ccccdc",
+        "tickMajorColor": "#ccccdc",
+        "tickMinorColor": "#6e6e78",
+        "gaugeRadius": 0,
+        "pivotRadius": 0.08,
+        "padding": 0.05,
+        "edgeWidth": 0.05,
+        "tickEdgeGap": 0.05,
+        "tickLengthMaj": 0.15,
+        "tickLengthMin": 0.05,
+        "ticknessGaugeBasis": 200,
+        "tickWidthMajor": 4,
+        "tickWidthMinor": 1,
+        "needleWidth": 4,
+        "needleTickGap": 0.03,
+        "needleLengthNeg": 0.2,
+        "zeroTickAngle": 60,
+        "maxTickAngle": 300,
+        "zeroNeedleAngle": 40,
+        "maxNeedleAngle": 320,
+        "valueYOffset": 0,
+        "valueFontSize": 34,
+        "valueFont": "Inter",
+        "titleYOffset": 0,
+        "titleFontSize": 20,
+        "titleFont": "Inter",
+        "tickLabelFontSize": 22,
+        "tickFont": "Inter",
+        "tickMapConfig": {
+          "enabled": true,
+          "tickMaps": [
+            {
+              "label": "tick-0",
+              "value": "-10000000",
+              "text": "-10",
+              "enabled": true,
+              "order": 0
+            },
+            {
+              "label": "tick-1",
+              "value": "-5000000",
+              "text": "-5",
+              "enabled": true,
+              "order": 1
+            },
+            {
+              "label": "tick-2",
+              "value": "0",
+              "text": "0",
+              "enabled": true,
+              "order": 2
+            },
+            {
+              "label": "tick-3",
+              "value": "5000000",
+              "text": "+5",
+              "enabled": true,
+              "order": 3
+            },
+            {
+              "label": "tick-4",
+              "value": "10000000",
+              "text": "+10",
+              "enabled": true,
+              "order": 4
+            }
+          ]
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb3"
+          },
+          "rawSql": "SELECT time, value - 276561300000000.0 AS value FROM frequency WHERE sensor_id = 'wavemeter-1' AND $__timeFrom() <= time AND time <= $__timeTo() ORDER BY time"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "xychart",
+      "pluginVersion": "13.1.1",
+      "title": "Beam position",
+      "description": "Where the beam sits on a quadrant photodiode, from the two difference signals the detector puts out. Both arrive as ordinary ADC channels and are converted to microns by the calibration file, like everything else on the serial path. The origin is the aligned position and the axes are fixed and symmetric, so drift shows as the trace wandering off-centre; the large red point is where the beam is now.",
+      "gridPos": {
+        "h": 10,
+        "w": 9,
+        "x": 6,
+        "y": 15
+      },
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb3"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:\u00b5m",
+          "decimals": 1,
+          "min": -45,
+          "max": 45,
+          "custom": {
+            "show": "points+lines",
+            "pointSize": {
+              "fixed": 3
+            },
+            "pointShape": "circle",
+            "pointStrokeWidth": 0,
+            "lineWidth": 1,
+            "fillOpacity": 25,
+            "axisPlacement": "auto"
+          },
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "semi-dark-blue"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              },
+              {
+                "id": "custom.pointSize",
+                "value": {
+                  "fixed": 14
+                }
+              },
+              {
+                "id": "custom.show",
+                "value": "points"
+              },
+              {
+                "id": "custom.pointStrokeWidth",
+                "value": 2
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "mapping": "manual",
+        "series": [
+          {
+            "name": {
+              "fixed": "trace"
+            },
+            "frame": {
+              "matcher": {
+                "id": "byIndex",
+                "options": 0
+              }
+            },
+            "x": {
+              "matcher": {
+                "id": "byName",
+                "options": "beam-x"
+              }
+            },
+            "y": {
+              "matcher": {
+                "id": "byName",
+                "options": "beam-y"
+              }
+            }
+          },
+          {
+            "name": {
+              "fixed": "now"
+            },
+            "frame": {
+              "matcher": {
+                "id": "byIndex",
+                "options": 1
+              }
+            },
+            "x": {
+              "matcher": {
+                "id": "byName",
+                "options": "now-x"
+              }
+            },
+            "y": {
+              "matcher": {
+                "id": "byName",
+                "options": "now-y"
+              }
+            }
+          }
+        ],
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb3"
+          },
+          "rawSql": "SELECT x.t AS time, x.v AS \"beam-x\", y.v AS \"beam-y\" FROM\n     (SELECT date_trunc('second', time) AS t, avg(value) AS v FROM position\n        WHERE sensor_id = 'beam-x' AND $__timeFrom() <= time AND time <= $__timeTo() GROUP BY 1) x\n     JOIN\n     (SELECT date_trunc('second', time) AS t, avg(value) AS v FROM position\n        WHERE sensor_id = 'beam-y' AND $__timeFrom() <= time AND time <= $__timeTo() GROUP BY 1) y\n     ON x.t = y.t ORDER BY 1",
+          "format": "table"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb3"
+          },
+          "rawSql": "SELECT x.t AS time, x.v AS \"now-x\", y.v AS \"now-y\" FROM\n     (SELECT date_trunc('second', time) AS t, avg(value) AS v FROM position\n        WHERE sensor_id = 'beam-x' AND $__timeFrom() <= time AND time <= $__timeTo() GROUP BY 1) x\n     JOIN\n     (SELECT date_trunc('second', time) AS t, avg(value) AS v FROM position\n        WHERE sensor_id = 'beam-y' AND $__timeFrom() <= time AND time <= $__timeTo() GROUP BY 1) y\n     ON x.t = y.t ORDER BY 1 DESC LIMIT 1",
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Vacuum",
+      "description": "A Pirani gauge is logarithmic in pressure, so a few hundred millivolts at the ADC covers two decades here.",
+      "gridPos": {
+        "h": 10,
+        "w": 9,
+        "x": 15,
+        "y": 15
+      },
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb3"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": true,
+            "gradientMode": "opacity",
+            "scaleDistribution": {
+              "type": "log",
+              "log": 10
+            }
+          },
+          "unit": "pressurembar",
+          "displayName": "${__field.labels.sensor_id}"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb3"
+          },
+          "rawSql": "SELECT time, sensor_id, value FROM pressure WHERE $__timeFrom() <= time AND time <= $__timeTo() ORDER BY time"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Laser power",
+      "description": "The photodiode channel on its own, where the axis can carry a fixed unit \u2014 unlike the calibration panel above, whose unit changes with the channel.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 25
+      },
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb3"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": true,
+            "gradientMode": "opacity"
+          },
+          "unit": "mwatt"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb3"
+          },
+          "rawSql": "SELECT time, value FROM power WHERE sensor_id = 'laser-1' AND $__timeFrom() <= time AND time <= $__timeTo() ORDER BY time"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Room temperature",
+      "description": "Pick which rooms to plot from the dropdown above.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 25
+      },
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb3"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": true,
+            "gradientMode": "opacity"
+          },
+          "unit": "celsius",
+          "displayName": "${__field.labels.sensor_id}"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb3"
+          },
+          "rawSql": "SELECT time, sensor_id, value FROM temperature WHERE sensor_id IN (${room:singlequote}) AND $__timeFrom() <= time AND time <= $__timeTo() ORDER BY time"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "table",
+      "title": "What is feeding this dashboard",
+      "description": "Every sensor's most recent reading, and which path it arrived by. \"calibrated\" rows were converted from raw ADC counts by the entries in calibration.demo.toml, and carry the voltage and the id of the conversion used; \"simulated\" rows were invented already in physical units, so they have neither. The wavemeter is shown in THz; the database stores hertz.",
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 33
+      },
+      "datasource": {
+        "type": "influxdb",
+        "uid": "influxdb3"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "value"
+            },
+            "properties": [
+              {
+                "id": "custom.align",
+                "value": "right"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "path"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "acquisition"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "calibrated": {
+                        "text": "calibrated",
+                        "color": "green",
+                        "index": 0
+                      },
+                      "simulated": {
+                        "text": "simulated",
+                        "color": "text",
+                        "index": 1
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "age_seconds"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "last seen"
+              },
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 30
+                    },
+                    {
+                      "color": "red",
+                      "value": 120
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "input_volts"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "raw input"
+              },
+              {
+                "id": "unit",
+                "value": "volt"
+              },
+              {
+                "id": "decimals",
+                "value": 4
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "calibration"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "calibration id"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "countRows": false,
+          "fields": ""
+        },
+        "sortBy": [
+          {
+            "displayName": "acquisition",
+            "desc": false
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "influxdb3"
+          },
+          "rawSql": "SELECT sensor_id, measurement, unit, value, input_volts,\n     COALESCE(calibration_id, '\u2014') AS calibration,\n     CASE WHEN calibration_id IS NULL THEN 'simulated' ELSE 'calibrated' END AS path,\n     date_part('epoch', now() - time) AS age_seconds\n   FROM (\n     SELECT 'temperature' AS measurement, sensor_id, calibration_id, unit,\n            CAST(round(value, 2) AS VARCHAR) AS value, input_volts, time,\n            ROW_NUMBER() OVER (PARTITION BY sensor_id ORDER BY time DESC) AS rn FROM temperature\n     UNION ALL SELECT 'pressure', sensor_id, calibration_id, unit,\n            CAST(round(value, 12) AS VARCHAR), input_volts, time,\n            ROW_NUMBER() OVER (PARTITION BY sensor_id ORDER BY time DESC) FROM pressure\n     UNION ALL SELECT 'power', sensor_id, calibration_id, unit,\n            CAST(round(value, 2) AS VARCHAR), input_volts, time,\n            ROW_NUMBER() OVER (PARTITION BY sensor_id ORDER BY time DESC) FROM power\n     UNION ALL SELECT 'voltage', sensor_id, calibration_id, unit,\n            CAST(round(value, 3) AS VARCHAR), input_volts, time,\n            ROW_NUMBER() OVER (PARTITION BY sensor_id ORDER BY time DESC) FROM voltage\n     UNION ALL SELECT 'position', sensor_id, calibration_id, unit,\n            CAST(round(value, 2) AS VARCHAR), input_volts, time,\n            ROW_NUMBER() OVER (PARTITION BY sensor_id ORDER BY time DESC) FROM position\n     UNION ALL SELECT 'frequency', sensor_id, CAST(NULL AS VARCHAR) AS calibration_id, 'THz' AS unit,\n            CAST(round(value / 1e12, 6) AS VARCHAR), CAST(NULL AS DOUBLE) AS input_volts, time,\n            ROW_NUMBER() OVER (PARTITION BY sensor_id ORDER BY time DESC) FROM frequency\n   ) WHERE rn = 1 ORDER BY path, measurement, sensor_id",
+          "format": "table"
         }
       ]
     }
