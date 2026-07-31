@@ -6,6 +6,12 @@ on:
   push:
     branches: [main]
 
+# Every job here only reads the repository; Codecov uploads with its own
+# token rather than GITHUB_TOKEN. Setting this at the top means a job added
+# later starts read-only unless it says otherwise.
+permissions:
+  contents: read
+
 jobs:
   lint:
     name: lint
