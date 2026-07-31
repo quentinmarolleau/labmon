@@ -1,0 +1,60 @@
+name: smoke
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  cold-start:
+    name: cold start
+    runs-on: ubuntu-latest
+    # Generous: most of it is image pulls and the wait for sensors to write.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Deliberately the README's quickstart, command for command. A fresh
+      # runner is the closest thing CI has to somebody cloning the repo, and
+      # the bugs this job exists to catch only happen on the first run.
+      - name: Bootstrap .env the way the quickstart does
+        run: |
+          cp .env.example .env
+          sed -i 's/^INFLUXDB_NODE_ID=.*/INFLUXDB_NODE_ID=ci/' .env
+
+      - name: Start InfluxDB and mint an admin token
+        run: |
+          docker compose up -d --wait influxdb
+          token="$(docker compose exec -T influxdb influxdb3 create token --admin \
+            | grep -oE 'apiv3_[A-Za-z0-9_-]+' | head -1)"
+          if [ -z "$token" ]; then
+            echo "no token in the create-token output" >&2
+            exit 1
+          fi
+          echo "::add-mask::$token"
+          grep -v '^INFLUXDB3_AUTH_TOKEN=' .env > .env.next
+          mv .env.next .env
+          printf 'INFLUXDB3_AUTH_TOKEN=%s\n' "$token" >> .env
+
+      # Fails on its own if any service is unhealthy, which is what caught
+      # nothing before this job existed.
+      - name: Start the whole stack
+        run: docker compose up -d --wait
+
+      - name: Every service is up
+        run: docker compose ps
+
+      - name: Every dashboard query returns rows
+        run: python3 scripts/smoke_dashboard.py --timeout 180
+
+      - name: Logs
+        if: failure()
+        run: docker compose logs --no-color --tail 200
+
+      - name: Stop
+        if: always()
+        run: docker compose down -v
