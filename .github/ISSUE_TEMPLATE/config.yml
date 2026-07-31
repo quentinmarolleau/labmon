@@ -1,0 +1,10 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation
+    url: https://github.com/quentinmarolleau/labmon/tree/main/docs
+    about: >-
+      Setup, deployment, the demo stack, and the Grafana wrinkles worth
+      knowing before reporting a dashboard problem.
+  - name: Contributing
+    url: https://github.com/quentinmarolleau/labmon/blob/main/CONTRIBUTING.md
+    about: Branching, commit format, and what has to pass before a PR.
