@@ -33,11 +33,14 @@ already shows what changed.
 ```bash
 uv run pytest --cov=src --cov-report=term-missing --cov-fail-under=100
 uv run ruff check .
+uv run ruff format --check .
 uv run basedpyright
 uv run typos
 ```
 
-All four must pass locally — they're exactly what CI runs.
+All five must pass locally — they're exactly what CI runs. Drop
+`--check` to have the formatter apply its changes instead of reporting
+them.
 
 ## Testing
 

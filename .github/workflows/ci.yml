@@ -23,6 +23,7 @@ jobs:
           version: "latest"
           enable-cache: true
       - run: uv run --locked ruff check .
+      - run: uv run --locked ruff format --check .
 
   typecheck:
     name: typecheck
