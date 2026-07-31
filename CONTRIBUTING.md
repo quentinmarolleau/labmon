@@ -49,6 +49,13 @@ All four must pass locally — they're exactly what CI runs.
   and `get_client()` — enough to exercise the real logic without touching
   a live InfluxDB instance or blocking forever — rather than mocking
   `PointWriter` itself.
+- **The smoke job is the exception to all of the above.** `.github/
+  workflows/smoke.yml` starts the real stack from a fresh checkout,
+  follows the quickstart's token bootstrap, and runs every dashboard query
+  through Grafana. It has no coverage requirement and mocks nothing — its
+  whole job is to catch what unit tests structurally cannot, like a bind
+  mount created with the wrong owner. To run it yourself, bring the stack
+  up and then `python3 scripts/smoke_dashboard.py`.
 - `# pragma: no cover` is reserved for code that is genuinely untestable
   in a meaningful way (e.g. the `if __name__ == "__main__":` guard, where
   testing it would only prove Python's own import mechanism works, not
