@@ -6,6 +6,12 @@ on:
   push:
     branches: [main]
 
+# Every job here only reads the repository; Codecov uploads with its own
+# token rather than GITHUB_TOKEN. Setting this at the top means a job added
+# later starts read-only unless it says otherwise.
+permissions:
+  contents: read
+
 jobs:
   lint:
     name: lint
@@ -14,8 +20,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
+          version: "latest"
           enable-cache: true
       - run: uv run --locked ruff check .
+      - run: uv run --locked ruff format --check .
 
   typecheck:
     name: typecheck
@@ -24,6 +32,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
+          version: "latest"
           enable-cache: true
       - run: uv run --locked basedpyright
 
@@ -34,6 +43,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
+          version: "latest"
           enable-cache: true
       - run: uv run --locked typos
 
@@ -47,6 +57,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
+          version: "latest"
           enable-cache: true
           python-version: ${{ matrix.python-version }}
       - run: uv run --locked pytest --cov=src --cov-report=xml --cov-fail-under=100
