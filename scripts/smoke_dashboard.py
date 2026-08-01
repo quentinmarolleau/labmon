@@ -14,12 +14,17 @@ fail out loud.
 Stdlib only, so CI can run it without installing the project.
 
 Usage:
-    python3 scripts/smoke_dashboard.py [--timeout SECONDS]
+    python3 scripts/smoke_dashboard.py [--timeout SECONDS] [--password PASSWORD]
+
+The password defaults to $GRAFANA_ADMIN_PASSWORD, then to `admin`. Note that
+`.env` is read by Compose, not by your shell, so a password set there has to
+be exported or passed explicitly.
 """
 
 import argparse
 import base64
 import json
+import os
 import re
 import sys
 import time
@@ -34,12 +39,35 @@ _DASHBOARD = _REPO_ROOT / "grafana" / "dashboards" / "lab-overview.json"
 _GRAFANA_URL = "http://127.0.0.1:3000"
 _QUERY_ENDPOINT = f"{_GRAFANA_URL}/api/ds/query"
 
+# Grafana blocks an account after five consecutive bad passwords, so retrying
+# one is worse than useless: three minutes of retries would lock the admin out
+# of the UI as well, long after the password was corrected.
+_TERMINAL_STATUSES = frozenset({401, 403})
+
 # Grafana's own macros ($__timeFrom() and friends) are expanded server-side by
 # the datasource backend, so they are left alone. Dashboard variables are not:
 # the frontend substitutes those before the query is ever sent, which is what
 # this has to reproduce.
 _PLAIN_VARIABLE = re.compile(r"\$\{(\w+)\}|\$(\w+)\b")
 _FORMATTED_VARIABLE = re.compile(r"\$\{(\w+):(\w+)\}")
+
+
+def _mapping(value: object) -> dict[str, object]:
+    """Narrow a parsed-JSON node to a mapping.
+
+    `tests/test_dashboard.py` carries the same pair. Duplicating six lines is
+    the price of this script importing nothing outside the stdlib, so CI can
+    run it against a live stack without installing the project.
+    """
+    if not isinstance(value, dict):
+        raise TypeError(f"expected an object, got {type(value).__name__}")
+    return cast(dict[str, object], value)
+
+
+def _mappings(value: object) -> list[dict[str, object]]:
+    if not isinstance(value, list):
+        raise TypeError(f"expected a list, got {type(value).__name__}")
+    return [_mapping(item) for item in cast(list[object], value)]
 
 
 def _values_of(variable: dict[str, object]) -> list[str]:
@@ -124,6 +152,93 @@ def _row_count(result: object) -> int:
     return len(cast(list[object], first_column))
 
 
+class _Rejected(Exception):
+    """A failure no amount of waiting will fix, so the retry loop gives up."""
+
+
+def _load_queries(dashboard: dict[str, object]) -> list[tuple[str, dict[str, object]]]:
+    """Every panel target, as a payload for Grafana's query endpoint."""
+    templating = _mapping(dashboard["templating"])
+    variables = {
+        str(variable["name"]): _values_of(variable)
+        for variable in _mappings(templating["list"])
+    }
+
+    return [
+        (
+            f"{panel['title']} [{target.get('refId')}]",
+            {
+                "refId": str(target["refId"]),
+                "datasource": target["datasource"],
+                "rawSql": _interpolate(str(target["rawSql"]), variables),
+                "format": target.get("format", "time_series"),
+                "intervalMs": 1000,
+                "maxDataPoints": 1000,
+            },
+        )
+        for panel in _mappings(dashboard["panels"])
+        for target in _mappings(panel.get("targets", []))
+    ]
+
+
+def _attempt(
+    queries: list[tuple[str, dict[str, object]]],
+    window: dict[str, str],
+    password: str,
+) -> list[tuple[str, str]]:
+    """Run every query once, returning `(panel label, what went wrong)`.
+
+    The two are kept apart so the report can group by the reason: when the
+    stack is down, all fourteen share one reason and differ only by label.
+    """
+    failures: list[tuple[str, str]] = []
+    for label, query in queries:
+        try:
+            response = _post({"queries": [query], **window}, password)
+        except urllib.error.HTTPError as http_error:
+            # The status line alone says nothing useful — a bad column name
+            # and a bad token are both "400 Bad Request". The body carries
+            # what the datasource actually objected to.
+            detail = f"{http_error} — {http_error.read().decode()[:400]}"
+            if http_error.code in _TERMINAL_STATUSES:
+                raise _Rejected(f"{label}: {detail}") from http_error
+            failures.append((label, detail))
+            continue
+        except urllib.error.URLError as url_error:
+            failures.append((label, str(url_error)))
+            continue
+
+        result = _child(_child(response, "results"), str(query["refId"]))
+        reported = _child(result, "error")
+        if reported:
+            failures.append((label, str(reported)))
+        elif _row_count(result) == 0:
+            failures.append((label, "query succeeded but returned no rows"))
+    return failures
+
+
+def _report(
+    failures: list[tuple[str, str]], total: int, timeout: float, attempts: int
+) -> None:
+    """Print the failures, one entry per distinct reason.
+
+    When the stack itself is the problem every query fails the same way, and
+    fourteen copies of one Flight SQL traceback buries the case this exists
+    to show: a single panel broken among working ones.
+    """
+    summary = (
+        f"{len(failures)} of {total} dashboard queries still failing after"
+        + f" {timeout:.0f}s ({attempts} attempts):"
+    )
+    print(summary, file=sys.stderr)
+
+    by_reason: dict[str, list[str]] = {}
+    for label, reason in failures:
+        by_reason.setdefault(reason, []).append(label)
+    for reason, labels in by_reason.items():
+        print(f"  - {', '.join(labels)}: {reason}", file=sys.stderr)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     _ = parser.add_argument(
@@ -134,85 +249,37 @@ def main() -> int:
     )
     _ = parser.add_argument(
         "--password",
-        default="admin",
-        help="Grafana admin password (GRAFANA_ADMIN_PASSWORD)",
+        default=os.environ.get("GRAFANA_ADMIN_PASSWORD") or "admin",
+        help="Grafana admin password; defaults to $GRAFANA_ADMIN_PASSWORD",
     )
     args = parser.parse_args()
     timeout = cast(float, args.timeout)
     password = cast(str, args.password)
 
-    dashboard = cast(
-        dict[str, object], json.loads(_DASHBOARD.read_text(encoding="utf-8"))
-    )
-    templating = cast(dict[str, object], dashboard["templating"])
-    variables = {
-        str(cast(dict[str, object], variable)["name"]): _values_of(
-            cast(dict[str, object], variable)
-        )
-        for variable in cast(list[object], templating["list"])
-    }
-
-    queries: list[tuple[str, dict[str, object]]] = []
-    for panel in cast(list[object], dashboard["panels"]):
-        panel_dict = cast(dict[str, object], panel)
-        title = str(panel_dict["title"])
-        for target in cast(list[object], panel_dict.get("targets", [])):
-            target_dict = cast(dict[str, object], target)
-            queries.append(
-                (
-                    f"{title} [{target_dict.get('refId')}]",
-                    {
-                        "refId": str(target_dict["refId"]),
-                        "datasource": target_dict["datasource"],
-                        "rawSql": _interpolate(str(target_dict["rawSql"]), variables),
-                        "format": target_dict.get("format", "time_series"),
-                        "intervalMs": 1000,
-                        "maxDataPoints": 1000,
-                    },
-                )
-            )
+    # `json.loads` is typed as returning `Any`; nothing here wants that.
+    parsed: object = json.loads(_DASHBOARD.read_text("utf-8"))  # pyright: ignore[reportAny]
+    queries = _load_queries(_mapping(parsed))
 
     # The dashboard's own window. Wide enough that a query is judged on
     # whether it works, not on how long the stack has been up.
     window = {"from": "now-15m", "to": "now"}
 
     deadline = time.monotonic() + timeout
-    attempt = 0
+    attempts = 0
     while True:
-        attempt += 1
-        failures: list[str] = []
-        for label, query in queries:
-            try:
-                response = _post({"queries": [query], **window}, password)
-            except urllib.error.HTTPError as error:
-                # The status line alone says nothing useful — a bad column
-                # name and a bad token are both "400 Bad Request". The body
-                # carries what the datasource actually objected to.
-                failures.append(f"{label}: {error} — {error.read().decode()[:400]}")
-                continue
-            except urllib.error.URLError as error:
-                failures.append(f"{label}: {error}")
-                continue
-
-            result = _child(_child(response, "results"), str(query["refId"]))
-            error = _child(result, "error")
-            if error:
-                failures.append(f"{label}: {error}")
-            elif _row_count(result) == 0:
-                failures.append(f"{label}: query succeeded but returned no rows")
+        attempts += 1
+        try:
+            failures = _attempt(queries, window, password)
+        except _Rejected as rejected:
+            print(f"Grafana rejected the credentials: {rejected}", file=sys.stderr)
+            return 1
 
         if not failures:
             print(f"all {len(queries)} dashboard queries returned rows")
             return 0
 
         if time.monotonic() >= deadline:
-            summary = (
-                f"{len(failures)} of {len(queries)} dashboard queries still"
-                + f" failing after {timeout:.0f}s ({attempt} attempts):"
-            )
-            print(summary, file=sys.stderr)
-            for failure in failures:
-                print(f"  - {failure}", file=sys.stderr)
+            _report(failures, len(queries), timeout, attempts)
             return 1
 
         print(f"{len(failures)} not ready yet, retrying...", flush=True)
