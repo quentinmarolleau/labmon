@@ -7,8 +7,10 @@ datasource uid nobody provisioned, renders "No data" and logs nothing. The
 dashboard looks fine until someone reads a number that isn't there.
 
 None of this validates the dashboard against Grafana's schema — there is no
-published schema to validate against. Each check below stands for a mistake
-that has actually been made in this file.
+published schema to validate against — and none of it runs the queries, so a
+`rawSql` naming a column that does not exist passes every check here;
+catching that needs a live stack. Each check below stands for a mistake that
+has actually been made in this file.
 """
 
 import json
@@ -27,6 +29,10 @@ _ENV_EXAMPLE = _REPO_ROOT / ".env.example"
 # are built in rather than declared by the dashboard.
 _VARIABLE_REFERENCE = re.compile(r"\$\{?(\w+)\}?")
 _BUILTIN_PREFIX = "__"
+
+# Layout-only panel types. Everything else on this dashboard draws data and
+# is therefore useless without at least one target.
+_PANEL_TYPES_WITHOUT_QUERIES = frozenset({"row", "text"})
 
 
 def _parse(path: Path) -> object:
@@ -68,6 +74,23 @@ def targets(panels: list[dict[str, object]]) -> list[tuple[str, dict[str, object
         for panel in panels
         for target in _mappings(panel.get("targets", []))
     ]
+
+
+def test_query_panels_declare_at_least_one_target(
+    panels: list[dict[str, object]],
+) -> None:
+    """A data panel with no targets renders empty, exactly like a bad query.
+
+    Grafana drops `targets` on export when a panel's last query is deleted in
+    the browser, so this is a plausible way to lose one by accident.
+    """
+    for panel in panels:
+        if str(panel.get("type")) in _PANEL_TYPES_WITHOUT_QUERIES:
+            continue
+        assert _mappings(panel.get("targets", [])), (
+            f"{panel.get('title')!r} is a {panel.get('type')!r} panel with no "
+            "targets; it can only ever render empty"
+        )
 
 
 def test_every_target_carries_a_non_empty_raw_sql(
@@ -116,18 +139,22 @@ def test_targets_point_at_the_provisioned_datasource(
     assert provisioned is not None, f"no `uid:` found in {_DATASOURCE.name}"
 
     for title, target in targets:
-        datasource = _mapping(target["datasource"])
+        # A target may legitimately omit `datasource` and inherit the panel's,
+        # so report the absence as a mismatch rather than dying on a KeyError.
+        datasource = _mapping(target.get("datasource", {}))
         assert datasource.get("uid") == provisioned.group(1), (
             f"{title!r} points at datasource uid {datasource.get('uid')!r}, "
             f"but {_DATASOURCE.name} provisions {provisioned.group(1)!r}"
         )
-        assert datasource.get("type") == "influxdb"
+        assert datasource.get("type") == "influxdb", (
+            f"{title!r} points at a {datasource.get('type')!r} datasource"
+        )
 
 
 def test_panel_ids_are_unique(panels: list[dict[str, object]]) -> None:
     """Grafana keys panel state by id; duplicates interfere silently."""
-    ids = [panel["id"] for panel in panels]
-    assert len(ids) == len(set(map(str, ids))), f"duplicate panel ids in {ids}"
+    ids = [str(panel["id"]) for panel in panels]
+    assert len(ids) == len(set(ids)), f"duplicate panel ids in {ids}"
 
 
 def test_every_referenced_variable_is_declared(
@@ -145,9 +172,11 @@ def test_every_referenced_variable_is_declared(
     }
 
     for panel in panels:
+        # `row` and `text` panels carry no targets at all, hence the default.
+        panel_targets = _mappings(panel.get("targets", []))
         text = " ".join(
             [str(panel.get("title", ""))]
-            + [str(target.get("rawSql", "")) for target in _mappings(panel["targets"])]
+            + [str(target.get("rawSql", "")) for target in panel_targets]
         )
         names = cast(list[str], _VARIABLE_REFERENCE.findall(text))
         referenced = {name for name in names if not name.startswith(_BUILTIN_PREFIX)}
@@ -201,9 +230,11 @@ def test_third_party_panel_types_are_installed_by_the_demo(
 ) -> None:
     """A panel plugin nobody installs renders as "plugin not found".
 
-    Core panel types are single words (`stat`, `table`, `xychart`); plugin
-    ids are vendor-prefixed and hyphenated, which is what separates the two
-    here.
+    Community panel plugins are named `<org>-<name>-panel`, so the `-panel`
+    suffix is what separates them from core types. Hyphenation alone is not:
+    `state-timeline` and `status-history` ship with Grafana, and demanding
+    they be added to GRAFANA_PLUGINS would make the plugin install fail at
+    boot — a worse outcome than the one this check exists to prevent.
     """
     requested = re.search(
         r"^GRAFANA_PLUGINS=(.*)$",
@@ -219,7 +250,7 @@ def test_third_party_panel_types_are_installed_by_the_demo(
 
     for panel in panels:
         panel_type = str(panel["type"])
-        if "-" not in panel_type:
+        if not panel_type.endswith("-panel"):
             continue
         assert panel_type in installed, (
             f"{panel.get('title')!r} uses panel plugin {panel_type!r}, which "
