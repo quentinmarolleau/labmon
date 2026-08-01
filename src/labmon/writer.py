@@ -43,9 +43,7 @@ class PointWriter[T]:
         self._queue: queue.Queue[T] = queue.Queue(maxsize=maxsize)
         self._poll_interval: float = poll_interval
         self._stop: threading.Event = threading.Event()
-        self._thread: threading.Thread = threading.Thread(
-            target=self._run, daemon=True
-        )
+        self._thread: threading.Thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
     def write(self, point: T) -> None:

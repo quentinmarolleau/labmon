@@ -468,7 +468,9 @@ def _optional_bool(
     return value
 
 
-def _require_quantity(where: Location, fields: dict[str, object], key: str) -> pint.Quantity:
+def _require_quantity(
+    where: Location, fields: dict[str, object], key: str
+) -> pint.Quantity:
     text = _require_str(where, fields, key)
     try:
         return ureg(text)

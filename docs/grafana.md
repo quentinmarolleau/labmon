@@ -122,3 +122,27 @@ within `updateIntervalSeconds` (30s), no restart needed.
 Set `schemaVersion` to the version Grafana targets (42 — the final version
 of the v1 dashboard API). A lower number makes Grafana run its migration
 chain over the file on every load, and those migrations rewrite panels.
+
+## What CI checks about a dashboard
+
+`tests/test_dashboard.py` runs a handful of structural checks over
+`lab-overview.json` on every PR. They exist because Grafana's failure mode
+for a malformed dashboard is silence: a query under the wrong key, or a
+datasource uid nobody provisioned, renders "No data" and logs nothing, so
+the dashboard keeps looking correct while showing you nothing.
+
+The checks cover the mistakes this file has actually made — every data panel
+carrying at least one target, `rawSql` present and non-empty, no leftover
+`query` twin, the datasource uid matching what
+provisioning creates, unique panel ids, every `$variable` declared, custom
+variables carrying their values inline, `xychart` panels declaring a
+`pluginVersion`, and any `*-panel` type (the naming convention for community
+plugins) appearing in `GRAFANA_PLUGINS`.
+
+None of them run a query, so SQL that is structurally fine but names a
+column the schema does not have passes here. Catching that needs a live
+stack, not a JSON parse.
+
+A second dashboard is not covered automatically — the paths at the top of
+that file name `lab-overview.json` directly. Point them at a directory when
+there is a second one worth checking.

@@ -1,0 +1,50 @@
+version: 2
+
+# Actions are pinned by commit digest and images by tag, which is the right
+# default but means nothing moves unless something moves it. Everything here
+# is weekly and grouped, so the usual week is one PR per ecosystem or none.
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: ci
+
+  # Reads uv.lock, so an update arrives with the lockfile already
+  # regenerated — CI runs `uv run --locked` and would fail otherwise.
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      python:
+        patterns: ["*"]
+    commit-message:
+      prefix: chore
+
+  # The Dockerfile's base image. The uv binary it copies in is tagged
+  # `latest` and so is invisible to Dependabot by construction.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore
+
+  # Both compose files. A Grafana bump is worth more than a glance: the
+  # provisioned dashboard declares a `schemaVersion`, and a major release
+  # can migrate it on load. See docs/grafana.md.
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore
+    ignore:
+      # Built from this repo's own Dockerfile; there is no registry copy
+      # to compare against.
+      - dependency-name: labmon
