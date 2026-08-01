@@ -1,0 +1,112 @@
+name: Bug report
+description: Something in labmon does not behave the way the docs say it should.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Most problems here turn out to be wiring rather than logic — a
+        container that cannot reach another, a token that does not match, a
+        panel querying a column that was never written. The questions below
+        are aimed at that, so please answer them even when the cause seems
+        obvious.
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Which part
+      options:
+        - Server (InfluxDB + Grafana)
+        - mock-sensor
+        - serial-sensor / calibration
+        - Grafana dashboard or panels
+        - Demo stack
+        - Documentation
+        - Not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: topology
+    attributes:
+      label: How it is running
+      description: >-
+        Worth stating even for a bug that looks unrelated to networking; a
+        surprising number are not.
+      options:
+        - Everything on one machine (the quickstart)
+        - Server on one machine, sensors on another
+        - Bare install, no Docker
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce it
+      description: Commands, config, and anything you changed from the defaults.
+      placeholder: |
+        1. cp .env.example .env, set ...
+        2. docker compose up -d --wait
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: >-
+        Usually `docker compose logs --tail 100`. Two lines are expected and
+        are not the bug: InfluxDB logging "the request was not authenticated"
+        once a second (its own healthcheck), and `labmon-init-state-dirs`
+        exiting immediately (it is a one-shot). See docs/deployment.md.
+      render: shell
+
+  - type: textarea
+    id: versions
+    attributes:
+      label: Versions
+      description: >-
+        `docker compose version`, the image tags from your `docker compose ps`,
+        and your OS. Add `python --version` for a bare install.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: hardware
+    attributes:
+      label: Hardware and calibration
+      description: >-
+        Only for `serial-sensor` problems. The board and how it is connected,
+        a few raw lines as the host sees them (`<channel>,<count>`), and the
+        relevant `[channels.*]` block from your calibration TOML. If a reading
+        is wrong rather than absent, the voltage you measured at the input is
+        the single most useful number you can give.
+      render: shell
+
+  - type: checkboxes
+    id: no-secrets
+    attributes:
+      label: Before submitting
+      options:
+        - label: >-
+            I have checked that nothing above contains an `apiv3_...` token, a
+            password, or anything else from my `.env`.
+          required: true

@@ -66,6 +66,13 @@ them.
   testing it would only prove Python's own import mechanism works, not
   our code). Don't reach for it to avoid writing a real test.
 
+## Conduct
+
+Participation is covered by the
+[Code of Conduct](CODE_OF_CONDUCT.md) (Contributor Covenant 3.0).
+Report a possible violation by email to q.marolleau-dev@pm.me rather than
+in a public issue.
+
 ## Docs
 
 - Component usage docs live in `docs/` (one file per component, e.g.
