@@ -1,6 +1,7 @@
 import logging
 import signal
 import sys
+import time
 from collections.abc import Callable
 from pathlib import Path
 from types import FrameType
@@ -331,3 +332,55 @@ def test_main_parses_custom_arguments(monkeypatch: pytest.MonkeyPatch) -> None:
     [call] = run_calls
     assert call["resolution_bits"] == 10
     assert call["v_ref"] == 5.0
+
+
+@pytest.mark.usefixtures("fake_client", "registered_handlers")
+def test_per_reading_lines_are_debug_not_info(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """At 100 Hz an INFO line per reading buries every warning worth seeing."""
+    source = FakeRawSource([RawReading(channel="A0", raw_count=4095)])
+
+    with (
+        caplog.at_level(logging.DEBUG, logger=serial_sensor.logger.name),
+        pytest.raises(_StopLoop),
+    ):
+        run(source=source, calibrations={"A0": _temperature_calibration()})
+
+    reading_lines = [
+        record for record in caplog.records if "140.2" in record.getMessage()
+    ]
+    assert [record.levelno for record in reading_lines] == [logging.DEBUG]
+
+
+@pytest.mark.usefixtures("fake_client", "registered_handlers")
+def test_a_summary_is_logged_once_the_interval_elapses(
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The per-reading line moved to DEBUG, so this carries "it is working"."""
+    # Two readings: the clock jumps past the interval only for the second,
+    # so exactly one summary covering both should be emitted. Patched on
+    # the time module itself, which serial_sensor imports rather than
+    # re-exports.
+    ticks = iter([0.0, 1.0, serial_sensor.SUMMARY_INTERVAL_SECONDS + 1.0])
+    monkeypatch.setattr(time, "monotonic", lambda: next(ticks))
+    source = FakeRawSource(
+        [
+            RawReading(channel="A0", raw_count=4095),
+            RawReading(channel="A0", raw_count=4095),
+        ]
+    )
+
+    with (
+        caplog.at_level(logging.INFO, logger=serial_sensor.logger.name),
+        pytest.raises(_StopLoop),
+    ):
+        run(source=source, calibrations={"A0": _temperature_calibration()})
+
+    summaries = [
+        record.getMessage()
+        for record in caplog.records
+        if "Wrote" in record.getMessage()
+    ]
+    assert summaries == ["Wrote 2 reading(s) in the last 30s (cryo-77k 2)"]

@@ -23,6 +23,8 @@ import argparse
 import logging
 import signal
 import sys
+import time
+from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
 from types import FrameType
@@ -64,6 +66,14 @@ INPUT_FIELD_NAME = "input_volts"
 # field so it can be filtered and grouped on; cardinality stays low
 # because a calibration changes a handful of times over a sensor's life.
 CALIBRATION_ID_TAG = "calibration_id"
+
+# How often to report that readings are still arriving. The per-reading
+# line moved to DEBUG because at 100 Hz across a handful of channels it
+# emits hundreds of lines a second, which costs a fifth of the
+# acquisition loop and buries the warnings worth seeing. This keeps the
+# "it is working" signal an operator actually wants, at a volume a
+# journal can hold.
+SUMMARY_INTERVAL_SECONDS = 30.0
 
 
 def _log_calibrations(calibrations: dict[str, Calibration]) -> None:
@@ -118,6 +128,9 @@ def run(
     # warn once each rather than on every reading forever.
     warned_channels: set[str] = set()
 
+    written: Counter[str] = Counter()
+    next_summary = time.monotonic() + SUMMARY_INTERVAL_SECONDS
+
     while True:
         reading = source.read()
         if reading is None:
@@ -152,7 +165,21 @@ def run(
             # written can't be recomputed.
             point = point.field(INPUT_FIELD_NAME, voltage.to(ureg.volt).magnitude)
         writer.write(point)
-        logger.info("%s: %.4g %s", calibration.sensor_id, value.magnitude, value.units)
+        written[calibration.sensor_id] += 1
+        logger.debug(
+            "%s: %.4g %s", calibration.sensor_id, value.magnitude, calibration.unit
+        )
+
+        now = time.monotonic()
+        if now >= next_summary:
+            logger.info(
+                "Wrote %d reading(s) in the last %.0fs (%s)",
+                written.total(),
+                SUMMARY_INTERVAL_SECONDS,
+                ", ".join(f"{name} {count}" for name, count in sorted(written.items())),
+            )
+            written.clear()
+            next_summary = now + SUMMARY_INTERVAL_SECONDS
 
 
 def main() -> None:
