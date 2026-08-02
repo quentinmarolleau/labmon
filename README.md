@@ -190,6 +190,24 @@ virtual serial port before any hardware arrives.
 > physical Arduino Due. Check readings against a known voltage before
 > trusting them.
 
+### Instruments with their own software
+
+Plenty of instruments never expose a voltage: they come with a
+manufacturer's Python SDK, a REST endpoint or a CLI that hands back a
+reading already in physical units. There is nothing to calibrate, so those
+skip the ADC path entirely.
+
+```
+instrument ──vendor API──► your script ──► InfluxDB ──► Grafana
+```
+
+Copy [`templates/custom-sensor/`](templates/custom-sensor/), replace one
+function with the vendor call, and the batching, retries and shutdown are
+handled for you — including retrying a read that raises, so an instrument
+having a bad night does not stop the process. The template runs against a
+simulated value before you write any instrument code, so the plumbing can
+be proved first. See [`docs/custom-sensor.md`](docs/custom-sensor.md).
+
 ## Running it across the lab
 
 Everything above runs on one machine. A real lab is usually three roles
@@ -236,7 +254,8 @@ this repository.
   - `influx.py` — shared InfluxDB client configuration
   - `writer.py` — queue-backed writer decoupling producers from InfluxDB I/O latency
   - `calibration.py` — turns raw ADC counts into dimensioned physical quantities
-  - `sensors/` — sensor scripts (simulated, and real boards over serial)
+  - `sensors/` — sensor scripts (simulated, boards over serial, and instruments behind a vendor API)
+- `templates/` — copyable starting points for sensors labmon does not ship
 - `firmware/` — reference Arduino sketches for boards labmon reads
 - `demo/` — stands in for a board so the demo runs the real acquisition path
 - `tests/` — pytest suite
@@ -247,7 +266,7 @@ this repository.
 - `docker-compose.yml` — local InfluxDB, Grafana, and demo sensor instances
 - `docker-compose.client.yml` — sensor-only compose file for a remote client machine
 - `calibration.example.toml` — worked example of every sensor conversion mode
-- `deploy/` — example systemd units for a bare-install client
+- `deploy/` — systemd units and docs for machines that can't run the containers
 - `CONTRIBUTING.md` / `AGENTS.md` — workflow, commit conventions, testing policy
 - `BACKLOG.md` — planned/considered future work, roughly prioritized
 

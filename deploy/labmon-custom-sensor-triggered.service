@@ -1,0 +1,30 @@
+# The unit labmon-custom-sensor-triggered.timer starts. Reads once, writes, exits.
+#
+# Install both files together — a service of Type=oneshot does nothing on
+# its own until something starts it:
+#
+#   sudo cp labmon-custom-sensor-triggered.service /etc/systemd/system/
+#   sudo cp labmon-custom-sensor-triggered.timer /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now labmon-custom-sensor-triggered.timer
+#
+# Note that the *timer* is enabled, not the service. Enabling the service
+# instead would run it once at boot and never again.
+
+[Unit]
+Description=labmon custom API sensor (single reading)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# oneshot, not simple: this process is expected to exit, and systemd should
+# treat that as success rather than as the service having died.
+Type=oneshot
+User=lab
+WorkingDirectory=/home/lab/labmon
+EnvironmentFile=/home/lab/labmon/.env
+ExecStart=/home/lab/labmon/.venv/bin/python /home/lab/labmon/sensor_triggered.py
+
+# No Restart=: a failed reading should wait for the next scheduled run
+# rather than retry immediately. Retrying a rate-limited API straight away
+# is how a temporary refusal becomes a lasting one.

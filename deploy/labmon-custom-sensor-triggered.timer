@@ -1,0 +1,32 @@
+# Schedules labmon-custom-sensor-triggered.service. Install and enable both — see
+# the .service file for the commands.
+#
+# Inspect the schedule with:
+#
+#   systemctl list-timers labmon-custom-sensor-triggered.timer
+#
+# and check a calendar expression before committing to it:
+#
+#   systemd-analyze calendar '*:0/15'
+
+[Unit]
+Description=Read the labmon custom API sensor on a schedule
+
+[Timer]
+# Every 15 minutes, on the quarter hour. Other useful forms:
+#   OnCalendar=hourly
+#   OnCalendar=*-*-* 06,18:00:00     twice a day
+#   OnUnitActiveSec=90min            relative to the last run, not the clock
+OnCalendar=*:0/15
+
+# Spread the start over 30s. Without this, every timer on the machine with
+# the same schedule fires simultaneously, which matters when several
+# sensors share one rate-limited API.
+RandomizedDelaySec=30s
+
+# Run once at boot if the machine was off when a run was due, rather than
+# silently skipping until the next slot.
+Persistent=true
+
+[Install]
+WantedBy=timers.target
