@@ -1,0 +1,33 @@
+# Example systemd unit for a sensor read through a manufacturer's API,
+# running directly on a machine rather than in a container — see
+# docs/custom-sensor.md. Copy to /etc/systemd/system/, edit the paths and
+# the user below, then:
+#
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now labmon-custom-sensor.service
+#
+# Check on it with:
+#
+#   systemctl status labmon-custom-sensor.service
+#   journalctl -u labmon-custom-sensor.service -f
+#
+# The journal is not only for reading by hand: it is where these logs are
+# collected from when log aggregation is set up, so a sensor run this way
+# ends up in the same place as one run in a container.
+
+[Unit]
+Description=labmon custom API sensor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=lab
+WorkingDirectory=/home/lab/labmon
+EnvironmentFile=/home/lab/labmon/.env
+ExecStart=/home/lab/labmon/.venv/bin/python /home/lab/labmon/sensor_continuous.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

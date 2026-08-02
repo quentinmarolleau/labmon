@@ -1,0 +1,41 @@
+# Paste this service into docker-compose.yml (sensor on the same host as
+# the server) or docker-compose.client.yml (sensor on its own machine),
+# adjusting the build context to point at your copy of this template.
+#
+# Not a compose file in its own right: it has no `services:` parent and
+# will not start on its own.
+
+  my-sensor:
+    build: ./templates/custom-sensor
+    container_name: my-sensor
+    restart: unless-stopped
+    environment:
+      # Same three the other sensors take. On a client machine
+      # INFLUXDB_HOST is the server's address rather than a container name.
+      - INFLUXDB_HOST=http://influxdb:8181
+      - INFLUXDB_DATABASE=${INFLUXDB_DATABASE:-lab}
+      - INFLUXDB3_AUTH_TOKEN=${INFLUXDB3_AUTH_TOKEN}
+    # Matches the sensor_id this container writes, so its log lines can be
+    # put next to its readings. Keep the two in step: the label is what
+    # ties a container's output to a series, and nothing checks it for you.
+    labels:
+      labmon.sensor_id: CHANGE-ME
+    depends_on:
+      influxdb:
+        condition: service_healthy
+
+  # A triggered sensor, for an API that should not be polled continuously.
+  # No `restart:` — it is meant to exit — and no `depends_on`, since it is
+  # started by a timer rather than by `compose up`:
+  #
+  #   docker compose run --rm my-sensor-triggered
+  #
+  # my-sensor-triggered:
+  #   build: ./templates/custom-sensor
+  #   entrypoint: ["python", "/app/sensor_triggered.py"]
+  #   environment:
+  #     - INFLUXDB_HOST=http://influxdb:8181
+  #     - INFLUXDB_DATABASE=${INFLUXDB_DATABASE:-lab}
+  #     - INFLUXDB3_AUTH_TOKEN=${INFLUXDB3_AUTH_TOKEN}
+  #   labels:
+  #     labmon.sensor_id: CHANGE-ME
