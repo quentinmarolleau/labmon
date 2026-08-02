@@ -29,6 +29,7 @@ in millivolts gets scaled once, visibly, when writing the config.
 """
 
 import bisect
+import functools
 import hashlib
 import itertools
 import tomllib
@@ -51,6 +52,10 @@ ADC_VREF_VOLTS = 3.3
 
 # The name an `expression` conversion uses for the measured voltage.
 VOLTAGE_SYMBOL = "v"
+
+# Applied at load time to check a conversion works and to read off the
+# unit its results carry.
+ONE_VOLT: pint.Quantity = 1.0 * ureg.volt
 
 DEFAULT_MODE = "linear"
 
@@ -229,16 +234,33 @@ class Calibration:
     store_input: bool = DEFAULT_STORE_INPUT
     provenance: Mapping[str, object] = NO_PROVENANCE
 
-    @property
+    @functools.cached_property
     def calibration_id(self) -> str:
         """Short hash identifying which conversion produced a reading.
 
         Written as a tag so a stored reading can be matched back to the
         calibration file that produced it — the file itself is in version
         control, so the database only needs to say *which* revision.
+
+        Cached because it is read once per reading and cannot change: the
+        conversion is fixed when the file is parsed. Recomputing it meant
+        hashing a fingerprint built from pint unit formatting on every
+        sample, which measured at a fifth of the acquisition loop.
         """
         digest = hashlib.sha256(self.conversion.fingerprint().encode()).hexdigest()
         return digest[:CALIBRATION_ID_LENGTH]
+
+    @functools.cached_property
+    def unit(self) -> str:
+        """The unit tag every reading from this channel carries.
+
+        Derived by converting one volt, so it reflects what the
+        conversion actually produces rather than what the file claims.
+        Cached for the same reason as calibration_id: a conversion's
+        output unit is a property of the calibration, not of a reading,
+        and formatting it per sample cost more than building the point.
+        """
+        return f"{self.conversion.apply(ONE_VOLT).units:~}"
 
 
 def raw_to_voltage(
@@ -318,7 +340,7 @@ def _parse_channel(
 def _trial_apply(where: Location, conversion: Conversion) -> None:
     """Convert a token voltage so a broken conversion fails at load time."""
     try:
-        _ = conversion.apply(1.0 * ureg.volt)
+        _ = conversion.apply(ONE_VOLT)
     except CalibrationError:
         raise
     except pint.OffsetUnitCalculusError as error:

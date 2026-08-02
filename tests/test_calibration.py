@@ -1,10 +1,12 @@
 from pathlib import Path
+from typing import cast
 
 import pint
 import pytest
 
 from labmon.calibration import (
     AffineConversion,
+    Calibration,
     CalibrationError,
     ExpressionConversion,
     InterpolatedConversion,
@@ -15,6 +17,27 @@ from labmon.calibration import (
     raw_to_voltage,
     ureg,
 )
+
+
+class _CountingConversion:
+    """A conversion that reports how often it was asked to do work.
+
+    Both `calibration_id` and `unit` are cached because they are read
+    once per reading and cannot change; counting is how a test says that
+    without reaching into the cache itself.
+    """
+
+    def __init__(self) -> None:
+        self.fingerprints: int = 0
+        self.applications: int = 0
+
+    def apply(self, voltage: pint.Quantity, /) -> pint.Quantity:
+        self.applications += 1
+        return voltage * ureg("42.5 kelvin / volt")
+
+    def fingerprint(self) -> str:
+        self.fingerprints += 1
+        return "counting|42.5 kelvin / volt"
 
 
 def _write_config(tmp_path: Path, body: str) -> Path:
@@ -899,3 +922,46 @@ def test_load_calibration_rejects_an_expression_that_is_not_numeric(
 
     with pytest.raises(CalibrationError, match="not a number"):
         _ = load_calibration(path)
+
+
+def test_calibration_id_is_computed_once_per_calibration() -> None:
+    """It is read once per reading, so recomputing it dominated the loop."""
+    calibration = Calibration(
+        sensor_id="cryo-77k",
+        measurement="temperature",
+        conversion=_CountingConversion(),
+    )
+    conversion = cast(_CountingConversion, calibration.conversion)
+
+    first = calibration.calibration_id
+    second = calibration.calibration_id
+
+    assert first == second
+    assert conversion.fingerprints == 1
+
+
+def test_unit_is_derived_from_the_conversion_and_computed_once() -> None:
+    """The unit tag describes the calibration, not the individual reading."""
+    calibration = Calibration(
+        sensor_id="cryo-77k",
+        measurement="temperature",
+        conversion=_CountingConversion(),
+    )
+    conversion = cast(_CountingConversion, calibration.conversion)
+
+    assert calibration.unit == "K"
+    assert calibration.unit == "K"
+    assert conversion.applications == 1
+
+
+def test_unit_matches_what_a_reading_actually_carries() -> None:
+    """A cached unit is only safe while it agrees with the live conversion."""
+    calibration = Calibration(
+        sensor_id="cryo-77k",
+        measurement="temperature",
+        conversion=LinearConversion(factor=ureg("42.5 kelvin / volt")),
+    )
+
+    converted = calibration.conversion.apply(2.0 * ureg.volt)
+
+    assert calibration.unit == f"{converted.units:~}"

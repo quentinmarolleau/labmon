@@ -141,7 +141,7 @@ def run(
         point = (
             Point(calibration.measurement)
             .tag("sensor_id", calibration.sensor_id)
-            .tag("unit", f"{value.units:~}")
+            .tag("unit", calibration.unit)
             .tag(CALIBRATION_ID_TAG, calibration.calibration_id)
             .field(FIELD_NAME, value.magnitude)
             .time(datetime.now(UTC), write_precision="ms")
