@@ -85,6 +85,13 @@ service in `compose.snippet.yml`. That pins the SDK version next to the
 code that uses it, needs no Python on the host, and has its output
 collected without further setup.
 
+That Dockerfile layers on the repository's own rather than replacing it:
+the root `Dockerfile` builds `labmon:latest`, which every service already
+runs, and your instrument's dependencies go in your copy of the template
+on top of it. Putting them in the shared image instead means a failed SDK
+install stops the whole stack building, and a merge conflict on every
+`git pull`.
+
 On a machine where the container is not an option — a locked-down control
 PC, or an SDK that will not containerise — the same two scripts run
 directly under systemd instead. See [`deploy/`](../deploy/) for the units

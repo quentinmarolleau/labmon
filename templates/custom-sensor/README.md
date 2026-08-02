@@ -22,6 +22,31 @@ Either script also runs without Docker, on a machine where the container
 is not an option — see [`deploy/`](../../deploy/) for the systemd units
 and when they are worth reaching for.
 
+## This template and the repository's own Dockerfile
+
+There are two Dockerfiles, and they stack rather than compete:
+
+```
+python:3.14-slim  ->  labmon:latest  ->  my-cryostat-sensor
+                      (repo root)        (your copy of this template)
+                                     ->  my-gauge-sensor
+```
+
+The one at the repository root builds `labmon:latest`, which every labmon
+service already runs — the mock sensors, `serial-sensor`, the demo feeder,
+the client stack. **Do not add your instrument's dependencies there.**
+Three reasons, in order of how soon they bite:
+
+- It is version-controlled, so the edit collides with every `git pull`.
+- It is shared, so a vendor SDK that fails to install — an unreachable
+  licence server, a wrong architecture — stops the whole stack building,
+  including the sensors that have nothing to do with your instrument.
+- Two instruments whose SDKs pin incompatible dependencies cannot share
+  one image at all. A layer each, and they never have to agree.
+
+The same applies to this directory. Copy it somewhere of your own before
+editing, or your changes are in git's way for the same reason.
+
 ## Getting started
 
 The template runs before you have written any instrument code:

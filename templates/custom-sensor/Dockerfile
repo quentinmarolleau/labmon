@@ -1,14 +1,25 @@
-# A sensor container built on the labmon image.
+# Your instrument, built on top of the labmon image.
 #
-# The base image has to exist locally first, since it is built from this
-# repository rather than pulled:
+# This is a layer over the repository's own Dockerfile, not a replacement
+# for it:
 #
-#   docker compose build          # from the repo root, creates labmon:latest
-#   docker compose -f docker-compose.client.yml build
+#   python:3.14-slim  ->  labmon:latest  ->  this file
+#                         (repo root)        (your copy)
 #
-# Then build this one from inside templates/custom-sensor/:
+# labmon:latest is built from the repository rather than pulled, so it has
+# to exist locally first, or the FROM below fails with "pull access
+# denied":
+#
+#   docker compose build          # from the repo root
+#
+# After that, `docker compose up` builds this image for you if the service
+# pasted from compose.snippet.yml points its `build:` at this directory.
+# Building by hand is only needed to test it on its own:
 #
 #   docker build -t my-sensor .
+#
+# The `.` is the build context — the directory COPY can reach. A wheel
+# from your vendor has to sit next to this file; COPY cannot climb out.
 FROM labmon:latest
 
 # Your instrument's Python package. uv is already in the base image; the

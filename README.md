@@ -262,7 +262,9 @@ this repository.
 - `docs/` — usage docs per component
 - `typings/` — local type stubs for untyped third-party dependencies
 - `grafana/` — provisioned datasource and dashboards
-- `Dockerfile` — builds labmon's own code for the containerized sensors
+- `Dockerfile` — builds `labmon:latest`, the one image every service runs
+  and the base a custom sensor layers on; not where instrument-specific
+  dependencies go
 - `docker-compose.yml` — local InfluxDB, Grafana, and demo sensor instances
 - `docker-compose.client.yml` — sensor-only compose file for a remote client machine
 - `calibration.example.toml` — worked example of every sensor conversion mode
