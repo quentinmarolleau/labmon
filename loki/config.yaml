@@ -39,7 +39,10 @@ schema_config:
         period: 24h
 
 limits_config:
-  # How long a log line is kept. The minimum Loki accepts is 24h.
+  # How long a log line is kept. Loki documents 24h as the minimum but does
+  # not enforce it: a shorter value starts cleanly, reports itself back
+  # unchanged, and cannot take effect, because retention is no finer than
+  # the 24h index period above.
   retention_period: ${LOKI_RETENTION_PERIOD:-720h}
 
   # A lab instrument's clock is often wrong, and a device that boots

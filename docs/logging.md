@@ -49,9 +49,16 @@ COMPOSE_PROFILES=demo,logs docker compose down
 LOKI_RETENTION_PERIOD=168h   # a week
 ```
 
-Loki's own minimum is 24h. This is the setting that decides how much disk
-the stack uses over time — log lines are far bulkier than measurements, so
-a year of logs costs more than a year of readings.
+This is the setting that decides how much disk the stack uses over time —
+log lines are far bulkier than measurements, so a year of logs costs more
+than a year of readings.
+
+**Do not set it below 24h.** That is Loki's documented minimum, but Loki
+does not enforce it: `1h` starts cleanly, is reported back by `/config`
+as `1h`, and produces no warning. It will not do what it says either, since
+retention cannot be finer than the 24h index period the schema requires.
+The result is a setting that appears to have been accepted and quietly
+means something else.
 
 Retention only works because `loki/config.yaml` enables the compactor.
 With `retention_enabled` off — Loki's default — the retention period is
