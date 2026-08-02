@@ -11,13 +11,18 @@ x-mock-sensor: &mock-sensor
     - INFLUXDB3_AUTH_TOKEN=${INFLUXDB3_AUTH_TOKEN}
 
 services:
-  # Prepares the two bind-mounted state directories, then exits. Docker
-  # creates a missing bind-mount source as root:root, which leaves influxdb3
-  # (uid 1500) and Grafana (uid 472) unable to write to their own data dirs —
-  # so on a fresh clone InfluxDB dies with "failed to initialize catalog:
-  # Permission denied" and every other service fails its dependency. Doing it
-  # here rather than in a documented `sudo chown` keeps the quickstart to two
-  # commands and needs no host privileges beyond Docker itself.
+  # Prepares the bind-mounted state directories, then exits. Docker creates
+  # a missing bind-mount source as root:root, which leaves influxdb3
+  # (uid 1500), Grafana (uid 472) and Loki (uid 10001) unable to write to
+  # their own data dirs — so on a fresh clone InfluxDB dies with "failed to
+  # initialize catalog: Permission denied" and every other service fails its
+  # dependency. Doing it here rather than in a documented `sudo chown` keeps
+  # the quickstart to two commands and needs no host privileges beyond
+  # Docker itself.
+  #
+  # .loki/data is prepared unconditionally even though Loki is behind the
+  # `logs` profile: this service cannot know which profiles are active, and
+  # an unused empty directory costs nothing.
   #
   # The parent directories are handed to whoever owns the repo, read at run
   # time rather than guessed, so they stay removable without root. Re-running
@@ -38,11 +43,12 @@ services:
       - |
         set -e
         owner="$$(stat -c '%u:%g' /repo)"
-        mkdir -p /repo/.influxdb3/data /repo/.grafana/data
-        chown "$$owner" /repo/.influxdb3 /repo/.grafana
+        mkdir -p /repo/.influxdb3/data /repo/.grafana/data /repo/.loki/data
+        chown "$$owner" /repo/.influxdb3 /repo/.grafana /repo/.loki
         chown 1500:1500 /repo/.influxdb3/data
         chown 472:0 /repo/.grafana/data
-        chmod 755 /repo/.influxdb3/data /repo/.grafana/data
+        chown 10001:10001 /repo/.loki/data
+        chmod 755 /repo/.influxdb3/data /repo/.grafana/data /repo/.loki/data
         echo "state directories ready"
 
   influxdb:
@@ -120,6 +126,82 @@ services:
       timeout: 2s
       retries: 30
       start_period: 5s
+
+  # Log aggregation, behind the `logs` profile: off unless COMPOSE_PROFILES
+  # asks for it, so a metrics-only deployment stays two containers lighter.
+  # See docs/logging.md.
+  loki:
+    image: grafana/loki:3.7.0
+    container_name: loki
+    profiles: [logs]
+    depends_on:
+      init-state-dirs:
+        condition: service_completed_successfully
+    # Not published to the host: only Grafana and Alloy talk to Loki, both
+    # from inside this network. Reaching it from another machine is a
+    # deliberate step, not the default (see docs/logging.md).
+    expose:
+      - "3100"
+    command:
+      - -config.file=/etc/loki/config.yaml
+      # Lets ${LOKI_RETENTION_PERIOD} in the config come from .env.
+      - -config.expand-env=true
+    environment:
+      - LOKI_RETENTION_PERIOD=${LOKI_RETENTION_PERIOD:-720h}
+    volumes:
+      - type: bind
+        source: ./loki/config.yaml
+        target: /etc/loki/config.yaml
+        read_only: true
+      - type: bind
+        source: .loki/data
+        target: /loki
+    # No healthcheck, unlike every other service here: the image is
+    # distroless and contains exactly one binary, /usr/bin/loki. There is
+    # no shell, wget or curl for a CMD check to use, and Docker offers no
+    # way to probe one container from another. Alloy retries a failed push,
+    # so the seconds before Loki is ready cost nothing.
+
+  alloy:
+    image: grafana/alloy:v1.18.0
+    container_name: alloy
+    profiles: [logs]
+    depends_on:
+      # service_started, not service_healthy: Loki has no healthcheck to
+      # wait on (see above). This only orders startup.
+      loki:
+        condition: service_started
+    command:
+      - run
+      - /etc/alloy/config.alloy
+      - --storage.path=/var/lib/alloy/data
+      # Without this the UI binds to localhost inside the container and
+      # the port below reaches nothing.
+      - --server.http.listen-addr=0.0.0.0:12345
+    ports:
+      # Alloy's own UI, showing each component's health and what it last
+      # sent. The first place to look when logs are not arriving.
+      - "12345:12345"
+    volumes:
+      - type: bind
+        source: ./alloy/config.alloy
+        target: /etc/alloy/config.alloy
+        read_only: true
+      # Reading container logs means talking to the Docker API, and access
+      # to this socket is equivalent to root on the host. read_only does
+      # not meaningfully restrict it — the socket is still a full API.
+      # This is the cost of collecting logs without touching each
+      # container; docs/logging.md covers what to do if that trade is
+      # wrong for your machine.
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+        read_only: true
+      # A named volume rather than a bind: this is Alloy's own bookkeeping
+      # (how far it has read in each container's log), not something to
+      # inspect, and Alloy runs as root — a bind would leave a root-owned
+      # directory in the repo that needs sudo to delete.
+      - alloy-data:/var/lib/alloy/data
 
   mock-room-1:
     <<: *mock-sensor
@@ -223,3 +305,9 @@ services:
     command:
       - --port=socket://demo-adc-feeder:5555
       - --calibration=/app/demo/calibration.demo.toml
+
+volumes:
+  # Alloy's read positions. Named rather than bound so nothing root-owned
+  # lands in the repo; `docker compose down -v` resets it, at the cost of
+  # re-reading each container's log from the start.
+  alloy-data:

@@ -1,0 +1,40 @@
+// Collects container logs and ships them to Loki.
+//
+// Alloy replaced Promtail, which reached end of life in March 2026. The
+// syntax here is Alloy's own, not YAML: components are declared and wired
+// together by referring to each other's exports.
+//
+// Nothing in this file is labmon-specific — it collects from every
+// container on the host, including InfluxDB and Grafana themselves, since
+// "why did the sensor stop" is often answered by a different container.
+
+// Discovers containers, and re-reads the list so a sensor started later is
+// picked up without restarting Alloy.
+discovery.docker "containers" {
+	host             = "unix:///var/run/docker.sock"
+	refresh_interval = "15s"
+}
+
+discovery.relabel "containers" {
+	targets = discovery.docker.containers.targets
+
+	// Docker reports names with a leading slash ("/grafana"), which would
+	// otherwise appear in every query.
+	rule {
+		source_labels = ["__meta_docker_container_name"]
+		regex         = "/(.*)"
+		target_label  = "container"
+	}
+}
+
+loki.source.docker "containers" {
+	host       = "unix:///var/run/docker.sock"
+	targets    = discovery.relabel.containers.output
+	forward_to = [loki.write.local.receiver]
+}
+
+loki.write "local" {
+	endpoint {
+		url = "http://loki:3100/loki/api/v1/push"
+	}
+}
