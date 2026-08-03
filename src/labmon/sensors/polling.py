@@ -37,18 +37,14 @@ Requires INFLUXDB3_AUTH_TOKEN to be set (e.g. via .env / direnv).
 """
 
 import logging
-import signal
-import sys
 import time
-from collections import Counter
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
-from types import FrameType
 
 from influxdb_client_3 import Point
 
 from labmon.influx import INFLUXDB_DATABASE, get_client
-from labmon.writer import PointWriter
+from labmon.sensors.loop import SensorLoop
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -57,11 +53,6 @@ logger: logging.Logger = logging.getLogger(__name__)
 # recovery is still noticed promptly once it comes back.
 INITIAL_BACKOFF_SECONDS = 1.0
 MAX_BACKOFF_SECONDS = 60.0
-
-# How often to report that readings are still arriving. Matches
-# serial_sensor: one line per reading is unreadable at any real rate, but
-# silence gives an operator no way to tell "working" from "wedged".
-SUMMARY_INTERVAL_SECONDS = 30.0
 
 
 def build_point(
@@ -157,14 +148,7 @@ def poll(
     Runs until SIGINT (Ctrl+C) or SIGTERM (e.g. `docker stop`), at which
     point queued readings are flushed and the client closed.
     """
-    writer: PointWriter[Point] = PointWriter[Point](get_client())
-
-    def shutdown(_signum: int, _frame: FrameType | None) -> None:
-        writer.close()
-        sys.exit(0)
-
-    _ = signal.signal(signal.SIGINT, shutdown)
-    _ = signal.signal(signal.SIGTERM, shutdown)
+    loop = SensorLoop()
 
     logger.info(
         "Writing '%s' readings for '%s' to %s every %gs",
@@ -174,8 +158,6 @@ def poll(
         interval,
     )
 
-    written: Counter[str] = Counter()
-    next_summary = time.monotonic() + SUMMARY_INTERVAL_SECONDS
     backoff = INITIAL_BACKOFF_SECONDS
 
     while True:
@@ -194,27 +176,16 @@ def poll(
 
         backoff = INITIAL_BACKOFF_SECONDS
         if value is not None:
-            writer.write(
-                build_point(
-                    value,
-                    sensor_id=sensor_id,
-                    measurement=measurement,
-                    unit=unit,
-                    field=field,
-                    tags=tags,
-                )
+            point = build_point(
+                value,
+                sensor_id=sensor_id,
+                measurement=measurement,
+                unit=unit,
+                field=field,
+                tags=tags,
             )
-            written[sensor_id] += 1
+            loop.record(point, sensor_id)
             logger.debug("%s: %.4g %s", sensor_id, value, unit)
 
-        now = time.monotonic()
-        if now >= next_summary:
-            logger.info(
-                "Wrote %d reading(s) in the last %.0fs",
-                written.total(),
-                SUMMARY_INTERVAL_SECONDS,
-            )
-            written.clear()
-            next_summary = now + SUMMARY_INTERVAL_SECONDS
-
+        loop.summarise_if_due()
         time.sleep(interval)

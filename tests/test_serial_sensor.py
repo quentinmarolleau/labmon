@@ -10,6 +10,7 @@ import pytest
 from influxdb_client_3 import Point
 
 from labmon.calibration import Calibration, LinearConversion, ureg
+from labmon.sensors import loop as sensor_loop
 from labmon.sensors import serial_sensor
 from labmon.sensors.serial_sensor import main, run
 from labmon.sensors.serial_source import RawReading
@@ -61,7 +62,7 @@ def _temperature_calibration(store_input: bool = True) -> Calibration:
 @pytest.fixture
 def fake_client(monkeypatch: pytest.MonkeyPatch) -> FakeInfluxClient:
     client = FakeInfluxClient()
-    monkeypatch.setattr(serial_sensor, "get_client", lambda: client)
+    monkeypatch.setattr(sensor_loop, "get_client", lambda: client)
     return client
 
 
@@ -363,7 +364,7 @@ def test_a_summary_is_logged_once_the_interval_elapses(
     # so exactly one summary covering both should be emitted. Patched on
     # the time module itself, which serial_sensor imports rather than
     # re-exports.
-    ticks = iter([0.0, 1.0, serial_sensor.SUMMARY_INTERVAL_SECONDS + 1.0])
+    ticks = iter([0.0, 1.0, sensor_loop.SUMMARY_INTERVAL_SECONDS + 1.0])
     monkeypatch.setattr(time, "monotonic", lambda: next(ticks))
     source = FakeRawSource(
         [
@@ -373,7 +374,7 @@ def test_a_summary_is_logged_once_the_interval_elapses(
     )
 
     with (
-        caplog.at_level(logging.INFO, logger=serial_sensor.logger.name),
+        caplog.at_level(logging.INFO, logger=sensor_loop.logger.name),
         pytest.raises(_StopLoop),
     ):
         run(source=source, calibrations={"A0": _temperature_calibration()})

@@ -8,6 +8,7 @@ from types import FrameType
 import pytest
 from influxdb_client_3 import Point
 
+from labmon.sensors import loop as sensor_loop
 from labmon.sensors import mock_sensor
 from labmon.sensors.mock_sensor import RandomWalk, main, run
 
@@ -68,7 +69,7 @@ def test_run_writes_points_and_shuts_down_cleanly_on_signal(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fake_client = FakeInfluxClient()
-    monkeypatch.setattr(mock_sensor, "get_client", lambda: fake_client)
+    monkeypatch.setattr(sensor_loop, "get_client", lambda: fake_client)
 
     registered_handlers: dict[int, SignalHandler] = {}
 
@@ -105,7 +106,7 @@ def test_run_writes_points_with_custom_measurement_field_and_log_scale(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fake_client = FakeInfluxClient()
-    monkeypatch.setattr(mock_sensor, "get_client", lambda: fake_client)
+    monkeypatch.setattr(sensor_loop, "get_client", lambda: fake_client)
 
     registered_handlers: dict[int, SignalHandler] = {}
 

@@ -21,13 +21,8 @@ Requires INFLUXDB3_AUTH_TOKEN to be set (e.g. via .env / direnv).
 
 import argparse
 import logging
-import signal
-import sys
-import time
-from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
-from types import FrameType
 from typing import cast
 
 from influxdb_client_3 import Point
@@ -40,14 +35,14 @@ from labmon.calibration import (
     raw_to_voltage,
     ureg,
 )
-from labmon.influx import INFLUXDB_DATABASE, get_client
+from labmon.influx import INFLUXDB_DATABASE
+from labmon.sensors.loop import SensorLoop
 from labmon.sensors.serial_source import (
     DEFAULT_BAUDRATE,
     RawSource,
     SerialRawSource,
     open_serial_port,
 )
-from labmon.writer import PointWriter
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -66,14 +61,6 @@ INPUT_FIELD_NAME = "input_volts"
 # field so it can be filtered and grouped on; cardinality stays low
 # because a calibration changes a handful of times over a sensor's life.
 CALIBRATION_ID_TAG = "calibration_id"
-
-# How often to report that readings are still arriving. The per-reading
-# line moved to DEBUG because at 100 Hz across a handful of channels it
-# emits hundreds of lines a second, which costs a fifth of the
-# acquisition loop and buries the warnings worth seeing. This keeps the
-# "it is working" signal an operator actually wants, at a volume a
-# journal can hold.
-SUMMARY_INTERVAL_SECONDS = 30.0
 
 
 def _log_calibrations(calibrations: dict[str, Calibration]) -> None:
@@ -107,15 +94,9 @@ def run(
     received, at which point the serial port and InfluxDB client are
     both closed cleanly.
     """
-    writer: PointWriter[Point] = PointWriter[Point](get_client())
-
-    def shutdown(_signum: int, _frame: FrameType | None) -> None:
-        source.close()
-        writer.close()
-        sys.exit(0)
-
-    _ = signal.signal(signal.SIGINT, shutdown)
-    _ = signal.signal(signal.SIGTERM, shutdown)
+    # The port is closed before the writer, so nothing new arrives while
+    # the queue drains.
+    loop = SensorLoop(closes=source)
 
     logger.info(
         "Writing calibrated readings for channel(s) %s to %s",
@@ -127,9 +108,6 @@ def run(
     # A board may stream channels this host has no calibration for;
     # warn once each rather than on every reading forever.
     warned_channels: set[str] = set()
-
-    written: Counter[str] = Counter()
-    next_summary = time.monotonic() + SUMMARY_INTERVAL_SECONDS
 
     while True:
         reading = source.read()
@@ -164,22 +142,11 @@ def run(
             # correctable after the fact; without it, readings already
             # written can't be recomputed.
             point = point.field(INPUT_FIELD_NAME, voltage.to(ureg.volt).magnitude)
-        writer.write(point)
-        written[calibration.sensor_id] += 1
+        loop.record(point, calibration.sensor_id)
         logger.debug(
             "%s: %.4g %s", calibration.sensor_id, value.magnitude, calibration.unit
         )
-
-        now = time.monotonic()
-        if now >= next_summary:
-            logger.info(
-                "Wrote %d reading(s) in the last %.0fs (%s)",
-                written.total(),
-                SUMMARY_INTERVAL_SECONDS,
-                ", ".join(f"{name} {count}" for name, count in sorted(written.items())),
-            )
-            written.clear()
-            next_summary = now + SUMMARY_INTERVAL_SECONDS
+        loop.summarise_if_due()
 
 
 def main() -> None:

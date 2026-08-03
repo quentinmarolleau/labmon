@@ -8,6 +8,7 @@ from typing import override
 import pytest
 from influxdb_client_3 import Point
 
+from labmon.sensors import loop as sensor_loop
 from labmon.sensors import polling
 from labmon.sensors.polling import build_point, poll, write_reading
 
@@ -45,6 +46,10 @@ class FakeInfluxClient:
 @pytest.fixture
 def fake_client(monkeypatch: pytest.MonkeyPatch) -> FakeInfluxClient:
     client = FakeInfluxClient()
+    # Two seams: poll() gets its client through SensorLoop, while
+    # write_reading() opens one directly because it must flush before it
+    # returns. Both are patched to the same fake.
+    monkeypatch.setattr(sensor_loop, "get_client", lambda: client)
     monkeypatch.setattr(polling, "get_client", lambda: client)
     return client
 
@@ -328,11 +333,11 @@ def test_poll_summarises_once_the_interval_elapses(
 ) -> None:
     """The per-reading line is DEBUG, so this carries "it is still working"."""
     # The clock passes the summary interval only on the second reading.
-    ticks = iter([0.0, 1.0, polling.SUMMARY_INTERVAL_SECONDS + 1.0])
+    ticks = iter([0.0, 1.0, sensor_loop.SUMMARY_INTERVAL_SECONDS + 1.0])
     monkeypatch.setattr(time, "monotonic", lambda: next(ticks))
 
     with (
-        caplog.at_level(logging.INFO, logger=polling.logger.name),
+        caplog.at_level(logging.INFO, logger=sensor_loop.logger.name),
         pytest.raises(_StopLoop),
     ):
         poll(_stop_after([1.0, 2.0]), sensor_id="c", measurement="m")
@@ -342,4 +347,4 @@ def test_poll_summarises_once_the_interval_elapses(
         for record in caplog.records
         if "Wrote" in record.getMessage()
     ]
-    assert summaries == ["Wrote 2 reading(s) in the last 30s"]
+    assert summaries == ["Wrote 2 reading(s) in the last 30s (c 2)"]

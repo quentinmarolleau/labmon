@@ -20,17 +20,14 @@ Requires INFLUXDB3_AUTH_TOKEN to be set (e.g. via .env / direnv).
 import argparse
 import math
 import random
-import signal
-import sys
 import time
 from datetime import UTC, datetime
-from types import FrameType
 from typing import cast
 
 from influxdb_client_3 import Point
 
-from labmon.influx import INFLUXDB_DATABASE, get_client
-from labmon.writer import PointWriter
+from labmon.influx import INFLUXDB_DATABASE
+from labmon.sensors.loop import SensorLoop
 
 
 class RandomWalk:
@@ -78,15 +75,10 @@ def run(
     Runs until a SIGINT (Ctrl+C) or SIGTERM (e.g. `docker stop`) is
     received, at which point the InfluxDB client is closed cleanly.
     """
-    writer: PointWriter[Point] = PointWriter[Point](get_client())
+    # No summary: this sensor already prints every reading, so one would
+    # only repeat what is on the line above it.
+    loop = SensorLoop(summary_interval=None)
     walk = RandomWalk(setpoint=setpoint, noise=noise, log_scale=log_scale)
-
-    def shutdown(_signum: int, _frame: FrameType | None) -> None:
-        writer.close()
-        sys.exit(0)
-
-    _ = signal.signal(signal.SIGINT, shutdown)
-    _ = signal.signal(signal.SIGTERM, shutdown)
 
     unit_suffix = f" {unit}" if unit else ""
     print(
@@ -100,7 +92,7 @@ def run(
         if unit:
             point = point.tag("unit", unit)
         point = point.field(field, reading).time(reading_time, write_precision="ms")
-        writer.write(point)
+        loop.record(point, sensor_id)
         print(f"{sensor_id}: {reading:.4g}{unit_suffix}")
         time.sleep(interval)
 
