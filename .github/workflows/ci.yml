@@ -1,8 +1,15 @@
 name: CI
 
 on:
+  # No branch filter on pull_request, so a PR based on another feature
+  # branch is checked too. With one, a stacked PR matches nothing and
+  # GitHub reports "no checks reported" rather than failing — so it can
+  # look mergeable having never been tested. That happened twice while
+  # building the custom-sensor and log-aggregation series.
+  #
+  # push stays filtered: a branch push with an open PR is already covered
+  # by pull_request, and filtering here avoids running everything twice.
   pull_request:
-    branches: [main]
   push:
     branches: [main]
 
