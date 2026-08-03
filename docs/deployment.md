@@ -28,6 +28,17 @@ machine's `.env`: `docker compose up -d --wait` then starts only
 `influxdb` and `grafana` — nothing simulates sensor data, since real
 clients will be doing that over the network instead.
 
+The other profile is `logs`, which adds Loki and Alloy to collect every
+container's output. It is off by default and is independent of `demo`, so
+a server that wants log aggregation but no simulated sensors sets
+`COMPOSE_PROFILES=logs`. See [`docs/logging.md`](logging.md), including
+what mounting the Docker socket costs.
+
+Note that a profile is needed to stop its services as well as to start
+them. `docker compose down` on a stack brought up with
+`COMPOSE_PROFILES=demo,logs` leaves Loki and Alloy running unless the same
+profiles are set.
+
 `GRAFANA_PLUGINS` is the other variable to leave blank on a server. It
 lists Grafana panel plugins to fetch at startup, and the demo sets it to
 the one plugin its detuning gauge needs. Unset, Grafana installs nothing

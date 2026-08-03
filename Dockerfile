@@ -26,4 +26,12 @@ COPY src ./src
 RUN uv sync --locked --no-dev
 
 ENV PATH="/app/.venv/bin:$PATH"
+
+# Python block-buffers stdout when it is not a terminal, which it never is
+# in a container. A sensor printing one short line per reading fills that
+# buffer so slowly that `docker compose logs` shows nothing for twenty
+# minutes, and a log collector has nothing to collect — both of which look
+# like a dead sensor rather than a buffering artefact.
+ENV PYTHONUNBUFFERED=1
+
 ENTRYPOINT ["mock-sensor"]

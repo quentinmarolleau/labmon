@@ -261,11 +261,12 @@ this repository.
 - `tests/` — pytest suite
 - `docs/` — usage docs per component
 - `typings/` — local type stubs for untyped third-party dependencies
-- `grafana/` — provisioned datasource and dashboards
+- `grafana/` — provisioned datasources and dashboards
+- `loki/` · `alloy/` — log storage and collection, behind the `logs` profile
 - `Dockerfile` — builds `labmon:latest`, the one image every service runs
   and the base a custom sensor layers on; not where instrument-specific
   dependencies go
-- `docker-compose.yml` — local InfluxDB, Grafana, and demo sensor instances
+- `docker-compose.yml` — local InfluxDB, Grafana, demo sensors, and optional log aggregation
 - `docker-compose.client.yml` — sensor-only compose file for a remote client machine
 - `calibration.example.toml` — worked example of every sensor conversion mode
 - `deploy/` — systemd units and docs for machines that can't run the containers

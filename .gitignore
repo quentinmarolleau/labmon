@@ -25,6 +25,9 @@ coverage.xml
 # Grafana local data
 .grafana/data/
 
+# Loki local data
+.loki/
+
 # Personal experimentation (marimo notebooks, not part of the package)
 __marimo__/
 /test.py

@@ -3,6 +3,7 @@
 .github
 .grafana
 .influxdb3
+.loki
 __marimo__
 __pycache__
 .pytest_cache

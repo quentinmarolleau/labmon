@@ -1,0 +1,69 @@
+# Single-binary Loki for a lab-sized deployment: one process, logs on the
+# local filesystem, no object store and no clustering.
+#
+# Started from the config the image ships at /etc/loki/local-config.yaml,
+# with retention and analytics changed. Everything else is that file
+# verbatim, so it can be diffed against a newer image's default.
+#
+# Read with -config.expand-env=true, so ${VAR} below comes from .env.
+
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  # The default is `info`, which reports every successful push. On a stack
+  # whose whole job is collecting logs, that is a log source in itself.
+  log_level: warn
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: 2020-10-24
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        # Retention requires a 24h index period. Do not shorten it.
+        period: 24h
+
+limits_config:
+  # How long a log line is kept. Loki documents 24h as the minimum but does
+  # not enforce it: a shorter value starts cleanly, reports itself back
+  # unchanged, and cannot take effect, because retention is no finer than
+  # the 24h index period above.
+  retention_period: ${LOKI_RETENTION_PERIOD:-720h}
+
+  # A lab instrument's clock is often wrong, and a device that boots
+  # without NTP can stamp lines hours out. Accepting them keeps the
+  # evidence; the default rejects anything older than a week.
+  reject_old_samples: false
+
+compactor:
+  working_directory: /loki/compactor
+  compaction_interval: 10m
+  # Without this the compactor only compacts, and retention_period above
+  # is silently ignored — logs accumulate until the disk fills.
+  retention_enabled: true
+  retention_delete_delay: 2h
+  delete_request_store: filesystem
+
+ruler:
+  alertmanager_url: http://localhost:9093
+
+# Off by default here. Loki otherwise reports usage statistics to
+# Grafana Labs, which is not a reasonable default for a machine sitting on
+# a lab network.
+analytics:
+  reporting_enabled: false

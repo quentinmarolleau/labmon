@@ -1,0 +1,15 @@
+apiVersion: 1
+
+datasources:
+  - name: Loki
+    uid: loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    # InfluxDB3 stays the default: measurements are what most panels want,
+    # and logs are reached deliberately.
+    isDefault: false
+    jsonData:
+      # Loki holds far less history than InfluxDB. Asking for a year of
+      # logs returns nothing useful and takes a while to do it.
+      maxLines: 1000
