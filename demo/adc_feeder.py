@@ -16,6 +16,7 @@ conversions per reading rather than sending one snapshot.
 Stdlib only, so it runs in the labmon image as-is.
 """
 
+import logging
 import math
 import os
 import random
@@ -37,6 +38,8 @@ FULL_SCALE = (1 << RESOLUTION_BITS) - 1
 VREF = 3.3
 
 SAMPLE_INTERVAL_SECONDS = 1.0
+
+logger: logging.Logger = logging.getLogger("adc-feeder")
 
 
 def _counts(volts: float) -> float:
@@ -102,12 +105,12 @@ def serve(host: str = HOST, port: int = PORT) -> None:
     listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     listener.bind((host, port))
     listener.listen(1)
-    print(f"adc-feeder listening on {host}:{port}", flush=True)
+    logger.info("msg=listening host=%s port=%d", host, port)
 
     started = time.monotonic()
     while True:
         client, address = listener.accept()
-        print(f"adc-feeder: {address[0]} connected", flush=True)
+        logger.info('msg="client connected" peer=%s', address[0])
         try:
             with client:
                 while True:
@@ -118,10 +121,22 @@ def serve(host: str = HOST, port: int = PORT) -> None:
                     time.sleep(SAMPLE_INTERVAL_SECONDS)
         except (BrokenPipeError, ConnectionResetError):
             # serial-sensor restarted; wait for it to come back.
-            print("adc-feeder: client gone, waiting", flush=True)
+            logger.info('msg="client gone, waiting"')
 
 
 if __name__ == "__main__":
+    # The same logfmt shape the sensors emit, spelled out rather than
+    # imported: this file is stdlib-only so it can run in the labmon image
+    # without being part of the package.
+    # Lower-case level names, matching what labmon.logs emits so both
+    # halves of the demo read the same way in Grafana.
+    for level in (logging.DEBUG, logging.INFO, logging.WARNING, logging.ERROR):
+        logging.addLevelName(level, logging.getLevelName(level).lower())
+    logging.basicConfig(
+        level=logging.INFO,
+        format="ts=%(asctime)s level=%(levelname)s logger=%(name)s %(message)s",
+        datefmt="%Y-%m-%dT%H:%M:%S%z",
+    )
     try:
         serve()
     except KeyboardInterrupt:

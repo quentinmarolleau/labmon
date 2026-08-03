@@ -15,6 +15,15 @@ from labmon.sensors.polling import build_point, poll, write_reading
 SignalHandler = Callable[[int, FrameType | None], None]
 
 
+def _field(record: logging.LogRecord, name: str) -> object:
+    """Read a logfmt field off a record.
+
+    `extra=` fields become attributes a type checker cannot know about,
+    so this says plainly that the lookup is dynamic.
+    """
+    return getattr(record, name)  # pyright: ignore[reportAny]
+
+
 class _StopLoop(BaseException):
     """Breaks out of poll()'s infinite loop.
 
@@ -342,9 +351,7 @@ def test_poll_summarises_once_the_interval_elapses(
     ):
         poll(_stop_after([1.0, 2.0]), sensor_id="c", measurement="m")
 
-    summaries = [
-        record.getMessage()
-        for record in caplog.records
-        if "Wrote" in record.getMessage()
+    summaries = [r for r in caplog.records if r.getMessage() == "wrote readings"]
+    assert [(_field(r, "sensor_id"), _field(r, "readings")) for r in summaries] == [
+        ("c", 2)
     ]
-    assert summaries == ["Wrote 2 reading(s) in the last 30s (c 2)"]

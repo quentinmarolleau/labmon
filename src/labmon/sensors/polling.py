@@ -151,11 +151,13 @@ def poll(
     loop = SensorLoop()
 
     logger.info(
-        "Writing '%s' readings for '%s' to %s every %gs",
-        measurement,
-        sensor_id,
-        INFLUXDB_DATABASE,
-        interval,
+        "writing readings",
+        extra={
+            "sensor_id": sensor_id,
+            "measurement": measurement,
+            "database": INFLUXDB_DATABASE,
+            "interval_s": interval,
+        },
     )
 
     backoff = INITIAL_BACKOFF_SECONDS
@@ -165,9 +167,8 @@ def poll(
             value = read()
         except Exception:
             logger.warning(
-                "Reading '%s' failed; retrying in %.0fs",
-                sensor_id,
-                backoff,
+                "read failed",
+                extra={"sensor_id": sensor_id, "retry_in_s": f"{backoff:.0f}"},
                 exc_info=True,
             )
             time.sleep(backoff)
@@ -185,7 +186,14 @@ def poll(
                 tags=tags,
             )
             loop.record(point, sensor_id)
-            logger.debug("%s: %.4g %s", sensor_id, value, unit)
+            logger.debug(
+                "reading",
+                extra={
+                    "sensor_id": sensor_id,
+                    "value": f"{value:.4g}",
+                    "unit": unit,
+                },
+            )
 
         loop.summarise_if_due()
         time.sleep(interval)

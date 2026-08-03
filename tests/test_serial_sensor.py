@@ -18,6 +18,15 @@ from labmon.sensors.serial_source import RawReading
 SignalHandler = Callable[[int, FrameType | None], None]
 
 
+def _field(record: logging.LogRecord, name: str) -> object:
+    """Read a logfmt field off a record.
+
+    `extra=` fields become attributes a type checker cannot know about,
+    so this says plainly that the lookup is dynamic.
+    """
+    return getattr(record, name)  # pyright: ignore[reportAny]
+
+
 class _StopLoop(Exception):
     pass
 
@@ -175,8 +184,10 @@ def test_run_logs_the_calibration_and_provenance_of_every_channel(
     with caplog.at_level(logging.INFO), pytest.raises(_StopLoop):
         run(source=FakeRawSource([]), calibrations={"A0": calibration})
 
-    assert f"calibration {calibration.calibration_id}" in caplog.text
-    assert "Lakeshore 336" in caplog.text
+    [record] = [r for r in caplog.records if r.getMessage() == "calibration in force"]
+    assert _field(record, "calibration_id") == calibration.calibration_id
+    assert _field(record, "sensor_id") == "cryo-77k"
+    assert "Lakeshore 336" in str(_field(record, "provenance"))
 
 
 @pytest.mark.usefixtures("fake_client")
@@ -240,8 +251,13 @@ def test_run_warns_once_per_uncalibrated_channel(
         registered_handlers[signal.SIGINT](signal.SIGINT, None)
 
     # A board streaming an unmapped channel shouldn't flood the log.
-    assert caplog.text.count("No calibration for channel") == 1
-    assert "A7" in caplog.text
+    warnings = [
+        r
+        for r in caplog.records
+        if r.getMessage() == "no calibration for channel; ignoring its readings"
+    ]
+    assert len(warnings) == 1
+    assert _field(warnings[0], "channel") == "A7"
     [batch] = fake_client.batches
     assert len(batch) == 1
 
@@ -348,10 +364,12 @@ def test_per_reading_lines_are_debug_not_info(
     ):
         run(source=source, calibrations={"A0": _temperature_calibration()})
 
-    reading_lines = [
-        record for record in caplog.records if "140.2" in record.getMessage()
-    ]
-    assert [record.levelno for record in reading_lines] == [logging.DEBUG]
+    reading_lines = [r for r in caplog.records if r.getMessage() == "reading"]
+    assert [r.levelno for r in reading_lines] == [logging.DEBUG]
+    # The value travels as a field, not inside the sentence — which is
+    # what lets a collector pick it out.
+    assert _field(reading_lines[0], "sensor_id") == "cryo-77k"
+    assert str(_field(reading_lines[0], "value")).startswith("140.2")
 
 
 @pytest.mark.usefixtures("fake_client", "registered_handlers")
@@ -379,9 +397,7 @@ def test_a_summary_is_logged_once_the_interval_elapses(
     ):
         run(source=source, calibrations={"A0": _temperature_calibration()})
 
-    summaries = [
-        record.getMessage()
-        for record in caplog.records
-        if "Wrote" in record.getMessage()
+    summaries = [r for r in caplog.records if r.getMessage() == "wrote readings"]
+    assert [(_field(r, "sensor_id"), _field(r, "readings")) for r in summaries] == [
+        ("cryo-77k", 2)
     ]
-    assert summaries == ["Wrote 2 reading(s) in the last 30s (cryo-77k 2)"]

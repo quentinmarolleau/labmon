@@ -13,6 +13,15 @@ from labmon.sensors.loop import SensorLoop
 SignalHandler = Callable[[int, FrameType | None], None]
 
 
+def _field(record: logging.LogRecord, name: str) -> object:
+    """Read a logfmt field off a record.
+
+    `extra=` fields become attributes a type checker cannot know about,
+    so this says plainly that the lookup is dynamic.
+    """
+    return getattr(record, name)  # pyright: ignore[reportAny]
+
+
 class FakeInfluxClient:
     def __init__(self) -> None:
         self.batches: list[list[Point]] = []
@@ -121,7 +130,14 @@ def test_the_summary_names_each_sensor_and_its_count(
     with caplog.at_level(logging.INFO, logger=sensor_loop.logger.name):
         loop.summarise_if_due()
 
-    assert "Wrote 3 reading(s) in the last 30s (cryo-77k 2, room-1 1)" in caplog.text
+    # One record per sensor, each naming its own — so a collector can
+    # label them individually rather than parsing one combined sentence.
+    summaries = [r for r in caplog.records if r.getMessage() == "wrote readings"]
+    assert [(_field(r, "sensor_id"), _field(r, "readings")) for r in summaries] == [
+        ("cryo-77k", 2),
+        ("room-1", 1),
+    ]
+    assert all(_field(r, "window_s") == "30" for r in summaries)
 
 
 @pytest.mark.usefixtures("fake_client", "registered_handlers")
@@ -136,7 +152,7 @@ def test_the_summary_waits_for_its_interval(
     with caplog.at_level(logging.INFO, logger=sensor_loop.logger.name):
         loop.summarise_if_due()
 
-    assert "Wrote" not in caplog.text
+    assert "wrote readings" not in caplog.text
 
 
 @pytest.mark.usefixtures("fake_client", "registered_handlers")
@@ -150,4 +166,4 @@ def test_a_loop_without_a_summary_never_emits_one(
     with caplog.at_level(logging.INFO, logger=sensor_loop.logger.name):
         loop.summarise_if_due()
 
-    assert "Wrote" not in caplog.text
+    assert "wrote readings" not in caplog.text

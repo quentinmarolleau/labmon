@@ -27,6 +27,7 @@ from typing import cast
 
 from influxdb_client_3 import Point
 
+from labmon import logs
 from labmon.calibration import (
     ADC_RESOLUTION_BITS,
     ADC_VREF_VOLTS,
@@ -74,11 +75,13 @@ def _log_calibrations(calibrations: dict[str, Calibration]) -> None:
             f"{key}={value!r}" for key, value in calibration.provenance.items()
         )
         logger.info(
-            "Channel %s: %s calibration %s%s",
-            channel,
-            calibration.sensor_id,
-            calibration.calibration_id,
-            f" ({details})" if details else "",
+            "calibration in force",
+            extra={
+                "channel": channel,
+                "sensor_id": calibration.sensor_id,
+                "calibration_id": calibration.calibration_id,
+                "provenance": details or "-",
+            },
         )
 
 
@@ -99,9 +102,11 @@ def run(
     loop = SensorLoop(closes=source)
 
     logger.info(
-        "Writing calibrated readings for channel(s) %s to %s",
-        ", ".join(sorted(calibrations)) or "(none configured)",
-        INFLUXDB_DATABASE,
+        "writing calibrated readings",
+        extra={
+            "channels": ",".join(sorted(calibrations)) or "-",
+            "database": INFLUXDB_DATABASE,
+        },
     )
     _log_calibrations(calibrations)
 
@@ -119,8 +124,8 @@ def run(
             if reading.channel not in warned_channels:
                 warned_channels.add(reading.channel)
                 logger.warning(
-                    "No calibration for channel %r; ignoring its readings",
-                    reading.channel,
+                    "no calibration for channel; ignoring its readings",
+                    extra={"channel": reading.channel},
                 )
             continue
 
@@ -144,7 +149,12 @@ def run(
             point = point.field(INPUT_FIELD_NAME, voltage.to(ureg.volt).magnitude)
         loop.record(point, calibration.sensor_id)
         logger.debug(
-            "%s: %.4g %s", calibration.sensor_id, value.magnitude, calibration.unit
+            "reading",
+            extra={
+                "sensor_id": calibration.sensor_id,
+                "value": f"{value.magnitude:.4g}",
+                "unit": calibration.unit,
+            },
         )
         loop.summarise_if_due()
 
@@ -182,6 +192,11 @@ def main() -> None:
         default=ADC_VREF_VOLTS,
         help="ADC reference voltage (default suits a 3.3V part)",
     )
+    _ = parser.add_argument(
+        "--log-level",
+        default="INFO",
+        help="DEBUG shows every reading; INFO shows startup and the summary",
+    )
     args = parser.parse_args()
 
     port = cast(str, args.port)
@@ -190,9 +205,7 @@ def main() -> None:
     resolution_bits = cast(int, args.resolution_bits)
     v_ref = cast(float, args.vref)
 
-    logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
-    )
+    logs.configure(getattr(logging, cast(str, args.log_level).upper(), logging.INFO))
 
     # Load the calibration before opening the port: a bad config should
     # fail immediately rather than after touching the hardware.

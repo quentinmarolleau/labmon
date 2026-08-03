@@ -64,6 +64,42 @@ Retention only works because `loki/config.yaml` enables the compactor.
 With `retention_enabled` off — Loki's default — the retention period is
 silently ignored and logs accumulate until the disk fills.
 
+## What a sensor line looks like
+
+Sensors emit [logfmt](https://brandur.org/logfmt): named fields rather
+than prose, so a collector can pick out what it needs and a person can
+still read the line.
+
+```
+ts=2026-08-04T09:31:07.412+00:00 level=info logger=labmon.sensors.loop \
+  msg="wrote readings" readings=7 sensor_id=room-1 window_s=30
+```
+
+Query on the fields in Grafana:
+
+```logql
+{container=~".+"} | logfmt | level="warning"
+{container=~".+"} | logfmt | sensor_id="cryo-77k"
+```
+
+### What is logged, and at what level
+
+**Readings are DEBUG, and off by default.** At 100 Hz across a handful of
+channels they are hundreds of lines a second, and Loki would end up
+storing a second copy of what InfluxDB already holds far more compactly.
+
+**Events are INFO**, each carrying `sensor_id`: startup, the periodic
+summary every 30s, every warning and every error. Those are what you
+correlate against a flat trace — "why did this stop" is answered by a
+warning, not by the last normal reading.
+
+To see every reading while bringing a board up:
+
+```bash
+uv run mock-sensor --log-level debug
+uv run serial-sensor --port … --calibration … --log-level debug
+```
+
 ## Where it collects from
 
 Alloy reads container output through the Docker API. That means anything a

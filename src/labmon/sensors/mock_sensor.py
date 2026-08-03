@@ -18,6 +18,7 @@ Requires INFLUXDB3_AUTH_TOKEN to be set (e.g. via .env / direnv).
 """
 
 import argparse
+import logging
 import math
 import random
 import time
@@ -26,8 +27,11 @@ from typing import cast
 
 from influxdb_client_3 import Point
 
+from labmon import logs
 from labmon.influx import INFLUXDB_DATABASE
 from labmon.sensors.loop import SensorLoop
+
+logger: logging.Logger = logging.getLogger(__name__)
 
 
 class RandomWalk:
@@ -75,15 +79,20 @@ def run(
     Runs until a SIGINT (Ctrl+C) or SIGTERM (e.g. `docker stop`) is
     received, at which point the InfluxDB client is closed cleanly.
     """
-    # No summary: this sensor already prints every reading, so one would
-    # only repeat what is on the line above it.
-    loop = SensorLoop(summary_interval=None)
+    # The summary is on now that per-reading lines are DEBUG. Without it a
+    # sensor at the default level would say nothing at all after startup,
+    # and silence is indistinguishable from a wedged process.
+    loop = SensorLoop()
     walk = RandomWalk(setpoint=setpoint, noise=noise, log_scale=log_scale)
 
-    unit_suffix = f" {unit}" if unit else ""
-    print(
-        f"Writing mock '{measurement}' readings for '{sensor_id}' to "
-        + f"{INFLUXDB_DATABASE} every {interval}s"
+    logger.info(
+        "writing simulated readings",
+        extra={
+            "sensor_id": sensor_id,
+            "measurement": measurement,
+            "database": INFLUXDB_DATABASE,
+            "interval_s": interval,
+        },
     )
     while True:
         reading_time = datetime.now(UTC)
@@ -93,7 +102,11 @@ def run(
             point = point.tag("unit", unit)
         point = point.field(field, reading).time(reading_time, write_precision="ms")
         loop.record(point, sensor_id)
-        print(f"{sensor_id}: {reading:.4g}{unit_suffix}")
+        logger.debug(
+            "reading",
+            extra={"sensor_id": sensor_id, "value": f"{reading:.4g}", "unit": unit},
+        )
+        loop.summarise_if_due()
         time.sleep(interval)
 
 
@@ -142,7 +155,14 @@ def main() -> None:
         help="Unit of the reading (e.g. '°C', 'K', 'mbar'). Written as an "
         + "InfluxDB tag (when set) and shown in the console output.",
     )
+    _ = parser.add_argument(
+        "--log-level",
+        default="INFO",
+        help="DEBUG shows every reading; INFO shows startup and the summary",
+    )
     args = parser.parse_args()
+
+    logs.configure(getattr(logging, cast(str, args.log_level).upper(), logging.INFO))
 
     sensor_id = cast(str, args.sensor_id)
     interval = cast(float, args.interval)

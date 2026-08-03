@@ -90,14 +90,17 @@ class SensorLoop:
         now = time.monotonic()
         if now < self._next_summary:
             return
-        logger.info(
-            "Wrote %d reading(s) in the last %.0fs (%s)",
-            self._written.total(),
-            self._summary_interval,
-            ", ".join(
-                f"{name} {count}" for name, count in sorted(self._written.items())
+        # One line per sensor rather than one line listing all of them:
+        # each carries its own sensor_id field, so a collector can label
+        # it and a query for one instrument returns only its own lines.
+        for sensor_id, count in sorted(self._written.items()):
+            logger.info(
+                "wrote readings",
+                extra={
+                    "sensor_id": sensor_id,
+                    "readings": count,
+                    "window_s": f"{self._summary_interval:.0f}",
+                },
             )
-            or "none",
-        )
         self._written.clear()
         self._next_summary = now + self._summary_interval
