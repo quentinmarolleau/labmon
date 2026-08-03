@@ -8,8 +8,11 @@
 #   sudo systemctl daemon-reload
 #   sudo systemctl enable --now labmon-custom-sensor-triggered.timer
 #
-# Note that the *timer* is enabled, not the service. Enabling the service
-# instead would run it once at boot and never again.
+# Note that the *timer* is enabled, not the service. This file has no
+# [Install] section, deliberately: a unit something else starts has
+# nothing to install itself into. `systemctl enable` on it therefore does
+# nothing but print an explanation, so the mistake costs a moment rather
+# than a silent gap in the data.
 
 [Unit]
 Description=labmon custom API sensor (single reading)

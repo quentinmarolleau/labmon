@@ -41,13 +41,18 @@ editing before they will start.
 
 ## Two things that catch people out
 
-**Enable the timer, not the service it starts.** A `Type=oneshot` service
-enabled on its own runs once at boot and never again:
+**Enable the timer, not the service it starts.**
 
 ```bash
-sudo systemctl enable --now labmon-custom-sensor-triggered.timer   # correct
-sudo systemctl enable --now labmon-custom-sensor-triggered.service # runs once, ever
+sudo systemctl enable --now labmon-custom-sensor-triggered.timer
 ```
+
+`labmon-custom-sensor-triggered.service` has no `[Install]` section, since
+a unit started by something else has nothing to install itself into.
+`systemctl enable` on it prints an explanation and does nothing, so
+reaching for the wrong one costs a moment rather than a silent gap in the
+data. `--now` on the timer matters though: `enable` alone only schedules
+it from the next boot.
 
 **A triggered unit has no `Restart=` on purpose.** A failed reading waits
 for the next scheduled run rather than retrying immediately — retrying a

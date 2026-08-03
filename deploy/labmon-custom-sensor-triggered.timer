@@ -24,6 +24,12 @@ OnCalendar=*:0/15
 # sensors share one rate-limited API.
 RandomizedDelaySec=30s
 
+# Note that systemd batches timer wakeups to within a minute by default
+# (AccuracySec), on top of the delay above. Neither matters at a
+# fifteen-minute cadence, but both are why a timer shortened to seconds
+# appears not to fire on time. Set AccuracySec=1s if a short interval ever
+# has to be exact.
+
 # Run once at boot if the machine was off when a run was due, rather than
 # silently skipping until the next slot.
 Persistent=true
