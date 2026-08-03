@@ -206,6 +206,8 @@ services:
   mock-room-1:
     <<: *mock-sensor
     container_name: mock-room-1
+    labels:
+      labmon.sensor_id: room-1
     command:
       - --sensor-id=room-1
       - --measurement=temperature
@@ -216,6 +218,8 @@ services:
   mock-room-2:
     <<: *mock-sensor
     container_name: mock-room-2
+    labels:
+      labmon.sensor_id: room-2
     command:
       - --sensor-id=room-2
       - --measurement=temperature
@@ -226,6 +230,8 @@ services:
   mock-cryo-77k:
     <<: *mock-sensor
     container_name: mock-cryo-77k
+    labels:
+      labmon.sensor_id: cryo-77k
     command:
       - --sensor-id=cryo-77k
       - --measurement=temperature
@@ -236,6 +242,8 @@ services:
   mock-cryo-4k:
     <<: *mock-sensor
     container_name: mock-cryo-4k
+    labels:
+      labmon.sensor_id: cryo-4k
     command:
       - --sensor-id=cryo-4k
       - --measurement=temperature
@@ -246,6 +254,8 @@ services:
   mock-pressure:
     <<: *mock-sensor
     container_name: mock-pressure
+    labels:
+      labmon.sensor_id: chamber-1
     command:
       - --sensor-id=chamber-1
       - --measurement=pressure
@@ -260,6 +270,8 @@ services:
   mock-wavemeter:
     <<: *mock-sensor
     container_name: mock-wavemeter
+    labels:
+      labmon.sensor_id: wavemeter-1
     command:
       - --sensor-id=wavemeter-1
       - --measurement=frequency

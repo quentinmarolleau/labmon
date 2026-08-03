@@ -75,6 +75,44 @@ still works exactly as before and is often quicker for a glance; Loki is
 for history, for correlating two containers, and for looking at a machine
 you are not sitting in front of.
 
+## Finding a sensor's logs from its readings
+
+A container can declare which sensor it is, and Alloy turns that into a
+Loki label spelled exactly like the InfluxDB tag:
+
+```yaml
+  my-sensor:
+    labels:
+      labmon.sensor_id: cryo-77k
+```
+
+Then one identifier reaches both halves of the stack. In Grafana, a
+measurement filtered by `sensor_id = 'cryo-77k'` and a log query of
+`{sensor_id="cryo-77k"}` describe the same instrument, so a trace that
+went flat and the lines written while it was going flat can sit on one
+screen.
+
+The demo's six mock sensors carry the label, which is where the values
+under **Explore → Loki → label browser** come from.
+
+A container with no such label simply has no `sensor_id`, rather than an
+empty one — an empty label value would be a series of its own and would
+clutter every label browser in Grafana.
+
+### One container, several sensors
+
+The label describes a *container*, so it only fits when a container is one
+sensor. `demo-serial-sensor` is the counter-example: it reads six
+calibrated channels — `cryo-diode`, `bias-monitor`, `pirani-1`, `laser-1`,
+`beam-x`, `beam-y` — and no single value would be true.
+
+It is therefore left unlabelled, and its logs are reached by
+`{container="demo-serial-sensor"}`. Splitting them per channel would mean
+parsing each line rather than reading a container's metadata, which is a
+larger and more fragile thing than this buys. If you have a multi-channel
+sensor whose logs you want split, one container per channel is the simpler
+answer.
+
 ### If a container's output never appears
 
 Almost always buffering rather than collection. Python block-buffers stdout

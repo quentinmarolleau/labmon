@@ -25,6 +25,20 @@ discovery.relabel "containers" {
 		regex         = "/(.*)"
 		target_label  = "container"
 	}
+
+	// A container that declares which sensor it is gets that as a label,
+	// spelled exactly as the InfluxDB tag, so a reading and the lines the
+	// sensor wrote while producing it can be filtered by the same value.
+	//
+	// Docker sanitises the label name on the way in: labmon.sensor_id
+	// becomes __meta_docker_container_label_labmon_sensor_id. A container
+	// without the label produces no sensor_id at all rather than an empty
+	// one, which would otherwise be a series of its own.
+	rule {
+		source_labels = ["__meta_docker_container_label_labmon_sensor_id"]
+		regex         = "(.+)"
+		target_label  = "sensor_id"
+	}
 }
 
 loki.source.docker "containers" {
