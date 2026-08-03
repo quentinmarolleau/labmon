@@ -58,10 +58,21 @@ jobs:
       - name: Every dashboard query returns rows
         run: python3 scripts/smoke_dashboard.py --timeout 180
 
+      # Adding the profile to a running stack rather than starting a second
+      # one: Loki and Alloy join what is already up, so this costs two
+      # containers rather than another full bootstrap.
+      - name: Start log collection
+        run: COMPOSE_PROFILES=demo,logs docker compose up -d --wait loki alloy
+
+      - name: Every container's logs reach Loki
+        run: python3 scripts/smoke_logs.py --timeout 120
+
       - name: Logs
         if: failure()
-        run: docker compose logs --no-color --tail 200
+        run: COMPOSE_PROFILES=demo,logs docker compose logs --no-color --tail 200
 
+      # The profile is needed to stop its services as well as to start
+      # them; without it Loki and Alloy are left running.
       - name: Stop
         if: always()
-        run: docker compose down -v
+        run: COMPOSE_PROFILES=demo,logs docker compose down -v
