@@ -10,6 +10,7 @@ import pytest
 from influxdb_client_3 import Point
 
 from labmon.calibration import Calibration, LinearConversion, ureg
+from labmon.gate import RecordingRule
 from labmon.sensors import loop as sensor_loop
 from labmon.sensors import serial_sensor
 from labmon.sensors.serial_sensor import main, run
@@ -424,3 +425,150 @@ def test_an_unknown_log_level_is_rejected(monkeypatch: pytest.MonkeyPatch) -> No
         main()
 
     assert exit_info.value.code == 2
+
+
+# --------------------------------------------------------------------------
+# the recording gate
+# --------------------------------------------------------------------------
+
+
+def _gated_calibration(dwell_seconds: float = 0.0) -> Calibration:
+    """A photodiode reading 42.5 mW per volt, gated below 1 mW."""
+    return Calibration(
+        sensor_id="laser-1",
+        measurement="power",
+        conversion=LinearConversion(factor=ureg("42.5 mW / volt")),
+        record_when=RecordingRule(
+            threshold=ureg("1.0 mW"),
+            resume_threshold=ureg("1.0 mW"),
+            record_above=True,
+            dwell_seconds=dwell_seconds,
+        ),
+    )
+
+
+def test_a_gated_out_reading_is_not_written(
+    fake_client: FakeInfluxClient, registered_handlers: dict[int, SignalHandler]
+) -> None:
+    # Count 1 is ~0.8 mV, so ~0.035 mW — well below the 1 mW threshold.
+    source = FakeRawSource([RawReading(channel="A0", raw_count=1)])
+
+    with pytest.raises(_StopLoop):
+        run(source=source, calibrations={"A0": _gated_calibration()})
+
+    shutdown = registered_handlers[signal.SIGINT]
+    with pytest.raises(SystemExit):
+        shutdown(signal.SIGINT, None)
+
+    assert fake_client.batches == []
+
+
+def test_a_reading_above_the_threshold_still_reaches_influx(
+    fake_client: FakeInfluxClient, registered_handlers: dict[int, SignalHandler]
+) -> None:
+    source = FakeRawSource([RawReading(channel="A0", raw_count=4095)])
+
+    with pytest.raises(_StopLoop):
+        run(source=source, calibrations={"A0": _gated_calibration()})
+
+    shutdown = registered_handlers[signal.SIGINT]
+    with pytest.raises(SystemExit):
+        shutdown(signal.SIGINT, None)
+
+    [batch] = fake_client.batches
+    assert len(batch) == 1
+
+
+def test_a_gated_channel_leaves_an_ungated_one_alone(
+    fake_client: FakeInfluxClient, registered_handlers: dict[int, SignalHandler]
+) -> None:
+    """The gate is per channel, so one instrument going off silences only itself."""
+    source = FakeRawSource(
+        [
+            RawReading(channel="A0", raw_count=1),
+            RawReading(channel="A1", raw_count=1),
+        ]
+    )
+
+    with pytest.raises(_StopLoop):
+        run(
+            source=source,
+            calibrations={
+                "A0": _gated_calibration(),
+                "A1": _temperature_calibration(),
+            },
+        )
+
+    shutdown = registered_handlers[signal.SIGINT]
+    with pytest.raises(SystemExit):
+        shutdown(signal.SIGINT, None)
+
+    [batch] = fake_client.batches
+    [point] = batch
+    assert "sensor_id=cryo-77k" in point.to_line_protocol()
+
+
+@pytest.mark.usefixtures("fake_client")
+def test_a_gated_out_reading_is_not_counted_in_the_summary(
+    registered_handlers: dict[int, SignalHandler],
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The summary reports what was written; a gap must not read as activity."""
+    monkeypatch.setattr(sensor_loop, "SUMMARY_INTERVAL_SECONDS", 0.0)
+    source = FakeRawSource([RawReading(channel="A0", raw_count=1)])
+
+    with caplog.at_level(logging.INFO), pytest.raises(_StopLoop):
+        run(source=source, calibrations={"A0": _gated_calibration()})
+
+    shutdown = registered_handlers[signal.SIGINT]
+    with pytest.raises(SystemExit):
+        shutdown(signal.SIGINT, None)
+
+    assert [
+        record for record in caplog.records if record.message == "wrote readings"
+    ] == []
+
+
+@pytest.mark.usefixtures("fake_client")
+def test_the_transition_names_the_sensor_that_stopped(
+    registered_handlers: dict[int, SignalHandler],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The log line is what makes the gap in the trace interpretable."""
+    source = FakeRawSource([RawReading(channel="A0", raw_count=1)])
+
+    with caplog.at_level(logging.INFO), pytest.raises(_StopLoop):
+        run(source=source, calibrations={"A0": _gated_calibration()})
+
+    shutdown = registered_handlers[signal.SIGINT]
+    with pytest.raises(SystemExit):
+        shutdown(signal.SIGINT, None)
+
+    [stopped] = [r for r in caplog.records if r.message == "recording stopped"]
+    assert _field(stopped, "sensor_id") == "laser-1"
+
+
+def test_each_channel_gets_its_own_gate_state(
+    fake_client: FakeInfluxClient, registered_handlers: dict[int, SignalHandler]
+) -> None:
+    """Two gated channels sharing one gate would have one silence the other."""
+    source = FakeRawSource(
+        [
+            RawReading(channel="A0", raw_count=1),
+            RawReading(channel="A1", raw_count=4095),
+        ]
+    )
+
+    with pytest.raises(_StopLoop):
+        run(
+            source=source,
+            calibrations={"A0": _gated_calibration(), "A1": _gated_calibration()},
+        )
+
+    shutdown = registered_handlers[signal.SIGINT]
+    with pytest.raises(SystemExit):
+        shutdown(signal.SIGINT, None)
+
+    [batch] = fake_client.batches
+    assert len(batch) == 1

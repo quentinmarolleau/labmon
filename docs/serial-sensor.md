@@ -152,6 +152,71 @@ Any keys are accepted; nothing is required. Only the table's presence is
 validated, so a bare `provenance = "..."` string is rejected rather than
 silently ignored.
 
+### Not recording while the instrument is off
+
+Some signals are only meaningful while the instrument producing them is
+running. A photodiode watching a laser reads noise overnight; a gauge on
+a vented chamber reads atmosphere. Recorded at full rate those readings
+cost storage, stretch dashboard axes, and drag every average and alert
+threshold computed over the series.
+
+An optional `record_when` table gates a channel on its own value:
+
+```toml
+[channels.A3]
+sensor_id = "laser-1"
+measurement = "power"
+conversion_factor = "50.0 mW / volt"
+
+[channels.A3.record_when]
+above = "1.0 mW"          # below this, the laser is off
+for = "30s"               # ... but only once it has stayed there
+resume_above = "10.0 mW"  # resume above this, immediately
+```
+
+`above` and `below` are the two directions; a channel uses one or the
+other. Both are dimensioned and checked against what the channel actually
+produces at startup, so a threshold in the wrong unit is a config error
+rather than a comparison that silently means something else.
+
+Nothing is written while the gate is closed — not even `input_volts`.
+The gap in the trace is the honest signal, and it is what makes the
+storage saving real.
+
+#### Conservative about stopping, eager about resuming
+
+The two directions are deliberately asymmetric, because their costs are.
+Stopping wrongly loses real data; resuming wrongly costs a handful of
+junk samples.
+
+- `for` is an optional dwell, and applies to **stopping only**. A brief
+  dip below the threshold does not stop recording. Without it, the first
+  reading past the threshold does.
+- Resuming is **always immediate**. Waiting would swallow the turn-on
+  transient, which is often the most interesting part of the trace.
+- `resume_above` / `resume_below` are optional. Without one, the stop
+  threshold is reused and there is no deadband. A value hovering right at
+  the threshold will then alternate between gaps and fragments, which is
+  what a deadband exists to prevent.
+
+A gate starts out recording, so a misconfigured one errs towards keeping
+data.
+
+#### Reading the gap
+
+Each transition is logged once — never per reading, which at 100 Hz
+would be unreadable — carrying the value that caused it:
+
+```
+level=info logger=labmon.gate msg="recording stopped" sensor_id=laser-1 threshold="1 mW" value="0.03 mW"
+```
+
+That line is what makes the gap interpretable. With the `logs` profile
+(see [logging.md](logging.md)) it sits next to the series in Grafana, so
+a flat trace reads as "laser off at 19:42" rather than "sensor died at
+some point last night". Without it, an instrument being off and an
+acquisition crashing look identical in the data.
+
 ### Choosing between `spline` and `piecewise_linear`
 
 Both take the same measured `voltages`/`values` points, which must be

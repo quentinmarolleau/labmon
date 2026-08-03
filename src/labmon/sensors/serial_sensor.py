@@ -36,6 +36,7 @@ from labmon.calibration import (
     raw_to_voltage,
     ureg,
 )
+from labmon.gate import RecordingGate
 from labmon.influx import INFLUXDB_DATABASE
 from labmon.sensors.loop import SensorLoop
 from labmon.sensors.serial_source import (
@@ -114,6 +115,16 @@ def run(
     # warn once each rather than on every reading forever.
     warned_channels: set[str] = set()
 
+    # One gate per channel, since each carries its own hysteresis state:
+    # sharing one would let an instrument being off silence a channel
+    # that is still running. Channels without a `record_when` table are
+    # absent here and record everything.
+    gates = {
+        channel: RecordingGate(calibration.record_when, calibration.sensor_id)
+        for channel, calibration in calibrations.items()
+        if calibration.record_when is not None
+    }
+
     while True:
         reading = source.read()
         if reading is None:
@@ -131,6 +142,13 @@ def run(
 
         voltage = raw_to_voltage(reading.raw_count, resolution_bits, v_ref)
         value = calibration.conversion.apply(voltage)
+
+        gate = gates.get(reading.channel)
+        if gate is not None and not gate.admits(value):
+            # Nothing is written at all, not even input_volts: a
+            # half-populated series is harder to read than a gap, and the
+            # transition the gate logged is the evidence for the gap.
+            continue
 
         # The board has no clock, so the host stamps the reading on
         # arrival; serial transit is negligible next to sample rates here.

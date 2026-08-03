@@ -78,6 +78,28 @@ mode = "expression"
 expression = "10**(1.667*v - 11.33)"       # a typical Pirani gauge curve
 value_unit = "mbar"
 
+# --- record_when: stop recording while the instrument is off -------------
+# Optional, one table per channel. A signal that is only meaningful while
+# its instrument is running — a photodiode watching a laser, a gauge on a
+# chamber that gets vented — otherwise records noise at full rate,
+# stretching dashboard axes and dragging every average computed over it.
+#
+# Conservative about stopping, eager about resuming: `for` delays a stop
+# so a brief dip costs nothing, while a resume is always immediate so the
+# turn-on transient is not swallowed. Nothing is written while the gate
+# is closed, so the trace shows a gap; the transition is logged once,
+# which is what makes that gap readable.
+#
+# `above` and `below` are the two directions, and a channel uses one.
+# Thresholds are dimensioned and checked against what the channel
+# produces, so a wrong unit fails at startup. See docs/serial-sensor.md.
+[channels.A0.record_when]
+above = "1.0 mW"           # below this, the laser is off
+for = "30s"                # a brief dip does not stop recording
+resume_above = "10.0 mW"   # deadband, so a value sitting at the
+                           # threshold does not flap between gap
+                           # and fragment
+
 # --- provenance: how a calibration was obtained -------------------------
 # Optional, free-form, one table per channel. Logged at startup and never
 # written to InfluxDB, so it documents the file without touching the
