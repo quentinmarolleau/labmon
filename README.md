@@ -271,7 +271,6 @@ this repository.
 - `calibration.example.toml` — worked example of every sensor conversion mode
 - `deploy/` — systemd units and docs for machines that can't run the containers
 - `CONTRIBUTING.md` / `AGENTS.md` — workflow, commit conventions, testing policy
-- `BACKLOG.md` — planned/considered future work, roughly prioritized
 
 ## Development
 
@@ -295,9 +294,12 @@ serial acquisition path has never met a real Arduino Due. Everything
 else — storage, dashboards, networking between machines, resilience — is
 exercised daily against live services.
 
-[`BACKLOG.md`](BACKLOG.md) tracks what is planned next, with effort
-estimates and a suggested order. Near the top: a proper documentation
-site, and TLS for deployments beyond a trusted LAN.
+What is planned next lives in
+[issues](https://github.com/quentinmarolleau/labmon/issues). Anything
+agreed to be built carries the `validated` label; ideas still being
+weighed carry `needs-decision`. The
+[v0.2.0-beta milestone](https://github.com/quentinmarolleau/labmon/milestone/1)
+is the set targeted for the first beta.
 
 ## Contributing
 

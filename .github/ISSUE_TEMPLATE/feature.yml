@@ -5,11 +5,12 @@ body:
   - type: markdown
     attributes:
       value: |
-        [`BACKLOG.md`](https://github.com/quentinmarolleau/labmon/blob/main/BACKLOG.md)
-        already tracks several larger ideas with effort estimates — TLS,
-        mDNS discovery, a docs site, digitizing analog gauges. If yours is
-        one of them, adding your reasoning to this issue is more useful than
-        a duplicate: what the backlog entry lacks is a concrete need.
+        Several larger ideas are already open as issues — TLS, mDNS
+        discovery, a docs site, digitizing analog gauges. If yours is one of
+        them, adding your reasoning to that issue is more useful than a
+        duplicate: what those entries lack is a concrete need. Ideas not yet
+        agreed to be built carry the `needs-decision` label, and a case for
+        one is exactly what moves it.
 
   - type: textarea
     id: problem
