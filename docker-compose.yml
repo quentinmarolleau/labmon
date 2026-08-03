@@ -197,6 +197,31 @@ services:
         source: /var/run/docker.sock
         target: /var/run/docker.sock
         read_only: true
+      # The host journal, for sensors run under systemd rather than in a
+      # container (see deploy/). Read-only, and the Alloy config collects
+      # only labmon's own units rather than the whole machine.
+      #
+      # A host that keeps logs in memory only has them at /run/log/journal
+      # instead; both are mounted so either works, and a missing one is an
+      # empty directory rather than an error.
+      - type: bind
+        source: /var/log/journal
+        target: /var/log/journal
+        read_only: true
+        bind:
+          create_host_path: true
+      - type: bind
+        source: /run/log/journal
+        target: /run/log/journal
+        read_only: true
+        bind:
+          create_host_path: true
+      # Journal entries are keyed by machine id; without this the reader
+      # cannot resolve which machine's journal it is looking at.
+      - type: bind
+        source: /etc/machine-id
+        target: /etc/machine-id
+        read_only: true
       # A named volume rather than a bind: this is Alloy's own bookkeeping
       # (how far it has read in each container's log), not something to
       # inspect, and Alloy runs as root — a bind would leave a root-owned
