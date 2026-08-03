@@ -55,7 +55,18 @@ VOLTAGE_SYMBOL = "v"
 
 # Applied at load time to check a conversion works and to read off the
 # unit its results carry.
-ONE_VOLT: pint.Quantity = 1.0 * ureg.volt
+#
+# Several of them, because a conversion may legitimately be undefined at a
+# single point: 5.0 / (1.0 - v) is a perfectly good response curve that
+# happens to have a pole at one volt. Trying one voltage cannot tell that
+# apart from a conversion that is broken everywhere, and no single choice
+# avoids the problem — moving the probe just relocates the pole that
+# trips it. A conversion is rejected only when every probe fails.
+PROBE_VOLTAGES: tuple[pint.Quantity, ...] = (
+    1.0 * ureg.volt,
+    0.5 * ureg.volt,
+    2.0 * ureg.volt,
+)
 
 DEFAULT_MODE = "linear"
 
@@ -254,13 +265,16 @@ class Calibration:
     def unit(self) -> str:
         """The unit tag every reading from this channel carries.
 
-        Derived by converting one volt, so it reflects what the
+        Derived by converting a probe voltage, so it reflects what the
         conversion actually produces rather than what the file claims.
         Cached for the same reason as calibration_id: a conversion's
         output unit is a property of the calibration, not of a reading,
         and formatting it per sample cost more than building the point.
+
+        Uses the same probe sequence as load-time validation, so a
+        conversion with a pole at one volt still reports its unit.
         """
-        return f"{self.conversion.apply(ONE_VOLT).units:~}"
+        return f"{probe(self.conversion).units:~}"
 
 
 def raw_to_voltage(
@@ -337,10 +351,31 @@ def _parse_channel(
     )
 
 
+def probe(conversion: Conversion) -> pint.Quantity:
+    """Apply a conversion at the first probe voltage it accepts.
+
+    Raises the failure from the first probe if every one of them fails,
+    since that is the voltage a reader is most likely to reason about.
+    """
+    first: Exception | None = None
+    for voltage in PROBE_VOLTAGES:
+        try:
+            return conversion.apply(voltage)
+        except Exception as error:  # noqa: BLE001 — re-raised below if all fail
+            first = first or error
+    assert first is not None
+    raise first
+
+
 def _trial_apply(where: Location, conversion: Conversion) -> None:
-    """Convert a token voltage so a broken conversion fails at load time."""
+    """Convert a token voltage so a broken conversion fails at load time.
+
+    A conversion that fails at every probe voltage is broken. One that
+    fails at a single voltage has a pole there, which is not a fault —
+    see PROBE_VOLTAGES.
+    """
     try:
-        _ = conversion.apply(ONE_VOLT)
+        _ = probe(conversion)
     except CalibrationError:
         raise
     except pint.OffsetUnitCalculusError as error:
