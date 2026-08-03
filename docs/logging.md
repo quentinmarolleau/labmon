@@ -87,10 +87,46 @@ labmon's own image sets `PYTHONUNBUFFERED=1` for this reason. A container
 built from something else may need the same, or to log through `logging`
 rather than `print`.
 
+## Sensors that run under systemd
+
+A sensor that cannot run in a container runs under systemd instead (see
+[`deploy/`](../deploy/)), and writes to the journal rather than through the
+Docker API. Alloy collects those too, so both deployment shapes end up in
+the same place:
+
+```logql
+{unit="labmon-custom-sensor.service"}
+```
+
+Both system units and user units work. A user unit — one installed with
+`systemctl --user`, needing no root — names the manager rather than itself
+in its systemd unit field, reporting `user@1000.service` for every one of
+them; its real name is recorded separately, and that is what gets used.
+
+### Only labmon's own units
+
+The host journal is the whole machine: Docker, containerd, the network
+manager, every login session. On the machine this was developed on that was
+775 MB against a handful of sensor lines, so collecting all of it would
+dwarf everything else in Loki and centralise system logs nobody asked to
+centralise.
+
+`alloy/config.alloy` therefore keeps only units whose name starts with
+`labmon-`. Widen that regex to collect more; `.*` collects the machine.
+
+### About the `level` label
+
+Journal entries carry a `level`, which container logs have no equivalent
+of. It is less than it appears: **everything a plain script writes arrives
+as `info`, stderr included.** systemd does not infer severity from the
+stream — only an explicit `<N>` prefix on the line changes it.
+
+So `level` is a hook for real severities rather than a source of them.
+
 ## What Alloy needs, and what that costs
 
-Alloy mounts `/var/run/docker.sock`. **Access to that socket is equivalent
-to root on the host** — it allows starting a container with the host
+Alloy mounts `/var/run/docker.sock`, plus the host journal read-only.
+**Access to that socket is equivalent to root on the host** — it allows starting a container with the host
 filesystem mounted. Marking the mount `read_only` does not meaningfully
 constrain it, since the socket is a full API either way.
 
@@ -121,11 +157,8 @@ the few seconds before Loki is ready cost nothing.
 ## What is not here yet
 
 - **Logs from other machines.** Alloy collects from the host it runs on. A
-  remote sensor machine needs its own Alloy forwarding here, which also
-  means exposing Loki's push endpoint beyond this network.
-- **Logs from bare-metal sensors.** A sensor run under systemd rather than
-  Docker writes to the journal, which Alloy can read but is not yet
-  configured to.
+  sensor on a *different* machine needs its own Alloy forwarding here, which
+  also means exposing Loki's push endpoint beyond this network.
 - **Devices that speak syslog.** Instruments, switches and UPS units that
   can be pointed at a syslog collector — Alloy has a listener for it,
   unconfigured for want of a device to test against.

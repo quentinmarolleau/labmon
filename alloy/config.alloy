@@ -33,6 +33,66 @@ loki.source.docker "containers" {
 	forward_to = [loki.write.local.receiver]
 }
 
+// A sensor that cannot run in a container runs under systemd instead (see
+// deploy/), and writes to the journal rather than to the Docker API. This
+// picks those up, so both deployment shapes end up in the same place.
+discovery.relabel "journal" {
+	targets = []
+
+	// Which unit produced the entry. A *user* unit — one installed with
+	// `systemctl --user`, which needs no root — reports the manager rather
+	// than itself in _SYSTEMD_UNIT, naming `user@1000.service` for every one
+	// of them. Its own name is in _SYSTEMD_USER_UNIT, so that wins when it
+	// is present. Matching on (.+) means the rule does not fire for a system
+	// unit, where the field is empty.
+	rule {
+		source_labels = ["__journal__systemd_unit"]
+		target_label  = "unit"
+	}
+
+	rule {
+		source_labels = ["__journal__systemd_user_unit"]
+		regex         = "(.+)"
+		target_label  = "unit"
+	}
+
+	// Only labmon's own units. The host journal is the whole machine —
+	// docker, containerd, the network manager, every login session — 775 MB
+	// on the machine this was written on, against a handful of sensor lines.
+	// Collecting all of it would dwarf everything else in Loki and sweep up
+	// system logs nobody asked to centralise.
+	//
+	// Applied after the two rules above so it matches the real unit name in
+	// both cases. Widen it to collect more; `.*` collects the whole machine.
+	rule {
+		source_labels = ["unit"]
+		regex         = "labmon-.*"
+		action        = "keep"
+	}
+
+	// systemd records a priority per entry, which Docker has no equivalent
+	// of. Do not read more into it than is there: everything a plain script
+	// writes arrives as `info`, stderr included — systemd does not infer
+	// severity from the stream. Only an explicit `<N>` prefix on the line
+	// changes it, which is what systemd's SyslogLevelPrefix reads.
+	//
+	// So this is a hook for real severities rather than a source of them.
+	rule {
+		source_labels = ["__journal_priority_keyword"]
+		target_label  = "level"
+	}
+}
+
+loki.source.journal "units" {
+	// The persistent journal. A host with volatile-only logging keeps it at
+	// /run/log/journal instead, in which case nothing is collected here and
+	// the mount in docker-compose.yml needs changing to match.
+	path          = "/var/log/journal"
+	relabel_rules = discovery.relabel.journal.rules
+	labels        = {job = "systemd-journal"}
+	forward_to    = [loki.write.local.receiver]
+}
+
 loki.write "local" {
 	endpoint {
 		url = "http://loki:3100/loki/api/v1/push"

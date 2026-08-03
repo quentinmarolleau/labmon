@@ -68,6 +68,14 @@ A unit's output goes to the journal:
 journalctl -u labmon-custom-sensor.service -f
 ```
 
-That matters beyond reading it by hand: the journal is where logs are
-collected from on a machine with no Docker, so a sensor run this way ends
-up in the same place as one run in a container.
+That matters beyond reading it by hand: with the `logs` profile active on
+the same host, Alloy collects the journal too, so a sensor run this way is
+queryable in Grafana alongside the containers:
+
+```logql
+{unit="labmon-custom-sensor.service"}
+```
+
+Only units named `labmon-*` are collected, not the whole machine — see
+[logging](../docs/logging.md). A sensor on a *different* machine from the
+stack is not covered yet.
