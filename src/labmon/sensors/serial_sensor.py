@@ -115,14 +115,14 @@ def run(
     # warn once each rather than on every reading forever.
     warned_channels: set[str] = set()
 
-    # One gate per channel, since each carries its own hysteresis state:
+    # One gate per channel, since each carries its own deadband state:
     # sharing one would let an instrument being off silence a channel
-    # that is still running. Channels without a `record_when` table are
-    # absent here and record everything.
+    # that is still running. Channels without a `stop_recording_when`
+    # table are absent here and record everything.
     gates = {
-        channel: RecordingGate(calibration.record_when, calibration.sensor_id)
+        channel: RecordingGate(calibration.stop_recording_when, calibration.sensor_id)
         for channel, calibration in calibrations.items()
-        if calibration.record_when is not None
+        if calibration.stop_recording_when is not None
     }
 
     while True:
@@ -144,7 +144,7 @@ def run(
         value = calibration.conversion.apply(voltage)
 
         gate = gates.get(reading.channel)
-        if gate is not None and not gate.admits(value):
+        if gate is not None and not gate.admits(value, voltage):
             # Nothing is written at all, not even input_volts: a
             # half-populated series is harder to read than a gap, and the
             # transition the gate logged is the evidence for the gap.

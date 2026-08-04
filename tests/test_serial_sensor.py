@@ -10,7 +10,7 @@ import pytest
 from influxdb_client_3 import Point
 
 from labmon.calibration import Calibration, LinearConversion, ureg
-from labmon.gate import RecordingRule
+from labmon.gate import StopRecordingRule
 from labmon.sensors import loop as sensor_loop
 from labmon.sensors import serial_sensor
 from labmon.sensors.serial_sensor import main, run
@@ -433,16 +433,13 @@ def test_an_unknown_log_level_is_rejected(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 def _gated_calibration(dwell_seconds: float = 0.0) -> Calibration:
-    """A photodiode reading 42.5 mW per volt, gated below 1 mW."""
+    """A photodiode reading 42.5 mW per volt, stopping below 1 mW."""
     return Calibration(
         sensor_id="laser-1",
         measurement="power",
         conversion=LinearConversion(factor=ureg("42.5 mW / volt")),
-        record_when=RecordingRule(
-            threshold=ureg("1.0 mW"),
-            resume_threshold=ureg("1.0 mW"),
-            record_above=True,
-            dwell_seconds=dwell_seconds,
+        stop_recording_when=StopRecordingRule(
+            below=ureg("1.0 mW"), dwell_seconds=dwell_seconds
         ),
     )
 
@@ -450,7 +447,7 @@ def _gated_calibration(dwell_seconds: float = 0.0) -> Calibration:
 def test_a_gated_out_reading_is_not_written(
     fake_client: FakeInfluxClient, registered_handlers: dict[int, SignalHandler]
 ) -> None:
-    # Count 1 is ~0.8 mV, so ~0.035 mW — well below the 1 mW threshold.
+    # Count 1 is ~0.8 mV, so ~0.035 mW — well below the 1 mW bound.
     source = FakeRawSource([RawReading(channel="A0", raw_count=1)])
 
     with pytest.raises(_StopLoop):
@@ -463,7 +460,7 @@ def test_a_gated_out_reading_is_not_written(
     assert fake_client.batches == []
 
 
-def test_a_reading_above_the_threshold_still_reaches_influx(
+def test_a_reading_inside_the_band_still_reaches_influx(
     fake_client: FakeInfluxClient, registered_handlers: dict[int, SignalHandler]
 ) -> None:
     source = FakeRawSource([RawReading(channel="A0", raw_count=4095)])
@@ -547,6 +544,28 @@ def test_the_transition_names_the_sensor_that_stopped(
 
     [stopped] = [r for r in caplog.records if r.message == "recording stopped"]
     assert _field(stopped, "sensor_id") == "laser-1"
+
+
+def test_a_raw_voltage_gate_sees_the_voltage_the_loop_measured(
+    fake_client: FakeInfluxClient, registered_handlers: dict[int, SignalHandler]
+) -> None:
+    """Count 4095 is 3.3 V, which is outside the band whatever it converts to."""
+    source = FakeRawSource([RawReading(channel="A0", raw_count=4095)])
+    calibration = Calibration(
+        sensor_id="quadrant-1",
+        measurement="position",
+        conversion=LinearConversion(factor=ureg("42.5 mW / volt")),
+        stop_recording_when=StopRecordingRule(above=ureg("3.0 V"), raw_voltage=True),
+    )
+
+    with pytest.raises(_StopLoop):
+        run(source=source, calibrations={"A0": calibration})
+
+    shutdown = registered_handlers[signal.SIGINT]
+    with pytest.raises(SystemExit):
+        shutdown(signal.SIGINT, None)
+
+    assert fake_client.batches == []
 
 
 def test_each_channel_gets_its_own_gate_state(

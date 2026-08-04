@@ -42,7 +42,7 @@ from typing import Protocol, cast, override
 import pint
 from asteval import Interpreter
 
-from labmon.gate import RecordingRule
+from labmon.gate import StopRecordingRule
 
 ureg: pint.UnitRegistry = pint.UnitRegistry()
 
@@ -78,20 +78,33 @@ CALIBRATION_ID_LENGTH = 8
 # doesn't invent a new id (see _quantity_key).
 FINGERPRINT_SIGNIFICANT_DIGITS = 12
 
-# Optional per-channel table saying when a reading is worth recording,
-# for a signal that is only meaningful while its instrument is on. See
+# Optional per-channel table saying what stops a channel recording, for a
+# signal that is only meaningful while its instrument is on. See
 # labmon.gate.
-RECORD_WHEN_KEY = "record_when"
+STOP_RECORDING_WHEN_KEY = "stop_recording_when"
 
 # `for` is a Python keyword, so the parsed field is named `dwell_seconds`;
 # the TOML key stays `for` because that is how the setting reads.
 DWELL_KEY = "for"
 
-# Which stop threshold pairs with which resume threshold. Naming them
-# apart keeps a config from saying `above` and `resume_below`, which
-# would be two different gates in one table.
-_STOP_KEYS = {"above": True, "below": False}
-_RESUME_KEYS = {"above": "resume_above", "below": "resume_below"}
+# Compares the bounds against the voltage at the ADC input rather than
+# against the converted value.
+RAW_VOLTAGE_KEY = "raw_voltage"
+
+# The four bounds, in the order a valid table has to put them in:
+# recording stops outside the outer pair and resumes inside the inner one.
+_BOUND_KEYS = ("below", "resume_above", "resume_below", "above")
+
+# The two that stop recording; a table needs at least one of them.
+_STOP_KEYS = ("below", "above")
+
+# Which deadband widens which stop bound. A `resume_above` without a
+# `below` deadbands nothing, so it is a config error rather than a no-op.
+_RESUME_PARTNERS = {"resume_above": "below", "resume_below": "above"}
+
+# Stated in full whenever bounds are out of order, since the fix is
+# usually obvious once the required ordering is written down.
+_BAND_ORDER = "below <= resume_above < resume_below <= above"
 
 # Free-form documentation about how a calibration was obtained. Read and
 # logged at startup, never written to InfluxDB, and excluded from the
@@ -252,7 +265,7 @@ class Calibration:
     provenance: Mapping[str, object] = NO_PROVENANCE
     # None means record everything, which is the default: a gate is a
     # deliberate decision to leave gaps in a series.
-    record_when: RecordingRule | None = None
+    stop_recording_when: StopRecordingRule | None = None
 
     @functools.cached_property
     def calibration_id(self) -> str:
@@ -354,7 +367,7 @@ def _parse_channel(
         conversion=conversion,
         store_input=_optional_bool(where, fields, "store_input", default_store_input),
         provenance=_optional_provenance(where, fields),
-        record_when=_optional_recording_rule(where, fields, conversion),
+        stop_recording_when=_optional_stop_rule(where, fields, conversion),
     )
 
 
@@ -500,111 +513,150 @@ def _optional_provenance(
     return MappingProxyType(dict(cast(dict[str, object], value)))
 
 
-def _optional_recording_rule(
+def _optional_stop_rule(
     where: Location, fields: dict[str, object], conversion: Conversion
-) -> RecordingRule | None:
-    """Parse a [channels.<name>.record_when] table, if there is one.
+) -> StopRecordingRule | None:
+    """Parse a [channels.<name>.stop_recording_when] table, if there is one.
 
     Everything checkable is checked here rather than on the first reading:
-    a threshold in the wrong dimension, a resume threshold on the side
-    that would flap, a misspelled key. A gate that silently does nothing
-    is worse than no gate, since it looks configured.
+    a bound in the wrong dimension, a deadband on the side that would
+    flap, a misspelled key. A gate that silently does nothing is worse
+    than no gate, since it looks configured.
     """
-    if RECORD_WHEN_KEY not in fields:
+    if STOP_RECORDING_WHEN_KEY not in fields:
         return None
 
-    entry = fields[RECORD_WHEN_KEY]
+    entry = fields[STOP_RECORDING_WHEN_KEY]
     if not isinstance(entry, dict):
         raise CalibrationError(
-            f"{where} key '{RECORD_WHEN_KEY}' must be a table"
-            + f" (a [channels.<name>.{RECORD_WHEN_KEY}] section)"
+            f"{where} key '{STOP_RECORDING_WHEN_KEY}' must be a table"
+            + f" (a [channels.<name>.{STOP_RECORDING_WHEN_KEY}] section)"
         )
     gate = cast(dict[str, object], entry)
-    gate_where = Location(where.path, f"{where.channel}.{RECORD_WHEN_KEY}")
+    gate_where = Location(where.path, f"{where.channel}.{STOP_RECORDING_WHEN_KEY}")
 
-    stop_keys = [key for key in _STOP_KEYS if key in gate]
-    if len(stop_keys) > 1:
-        raise CalibrationError(
-            f"{gate_where} sets both 'above' and 'below'; a gate has one"
-            + " threshold, not both"
-        )
-    if not stop_keys:
-        raise CalibrationError(f"{gate_where} needs 'above' or 'below'")
+    _check_gate_keys(gate_where, gate)
 
-    stop_key = stop_keys[0]
-    resume_key = _RESUME_KEYS[stop_key]
-    known = {stop_key, resume_key, DWELL_KEY}
+    raw_voltage = _optional_bool(gate_where, gate, RAW_VOLTAGE_KEY, False)
+    # What the bounds are compared against, and how to say so in an error.
+    if raw_voltage:
+        reference = ureg.volt
+        subject = f"gates on the raw voltage in {reference:~}"
+    else:
+        reference = conversion.apply(ONE_VOLT).units
+        subject = f"produces {reference:~}"
+
+    bounds = {
+        key: _require_comparable(gate_where, gate, key, reference, subject)
+        for key in _BOUND_KEYS
+        if key in gate
+    }
+    rule = StopRecordingRule(
+        below=bounds.get("below"),
+        above=bounds.get("above"),
+        resume_above=bounds.get("resume_above"),
+        resume_below=bounds.get("resume_below"),
+        dwell_seconds=_optional_dwell(gate_where, gate),
+        raw_voltage=raw_voltage,
+    )
+    _check_band_order(gate_where, rule)
+    return rule
+
+
+def _check_gate_keys(where: Location, gate: dict[str, object]) -> None:
+    """Reject a table that names nothing to stop on, or names it wrongly."""
+    known = set(_BOUND_KEYS) | {DWELL_KEY, RAW_VOLTAGE_KEY}
     unknown = sorted(set(gate) - known)
     if unknown:
-        wrong_pair = _RESUME_KEYS["below" if stop_key == "above" else "above"]
-        if wrong_pair in unknown:
-            raise CalibrationError(
-                f"{gate_where} sets '{wrong_pair}' alongside '{stop_key}';"
-                + f" '{resume_key}' goes with '{stop_key}'"
-            )
         raise CalibrationError(
-            f"{gate_where} has unknown key {unknown[0]!r};"
+            f"{where} has unknown key {unknown[0]!r};"
             + f" expected one of {', '.join(sorted(known))}"
         )
 
-    value_unit = conversion.apply(ONE_VOLT).units
-    threshold = _require_comparable(gate_where, gate, stop_key, value_unit)
-    resume = (
-        _require_comparable(gate_where, gate, resume_key, value_unit)
-        if resume_key in gate
-        else threshold
-    )
-    _check_resume_side(gate_where, stop_key, threshold, resume)
+    if not any(key in gate for key in _STOP_KEYS):
+        raise CalibrationError(
+            f"{where} needs '{_STOP_KEYS[0]}' or '{_STOP_KEYS[1]}' (or both);"
+            + " without one, nothing would ever stop the recording"
+        )
 
-    return RecordingRule(
-        threshold=threshold,
-        resume_threshold=resume,
-        record_above=_STOP_KEYS[stop_key],
-        dwell_seconds=_optional_dwell(gate_where, gate),
-    )
+    for resume_key, stop_key in _RESUME_PARTNERS.items():
+        if resume_key in gate and stop_key not in gate:
+            raise CalibrationError(
+                f"{where} sets '{resume_key}' without '{stop_key}';"
+                + f" '{resume_key}' is the deadband on '{stop_key}',"
+                + " so on its own it deadbands nothing"
+            )
 
 
 def _require_comparable(
-    where: Location, fields: dict[str, object], key: str, value_unit: pint.Unit
+    where: Location,
+    fields: dict[str, object],
+    key: str,
+    reference: pint.Unit,
+    subject: str,
 ) -> pint.Quantity:
-    """Read a threshold, rejecting one the channel's readings can't be compared to."""
+    """Read a bound, rejecting one the gated quantity can't be compared to."""
     quantity = _require_quantity(where, fields, key)
     try:
         # The result is discarded: this asks pint whether the comparison
         # is meaningful at all, which is the whole point of a dimensioned
-        # threshold over a bare number.
-        _ = quantity.to(value_unit)
+        # bound over a bare number.
+        _ = quantity.to(reference)
     except pint.DimensionalityError as error:
         raise CalibrationError(
-            f"{where} produces {value_unit:~}, so key '{key}' cannot be"
-            + f" '{quantity:~}'"
+            f"{where} {subject}, so key '{key}' cannot be '{quantity:~}'"
         ) from error
     return quantity
 
 
-def _check_resume_side(
-    where: Location, stop_key: str, threshold: pint.Quantity, resume: pint.Quantity
-) -> None:
-    """Reject a resume threshold on the wrong side of the stop threshold.
+def _check_band_order(where: Location, rule: StopRecordingRule) -> None:
+    """Reject bounds that don't nest the resume band inside the stop band.
 
-    Between the two the gate would stop and immediately resume — the
-    flapping hysteresis exists to prevent.
+    Anywhere the two bands cross, the gate would stop and immediately
+    resume — the flapping a deadband exists to prevent — or, where the
+    stop bounds themselves cross, would never record at all.
     """
+    if rule.below is not None and rule.resume_above is not None:
+        _require_ordered(
+            where, ("below", rule.below), ("resume_above", rule.resume_above)
+        )
+    if rule.above is not None and rule.resume_below is not None:
+        _require_ordered(
+            where, ("resume_below", rule.resume_below), ("above", rule.above)
+        )
+
+    # The resume band has to have room in it. Named for the keys actually
+    # written, since either edge may be a stop bound standing in for a
+    # deadband the file never set.
+    floor, ceiling = rule.resume_floor, rule.resume_ceiling
+    if floor is None or ceiling is None:
+        return
+    floor_key = "below" if rule.resume_above is None else "resume_above"
+    ceiling_key = "above" if rule.resume_below is None else "resume_below"
+    _require_ordered(where, (floor_key, floor), (ceiling_key, ceiling), strict=True)
+
+
+def _require_ordered(
+    where: Location,
+    lower: tuple[str, pint.Quantity],
+    upper: tuple[str, pint.Quantity],
+    *,
+    strict: bool = False,
+) -> None:
+    """Check one adjacent pair of bounds, naming both if they are inverted."""
+    lower_key, lower_bound = lower
+    upper_key, upper_bound = upper
     # Compared as magnitudes in a common unit rather than as quantities,
     # so "1000 uW" and "1 mW" order correctly.
-    resume_magnitude = float(resume.to(threshold.units).magnitude)
-    stop_magnitude = float(threshold.magnitude)
-
-    if stop_key == "above" and resume_magnitude < stop_magnitude:
-        raise CalibrationError(
-            f"{where} resumes at {resume:~} but stops below {threshold:~};"
-            + " a resume threshold must be at or above the stop threshold"
-        )
-    if stop_key == "below" and resume_magnitude > stop_magnitude:
-        raise CalibrationError(
-            f"{where} resumes at {resume:~} but stops above {threshold:~};"
-            + " a resume threshold must be at or below the stop threshold"
-        )
+    low = float(lower_bound.to(upper_bound.units).magnitude)
+    high = float(upper_bound.magnitude)
+    if low < high or (low == high and not strict):
+        return
+    raise CalibrationError(
+        f"{where} has '{lower_key}' = {lower_bound:~} and"
+        + f" '{upper_key}' = {upper_bound:~};"
+        + f" the bounds must read {_BAND_ORDER}"
+    )
 
 
 def _optional_dwell(where: Location, fields: dict[str, object]) -> float:
@@ -616,7 +668,11 @@ def _optional_dwell(where: Location, fields: dict[str, object]) -> float:
         return float(dwell.to(ureg.second).magnitude)
     except pint.DimensionalityError as error:
         raise CalibrationError(
-            f"{where} key '{DWELL_KEY}' must be a duration, not '{dwell:~}'"
+            f"{where} key '{DWELL_KEY}' must be a duration, not '{dwell:~}'."
+            # '1m' is the one people reach for, and it is a metre. Worth
+            # saying outright rather than leaving a dimensionality error
+            # to be puzzled over.
+            + " Note that 'm' is metres; minutes are 'min'."
         ) from error
 
 
