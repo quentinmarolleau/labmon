@@ -225,6 +225,64 @@ def test_a_two_sided_resume_needs_the_reading_inside_both_edges() -> None:
     assert not _admits(gate, "50 mV", now=3.0)
 
 
+def test_a_value_still_past_the_far_bound_does_not_resume() -> None:
+    """resume_above < resume_below < value is outside the resume band, not inside it."""
+    gate = RecordingGate(
+        _rule(below="100 mV", above="3.0 V", resume_below="2.9 V"),
+        sensor_id="quadrant-1",
+    )
+
+    assert not _admits(gate, "3.2 V", now=0.0)
+    # Still above the resume ceiling, whether or not it is back under the
+    # stop bound. Clearing the floor alone must not be enough.
+    assert not _admits(gate, "3.5 V", now=1.0)
+    assert not _admits(gate, "2.95 V", now=2.0)
+    assert _admits(gate, "2.85 V", now=3.0)
+
+
+def test_the_mirror_case_does_not_resume_under_the_resume_floor() -> None:
+    gate = _gate(below="1.0 mW", resume_above="10.0 mW")
+
+    assert not _admits(gate, "0.9 mW", now=0.0)
+    assert not _admits(gate, "0.1 mW", now=1.0)
+    assert not _admits(gate, "5.0 mW", now=2.0)
+    assert _admits(gate, "11.0 mW", now=3.0)
+
+
+# --------------------------------------------------------------------------
+# the bounds themselves are outside the band, in both directions
+# --------------------------------------------------------------------------
+
+
+def test_a_reading_exactly_on_a_stop_bound_keeps_recording() -> None:
+    """3 V is not above 3 V, and 1 mW is not below 1 mW."""
+    gate = RecordingGate(_rule(below="1.0 mW", above="3.0 mW"), sensor_id="quadrant-1")
+
+    assert _admits(gate, "3.0 mW", now=0.0)
+    assert _admits(gate, "1.0 mW", now=1.0)
+
+
+def test_a_reading_exactly_on_a_resume_bound_holds_the_gate_stopped() -> None:
+    """Neither direction owns the boundary, so the gate keeps its state."""
+    gate = _gate(below="1.0 mW", resume_above="10.0 mW")
+
+    assert not _admits(gate, "0.5 mW", now=0.0)
+    assert not _admits(gate, "10.0 mW", now=1.0)
+    assert _admits(gate, "10.001 mW", now=2.0)
+
+
+def test_the_boundary_convention_is_the_same_at_the_upper_edge() -> None:
+    """The mirror of the case above, which used to disagree with it."""
+    gate = RecordingGate(
+        _rule(below="100 mV", above="3.0 V", resume_below="2.9 V"),
+        sensor_id="quadrant-1",
+    )
+
+    assert not _admits(gate, "3.2 V", now=0.0)
+    assert not _admits(gate, "2.9 V", now=1.0)
+    assert _admits(gate, "2.899 V", now=2.0)
+
+
 def test_the_dwell_clock_restarts_after_a_resume() -> None:
     gate = _gate(dwell_seconds=30.0)
 

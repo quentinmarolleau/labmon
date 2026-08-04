@@ -231,6 +231,12 @@ junk samples.
   between gaps and fragments — which is what a deadband exists to
   prevent.
 
+Every comparison is strict, so each key means what it says: a reading of
+exactly 3 V is not *above* 3 V and does not stop a channel bounded there,
+and the same at every other bound. A reading sitting exactly on one is
+therefore neither stopping nor resuming, and the gate holds the state it
+was already in.
+
 The four bounds have to read `below <= resume_above < resume_below <=
 above`, and anything else is rejected at startup: the resume band nests
 inside the band recording stops outside of, and bounds that cross

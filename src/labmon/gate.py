@@ -37,13 +37,30 @@ logger: logging.Logger = logging.getLogger(__name__)
 _VALUE_DIGITS = 4
 
 
-def _above(value: pint.Quantity, limit: pint.Quantity) -> bool:
-    """Whether `value` is strictly above `limit`.
+def _magnitudes(value: pint.Quantity, limit: pint.Quantity) -> tuple[float, float]:
+    """The pair to compare, in the limit's unit.
 
-    Converted to the limit's unit and compared as magnitudes, so a
-    reading arriving in W is gated correctly by a bound written in mW.
+    Converting rather than comparing quantities directly is what lets a
+    reading arriving in W be gated by a bound written in mW.
     """
-    return float(value.to(limit.units).magnitude) > float(limit.magnitude)
+    return float(value.to(limit.units).magnitude), float(limit.magnitude)
+
+
+def _above(value: pint.Quantity, limit: pint.Quantity) -> bool:
+    """Whether `value` is strictly above `limit`."""
+    measured, boundary = _magnitudes(value, limit)
+    return measured > boundary
+
+
+def _below(value: pint.Quantity, limit: pint.Quantity) -> bool:
+    """Whether `value` is strictly below `limit`.
+
+    The mirror of `_above` rather than its negation: a reading sitting
+    exactly on a bound is neither above nor below it, which is what keeps
+    `below` and `above` meaning what they say at their own boundary.
+    """
+    measured, boundary = _magnitudes(value, limit)
+    return measured < boundary
 
 
 def _describe_band(floor: pint.Quantity | None, ceiling: pint.Quantity | None) -> str:
@@ -108,18 +125,28 @@ class StopRecordingRule:
         crossed reaches the log without being worked out twice — on a
         two-sided rule, "below 100 mV" and "above 3 V" are very different
         faults to read about at 03:00.
+
+        Both tests are strict, so each key means exactly what it says: a
+        reading of exactly 3 V is not above 3 V and does not stop a
+        channel bounded there.
         """
-        if self.below is not None and not _above(value, self.below):
+        if self.below is not None and _below(value, self.below):
             return _describe_band(None, self.below)
         if self.above is not None and _above(value, self.above):
             return _describe_band(self.above, None)
         return None
 
     def resumes(self, value: pint.Quantity) -> bool:
-        """Whether a reading is back inside the resume band."""
+        """Whether a reading is back inside the resume band.
+
+        Strict at both edges too, which leaves a reading sitting exactly
+        on a bound neither stopping nor resuming: the gate holds whatever
+        state it was in, rather than the two directions disagreeing about
+        who owns the boundary.
+        """
         floor, ceiling = self.resume_floor, self.resume_ceiling
         clears_floor = floor is None or _above(value, floor)
-        clears_ceiling = ceiling is None or not _above(value, ceiling)
+        clears_ceiling = ceiling is None or _below(value, ceiling)
         return clears_floor and clears_ceiling
 
 
