@@ -401,3 +401,26 @@ def test_a_summary_is_logged_once_the_interval_elapses(
     assert [(_field(r, "sensor_id"), _field(r, "readings")) for r in summaries] == [
         ("cryo-77k", 2)
     ]
+
+
+def test_an_unknown_log_level_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A typo must fail at the command line, not quietly become INFO."""
+    _ = _patch_main_dependencies(monkeypatch)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "serial-sensor",
+            "--port",
+            "/dev/labmon-due",
+            "--calibration",
+            "cal.toml",
+            "--log-level",
+            "DEGUB",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exit_info:
+        main()
+
+    assert exit_info.value.code == 2

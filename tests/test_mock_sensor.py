@@ -1,3 +1,4 @@
+import logging
 import math
 import signal
 import sys
@@ -246,3 +247,28 @@ def test_main_parses_pressure_gauge_arguments(monkeypatch: pytest.MonkeyPatch) -
             "unit": "mbar",
         }
     ]
+
+
+def test_an_unknown_log_level_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A typo must fail at the command line, not quietly become INFO."""
+    monkeypatch.setattr(sys, "argv", ["mock-sensor", "--log-level", "DEGUB"])
+
+    with pytest.raises(SystemExit) as exit_info:
+        main()
+
+    assert exit_info.value.code == 2
+
+
+def test_a_lower_case_log_level_is_accepted(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[dict[str, object]] = []
+
+    def fake_run(**kwargs: object) -> None:
+        calls.append(kwargs)
+
+    monkeypatch.setattr(mock_sensor, "run", fake_run)
+    monkeypatch.setattr(sys, "argv", ["mock-sensor", "--log-level", "debug"])
+
+    main()
+
+    assert logging.getLogger().level == logging.DEBUG
+    assert len(calls) == 1

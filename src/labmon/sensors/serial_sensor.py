@@ -195,6 +195,8 @@ def main() -> None:
     _ = parser.add_argument(
         "--log-level",
         default="INFO",
+        choices=logs.LEVEL_NAMES,
+        type=str.upper,
         help="DEBUG shows every reading; INFO shows startup and the summary",
     )
     args = parser.parse_args()
@@ -205,7 +207,7 @@ def main() -> None:
     resolution_bits = cast(int, args.resolution_bits)
     v_ref = cast(float, args.vref)
 
-    logs.configure(getattr(logging, cast(str, args.log_level).upper(), logging.INFO))
+    logs.configure(logs.level_from_name(cast(str, args.log_level)))
 
     # Load the calibration before opening the port: a bad config should
     # fail immediately rather than after touching the hardware.

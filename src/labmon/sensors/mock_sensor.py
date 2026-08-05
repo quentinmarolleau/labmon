@@ -158,11 +158,13 @@ def main() -> None:
     _ = parser.add_argument(
         "--log-level",
         default="INFO",
+        choices=logs.LEVEL_NAMES,
+        type=str.upper,
         help="DEBUG shows every reading; INFO shows startup and the summary",
     )
     args = parser.parse_args()
 
-    logs.configure(getattr(logging, cast(str, args.log_level).upper(), logging.INFO))
+    logs.configure(logs.level_from_name(cast(str, args.log_level)))
 
     sensor_id = cast(str, args.sensor_id)
     interval = cast(float, args.interval)

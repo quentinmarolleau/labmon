@@ -84,6 +84,22 @@ class LogfmtFormatter(logging.Formatter):
         return rendered
 
 
+# The levels an entry point offers on its command line, in order of
+# increasing severity. Spelled out so argparse can reject anything else:
+# resolving a level name with a default silently turns `--log-level DEGUB`
+# into INFO, and the missing DEBUG lines then read as a code problem
+# rather than as the typo they are.
+LEVEL_NAMES = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
+
+
+def level_from_name(name: str) -> int:
+    """Translate a `--log-level` value into a logging level.
+
+    Raises KeyError on anything unknown, which is the point.
+    """
+    return logging.getLevelNamesMapping()[name.upper()]
+
+
 def configure(level: int = logging.INFO) -> None:
     """Send this process's logs to stderr as logfmt.
 

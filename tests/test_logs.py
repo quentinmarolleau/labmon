@@ -2,7 +2,13 @@ import logging
 
 import pytest
 
-from labmon.logs import LogfmtFormatter, configure, quote
+from labmon.logs import (
+    LEVEL_NAMES,
+    LogfmtFormatter,
+    configure,
+    level_from_name,
+    quote,
+)
 
 
 def _record(message: str = "hello", **extra: object) -> logging.LogRecord:
@@ -106,3 +112,29 @@ def test_configure_installs_the_formatter(capsys: pytest.CaptureFixture[str]) ->
     captured = capsys.readouterr().err
     assert "level=debug" in captured
     assert "msg=hello sensor_id=s" in captured
+
+
+# --------------------------------------------------------------------------
+# --log-level must fail loudly on a typo
+# --------------------------------------------------------------------------
+
+
+def test_every_advertised_level_resolves() -> None:
+    """The choices argparse offers must all be levels logging knows."""
+    assert [level_from_name(name) for name in LEVEL_NAMES] == [
+        logging.DEBUG,
+        logging.INFO,
+        logging.WARNING,
+        logging.ERROR,
+        logging.CRITICAL,
+    ]
+
+
+def test_a_level_name_is_case_insensitive() -> None:
+    assert level_from_name("debug") == logging.DEBUG
+
+
+def test_an_unknown_level_name_raises_rather_than_defaulting() -> None:
+    """Silently falling back to INFO hides the typo that caused it."""
+    with pytest.raises(KeyError):
+        _ = level_from_name("verbose")

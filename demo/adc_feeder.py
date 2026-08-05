@@ -23,6 +23,8 @@ import random
 import socket
 import sys
 import time
+from datetime import UTC, datetime
+from typing import override
 
 # Loopback by default, so running this directly on a workstation cannot
 # expose the feeder to the network. The demo container overrides it with
@@ -124,6 +126,21 @@ def serve(host: str = HOST, port: int = PORT) -> None:
             logger.info('msg="client gone, waiting"')
 
 
+class _UtcMilliseconds(logging.Formatter):
+    """Stamps a record the way labmon.logs.LogfmtFormatter does.
+
+    `datefmt` cannot express it: %(asctime)s is local time and has no
+    sub-second field, so the feeder's lines would sort against the
+    sensors' by a different clock and a coarser one — in a query that
+    reads both, which is the whole point of collecting them together.
+    """
+
+    @override
+    def formatTime(self, record: logging.LogRecord, datefmt: str | None = None) -> str:
+        stamped = datetime.fromtimestamp(record.created, UTC)
+        return stamped.isoformat(timespec="milliseconds")
+
+
 if __name__ == "__main__":
     # The same logfmt shape the sensors emit, spelled out rather than
     # imported: this file is stdlib-only so it can run in the labmon image
@@ -132,11 +149,13 @@ if __name__ == "__main__":
     # halves of the demo read the same way in Grafana.
     for level in (logging.DEBUG, logging.INFO, logging.WARNING, logging.ERROR):
         logging.addLevelName(level, logging.getLevelName(level).lower())
-    logging.basicConfig(
-        level=logging.INFO,
-        format="ts=%(asctime)s level=%(levelname)s logger=%(name)s %(message)s",
-        datefmt="%Y-%m-%dT%H:%M:%S%z",
+    handler = logging.StreamHandler()
+    handler.setFormatter(
+        _UtcMilliseconds(
+            "ts=%(asctime)s level=%(levelname)s logger=%(name)s %(message)s"
+        )
     )
+    logging.basicConfig(level=logging.INFO, handlers=[handler])
     try:
         serve()
     except KeyboardInterrupt:
