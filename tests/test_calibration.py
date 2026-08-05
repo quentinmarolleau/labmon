@@ -3,6 +3,7 @@ from typing import cast
 
 import pint
 import pytest
+from asteval import Interpreter
 
 from labmon.calibration import (
     AffineConversion,
@@ -965,3 +966,74 @@ def test_unit_matches_what_a_reading_actually_carries() -> None:
     converted = calibration.conversion.apply(2.0 * ureg.volt)
 
     assert calibration.unit == f"{converted.units:~}"
+
+
+# --------------------------------------------------------------------------
+# A conversion may be undefined at a point without being broken
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        "5.0 / v",  # pole at zero
+        "5.0 / (1.0 - v)",  # pole at the first probe voltage
+        "5.0 / (0.5 - v)",  # pole at the second
+        "5.0 / (2.0 - v)",  # pole at the third
+        "log(v)",  # undefined at zero
+    ],
+)
+def test_a_conversion_with_a_pole_still_loads(tmp_path: Path, expression: str) -> None:
+    """No single probe voltage avoids every pole; moving one relocates it."""
+    path = _write_config(
+        tmp_path,
+        f"""
+        [channels.A0]
+        sensor_id = "gauge-1"
+        measurement = "pressure"
+        mode = "expression"
+        expression = "{expression}"
+        value_unit = "mbar"
+        """,
+    )
+
+    calibration = load_calibration(path)["A0"]
+
+    assert calibration.unit == "mbar"
+
+
+@pytest.mark.parametrize(
+    ("expression", "message"),
+    [("1.0 / 0.0", "ZeroDivisionError"), ("nosuchfunc(v)", "NameError")],
+)
+def test_a_conversion_broken_everywhere_is_still_rejected(
+    tmp_path: Path, expression: str, message: str
+) -> None:
+    path = _write_config(
+        tmp_path,
+        f"""
+        [channels.A0]
+        sensor_id = "gauge-1"
+        measurement = "pressure"
+        mode = "expression"
+        expression = "{expression}"
+        value_unit = "mbar"
+        """,
+    )
+
+    with pytest.raises(CalibrationError, match=message):
+        _ = load_calibration(path)
+
+
+def test_the_unit_of_a_conversion_with_a_pole_is_still_derivable() -> None:
+    """`unit` probes the same way, so a pole must not break it either."""
+    conversion = ExpressionConversion(
+        expression="5.0 / (1.0 - v)",
+        interpreter=Interpreter(),
+        unit=1.0 * ureg.mbar,
+    )
+    calibration = Calibration(
+        sensor_id="gauge-1", measurement="pressure", conversion=conversion
+    )
+
+    assert calibration.unit == "mbar"
