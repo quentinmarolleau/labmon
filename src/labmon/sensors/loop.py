@@ -30,8 +30,9 @@ logger: logging.Logger = logging.getLogger(__name__)
 
 # How often to report that readings are still arriving. One line per
 # reading is unreadable at any real rate, but silence gives an operator no
-# way to tell "working" from "wedged".
-SUMMARY_INTERVAL_SECONDS = 30.0
+# way to tell "working" from "wedged". A default rather than a fixed
+# constant: both sensor entry points expose it as --summary-interval.
+DEFAULT_SUMMARY_INTERVAL_SECONDS = 30.0
 
 
 class Closeable(Protocol):
@@ -52,15 +53,23 @@ class SensorLoop:
 
     `summary_interval` of None disables the summary, for a sensor that
     already reports every reading.
+
+    `writer` is how a deployment tunes the queue: build a `PointWriter`
+    with the depth and backoff that suit the link, and hand it over.
+    Taking the writer rather than forwarding each of its arguments keeps
+    this signature from growing every time the writer gains one — and a
+    caller who supplies a writer already holds the client, so none is
+    opened here.
     """
 
     def __init__(
         self,
         *,
         closes: Closeable | None = None,
-        summary_interval: float | None = SUMMARY_INTERVAL_SECONDS,
+        summary_interval: float | None = DEFAULT_SUMMARY_INTERVAL_SECONDS,
+        writer: PointWriter[Point] | None = None,
     ) -> None:
-        self.writer: PointWriter[Point] = PointWriter[Point](get_client())
+        self.writer: PointWriter[Point] = writer or PointWriter[Point](get_client())
         self._summary_interval: float | None = summary_interval
         self._written: Counter[str] = Counter()
         self._next_summary: float = time.monotonic() + (summary_interval or 0.0)

@@ -44,15 +44,17 @@ from datetime import UTC, datetime
 from influxdb_client_3 import Point
 
 from labmon.influx import INFLUXDB_DATABASE, get_client
-from labmon.sensors.loop import SensorLoop
+from labmon.sensors.loop import DEFAULT_SUMMARY_INTERVAL_SECONDS, SensorLoop
 
 logger: logging.Logger = logging.getLogger(__name__)
 
 # A read that raises backs off instead of retrying at the nominal interval,
 # so an instrument that is switched off is not hammered all night. Capped so
-# recovery is still noticed promptly once it comes back.
-INITIAL_BACKOFF_SECONDS = 1.0
-MAX_BACKOFF_SECONDS = 60.0
+# recovery is still noticed promptly once it comes back. Defaults rather
+# than fixed constants: an instrument whose reboot takes a known minute
+# should be told that, not guessed at.
+DEFAULT_INITIAL_BACKOFF_SECONDS = 1.0
+DEFAULT_MAX_BACKOFF_SECONDS = 60.0
 
 
 def build_point(
@@ -131,6 +133,9 @@ def poll(
     interval: float = 5.0,
     field: str = "value",
     tags: Mapping[str, str] | None = None,
+    initial_backoff: float = DEFAULT_INITIAL_BACKOFF_SECONDS,
+    max_backoff: float = DEFAULT_MAX_BACKOFF_SECONDS,
+    summary_interval: float | None = DEFAULT_SUMMARY_INTERVAL_SECONDS,
 ) -> None:
     """Read every `interval` seconds and write what comes back, forever.
 
@@ -142,13 +147,15 @@ def poll(
     SDK that throws on a transient network blip, a device that reports busy,
     an expired session — none of these should end the process, because the
     failure that matters is the one nobody notices until a week of data is
-    missing. Successive failures back off up to MAX_BACKOFF_SECONDS and
-    return to the nominal interval on the first success.
+    missing. Successive failures double the wait from `initial_backoff` up
+    to `max_backoff`, and return to the nominal interval on the first
+    success. An instrument with a known recovery time should be given it
+    rather than left to the defaults.
 
     Runs until SIGINT (Ctrl+C) or SIGTERM (e.g. `docker stop`), at which
     point queued readings are flushed and the client closed.
     """
-    loop = SensorLoop()
+    loop = SensorLoop(summary_interval=summary_interval)
 
     logger.info(
         "writing readings",
@@ -160,7 +167,7 @@ def poll(
         },
     )
 
-    backoff = INITIAL_BACKOFF_SECONDS
+    backoff = initial_backoff
 
     while True:
         try:
@@ -172,10 +179,10 @@ def poll(
                 exc_info=True,
             )
             time.sleep(backoff)
-            backoff = min(backoff * 2, MAX_BACKOFF_SECONDS)
+            backoff = min(backoff * 2, max_backoff)
             continue
 
-        backoff = INITIAL_BACKOFF_SECONDS
+        backoff = initial_backoff
         if value is not None:
             point = build_point(
                 value,

@@ -53,6 +53,9 @@ ADC_RESOLUTION_BITS = 12
 ADC_VREF_VOLTS = 3.3
 
 # The name an `expression` conversion uses for the measured voltage.
+# INVARIANT (see docs/configuration.md): every `expression` in every
+# calibration file already written is spelled in terms of this, so
+# changing it invalidates all of them at once.
 VOLTAGE_SYMBOL = "v"
 
 # Applied at load time to check a conversion works and to read off the
@@ -67,6 +70,11 @@ DEFAULT_MODE = "linear"
 # without the input, correcting a wrong calibration cannot reach readings
 # already written.
 DEFAULT_STORE_INPUT = True
+
+# INVARIANT (see docs/configuration.md): both feed the calibration_id
+# already tagged onto stored readings. Changing either re-tags every
+# calibration, so a new id never matches one in the database and the
+# provenance trail the tag exists for is broken.
 
 # Length of the calibration_id tag, in hex characters. Long enough that
 # a lab's handful of calibrations will not collide, short enough to read

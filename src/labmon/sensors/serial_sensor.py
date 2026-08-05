@@ -38,7 +38,7 @@ from labmon.calibration import (
 )
 from labmon.gate import RecordingGate
 from labmon.influx import INFLUXDB_DATABASE
-from labmon.sensors.loop import SensorLoop
+from labmon.sensors.loop import DEFAULT_SUMMARY_INTERVAL_SECONDS, SensorLoop
 from labmon.sensors.serial_source import (
     DEFAULT_BAUDRATE,
     RawSource,
@@ -47,6 +47,11 @@ from labmon.sensors.serial_source import (
 )
 
 logger: logging.Logger = logging.getLogger(__name__)
+
+# INVARIANT (see docs/configuration.md): the three names below are the
+# schema every stored reading was written under. Changing one splits the
+# history in two — rows already in InfluxDB keep the old name, and no
+# query spans both — so they are deliberately not configurable.
 
 # The InfluxDB field every reading is written to. Unlike the mock
 # sensor's --field, there's nothing to vary here: a channel's identity
@@ -91,6 +96,7 @@ def run(
     calibrations: dict[str, Calibration],
     resolution_bits: int = ADC_RESOLUTION_BITS,
     v_ref: float = ADC_VREF_VOLTS,
+    summary_interval: float | None = DEFAULT_SUMMARY_INTERVAL_SECONDS,
 ) -> None:
     """Write calibrated readings from `source` to InfluxDB until interrupted.
 
@@ -100,7 +106,7 @@ def run(
     """
     # The port is closed before the writer, so nothing new arrives while
     # the queue drains.
-    loop = SensorLoop(closes=source)
+    loop = SensorLoop(closes=source, summary_interval=summary_interval)
 
     logger.info(
         "writing calibrated readings",
@@ -217,6 +223,12 @@ def main() -> None:
         type=str.upper,
         help="DEBUG shows every reading; INFO shows startup and the summary",
     )
+    _ = parser.add_argument(
+        "--summary-interval",
+        type=float,
+        default=DEFAULT_SUMMARY_INTERVAL_SECONDS,
+        help="Seconds between 'still writing' summary lines; 0 turns them off",
+    )
     args = parser.parse_args()
 
     port = cast(str, args.port)
@@ -224,6 +236,9 @@ def main() -> None:
     baudrate = cast(int, args.baudrate)
     resolution_bits = cast(int, args.resolution_bits)
     v_ref = cast(float, args.vref)
+    # argparse cannot hand back None from a float flag, so zero is the off
+    # switch — and "summarise every zero seconds" has no other meaning.
+    summary_interval = cast(float, args.summary_interval) or None
 
     logs.configure(logs.level_from_name(cast(str, args.log_level)))
 
@@ -237,6 +252,7 @@ def main() -> None:
         calibrations=calibrations,
         resolution_bits=resolution_bits,
         v_ref=v_ref,
+        summary_interval=summary_interval,
     )
 
 

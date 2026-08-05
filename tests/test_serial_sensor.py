@@ -321,6 +321,7 @@ def test_main_parses_defaults_and_calls_run(monkeypatch: pytest.MonkeyPatch) -> 
     [call] = run_calls
     assert call["resolution_bits"] == 12
     assert call["v_ref"] == 3.3
+    assert call["summary_interval"] == 30.0
     assert call["calibrations"] == {"A0": _temperature_calibration()}
 
 
@@ -341,6 +342,8 @@ def test_main_parses_custom_arguments(monkeypatch: pytest.MonkeyPatch) -> None:
             "10",
             "--vref",
             "5.0",
+            "--summary-interval",
+            "120",
         ],
     )
 
@@ -350,6 +353,32 @@ def test_main_parses_custom_arguments(monkeypatch: pytest.MonkeyPatch) -> None:
     [call] = run_calls
     assert call["resolution_bits"] == 10
     assert call["v_ref"] == 5.0
+    assert call["summary_interval"] == 120.0
+
+
+def test_a_summary_interval_of_zero_turns_the_heartbeat_off(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Zero is the off switch, since a float flag cannot take None."""
+    run_calls, _ = _patch_main_dependencies(monkeypatch)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "serial-sensor",
+            "--port",
+            "/dev/labmon-due",
+            "--calibration",
+            "cal.toml",
+            "--summary-interval",
+            "0",
+        ],
+    )
+
+    main()
+
+    [call] = run_calls
+    assert call["summary_interval"] is None
 
 
 @pytest.mark.usefixtures("fake_client", "registered_handlers")
@@ -383,7 +412,7 @@ def test_a_summary_is_logged_once_the_interval_elapses(
     # so exactly one summary covering both should be emitted. Patched on
     # the time module itself, which serial_sensor imports rather than
     # re-exports.
-    ticks = iter([0.0, 1.0, sensor_loop.SUMMARY_INTERVAL_SECONDS + 1.0])
+    ticks = iter([0.0, 1.0, sensor_loop.DEFAULT_SUMMARY_INTERVAL_SECONDS + 1.0])
     monkeypatch.setattr(time, "monotonic", lambda: next(ticks))
     source = FakeRawSource(
         [
@@ -425,6 +454,30 @@ def test_an_unknown_log_level_is_rejected(monkeypatch: pytest.MonkeyPatch) -> No
         main()
 
     assert exit_info.value.code == 2
+
+
+@pytest.mark.usefixtures("fake_client", "registered_handlers")
+def test_run_passes_its_summary_interval_to_the_loop(
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The flag is only worth parsing if it reaches the loop that uses it."""
+    # Well past the default interval, so a dropped argument would summarise.
+    ticks = iter([0.0, sensor_loop.DEFAULT_SUMMARY_INTERVAL_SECONDS + 1.0])
+    monkeypatch.setattr(time, "monotonic", lambda: next(ticks))
+    source = FakeRawSource([RawReading(channel="A0", raw_count=4095)])
+
+    with (
+        caplog.at_level(logging.INFO, logger=sensor_loop.logger.name),
+        pytest.raises(_StopLoop),
+    ):
+        run(
+            source=source,
+            calibrations={"A0": _temperature_calibration()},
+            summary_interval=None,
+        )
+
+    assert "wrote readings" not in caplog.text
 
 
 # --------------------------------------------------------------------------
@@ -512,7 +565,7 @@ def test_a_gated_out_reading_is_not_counted_in_the_summary(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The summary reports what was written; a gap must not read as activity."""
-    monkeypatch.setattr(sensor_loop, "SUMMARY_INTERVAL_SECONDS", 0.0)
+    monkeypatch.setattr(sensor_loop, "DEFAULT_SUMMARY_INTERVAL_SECONDS", 0.0)
     source = FakeRawSource([RawReading(channel="A0", raw_count=1)])
 
     with caplog.at_level(logging.INFO), pytest.raises(_StopLoop):

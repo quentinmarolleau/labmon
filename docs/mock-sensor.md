@@ -47,7 +47,12 @@ process closes its InfluxDB connection cleanly on SIGINT/SIGTERM.
 | `--field`          | `value`        | InfluxDB field name for the reading                                |
 | `--noise`          | `0.1`          | Std dev of Gaussian noise added each step                         |
 | `--log-scale`      | off            | Perform the walk in log10 space (see below)                       |
-| `--unit`           | `""`           | Unit of the reading (e.g. `°C`, `K`, `mbar`) — written as an InfluxDB `unit` tag when set, and shown in the console output |
+| `--unit`           | `""`           | Unit of the reading (e.g. `°C`, `K`, `mbar`) — written as an InfluxDB `unit` tag when set |
+| `--log-level`      | `INFO`         | `DEBUG` adds a line per reading                                   |
+| `--summary-interval` | `30.0`       | Seconds between "still writing" lines; `0` turns them off         |
+
+Every setting in the project, not just this script's, is indexed in
+[`docs/configuration.md`](configuration.md).
 
 ### `--log-scale`
 

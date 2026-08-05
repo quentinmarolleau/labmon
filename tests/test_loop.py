@@ -9,6 +9,7 @@ from influxdb_client_3 import Point
 
 from labmon.sensors import loop as sensor_loop
 from labmon.sensors.loop import SensorLoop
+from labmon.writer import PointWriter
 
 SignalHandler = Callable[[int, FrameType | None], None]
 
@@ -120,7 +121,7 @@ def test_shutdown_closes_the_port_before_the_writer(
 def test_the_summary_names_each_sensor_and_its_count(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    ticks = iter([0.0, sensor_loop.SUMMARY_INTERVAL_SECONDS + 1.0])
+    ticks = iter([0.0, sensor_loop.DEFAULT_SUMMARY_INTERVAL_SECONDS + 1.0])
     monkeypatch.setattr(time, "monotonic", lambda: next(ticks))
     loop = SensorLoop()
     loop.record(_point(1.0), "cryo-77k")
@@ -167,3 +168,51 @@ def test_a_loop_without_a_summary_never_emits_one(
         loop.summarise_if_due()
 
     assert "wrote readings" not in caplog.text
+
+
+# --------------------------------------------------------------------------
+# Tuning the writer without editing installed source
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.usefixtures("registered_handlers")
+def test_a_supplied_writer_is_used_instead_of_a_default_one() -> None:
+    """How a deployment tunes the queue: build the writer, hand it over.
+
+    Forwarding every PointWriter argument through SensorLoop would grow
+    a parameter each time the writer gains one; taking the writer itself
+    stays one parameter forever.
+    """
+    client = FakeInfluxClient()
+    writer = PointWriter[Point](client, maxsize=5, poll_interval=0.01)
+    loop = SensorLoop(writer=writer)
+
+    loop.record(_point(1.0), "s")
+    loop.writer.close()
+
+    assert loop.writer is writer
+    assert len(client.points) == 1
+
+
+def test_supplying_a_writer_does_not_open_a_second_client(
+    monkeypatch: pytest.MonkeyPatch, registered_handlers: dict[int, SignalHandler]
+) -> None:
+    """A caller who built the writer already holds the only connection."""
+
+    def unexpected() -> FakeInfluxClient:  # pragma: no cover - must not run
+        raise AssertionError("get_client() was called despite a supplied writer")
+
+    monkeypatch.setattr(sensor_loop, "get_client", unexpected)
+    client = FakeInfluxClient()
+    loop = SensorLoop(writer=PointWriter[Point](client, poll_interval=0.01))
+
+    with pytest.raises(SystemExit):
+        registered_handlers[signal.SIGTERM](signal.SIGTERM, None)
+
+    assert loop.writer is not None
+    assert client.closed is True
+
+
+def test_the_summary_default_is_the_documented_one() -> None:
+    """docs/configuration.md quotes it, so a change must break a test."""
+    assert sensor_loop.DEFAULT_SUMMARY_INTERVAL_SECONDS == 30.0

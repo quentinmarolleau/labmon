@@ -323,6 +323,11 @@ Connection settings (`INFLUXDB_HOST`, `INFLUXDB_DATABASE`,
 `INFLUXDB3_AUTH_TOKEN`) come from the environment, exactly as for
 [`mock-sensor`](mock-sensor.md#configuration).
 
+`--log-level DEBUG` adds a line per reading; `--summary-interval` sets
+how often the "still writing" line appears, and `0` turns it off.
+[`docs/configuration.md`](configuration.md) indexes every setting in the
+project, this one included.
+
 ## Arduino Due specifics
 
 The reference firmware is

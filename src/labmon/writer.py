@@ -7,8 +7,22 @@ from typing import Protocol
 
 logger: logging.Logger = logging.getLogger(__name__)
 
-_INITIAL_BACKOFF_SECONDS = 1.0
-_MAX_BACKOFF_SECONDS = 30.0
+# Defaults for the constructor arguments below, named so they can be
+# quoted in docs/configuration.md and referred to from a call site that
+# wants to change one of them without restating the others.
+
+# How many points may queue up before write() starts blocking. At ten
+# thousand a 100 Hz sensor rides out a ~100s outage before it does.
+DEFAULT_QUEUE_MAXSIZE = 10_000
+
+# How long the background thread waits on an empty queue before
+# re-checking for a stop request. Bounds how long close() can take.
+DEFAULT_POLL_INTERVAL_SECONDS = 0.5
+
+# The first retry wait after a failed batch, and the ceiling the
+# doubling stops at.
+DEFAULT_INITIAL_BACKOFF_SECONDS = 1.0
+DEFAULT_MAX_BACKOFF_SECONDS = 30.0
 
 
 class _Writable[T](Protocol):
@@ -28,20 +42,33 @@ class PointWriter[T]:
     request when the queue is empty (the background thread re-checks for
     a stop roughly every poll_interval seconds while idle).
 
-    A batch that fails to write is retried with exponential backoff
-    (capped, and interruptible by close()) rather than being dropped or
-    left to kill the background thread — a real network to a remote
-    server can have transient outages that a same-host connection never
-    would. A batch still failing when close() is called is logged and
-    dropped rather than retried indefinitely, so shutdown stays prompt.
+    A batch that fails to write is retried with exponential backoff from
+    initial_backoff up to max_backoff (interruptible by close()) rather
+    than being dropped or left to kill the background thread — a real
+    network to a remote server can have transient outages that a
+    same-host connection never would. A batch still failing when close()
+    is called is logged and dropped rather than retried indefinitely, so
+    shutdown stays prompt.
+
+    All four are arguments rather than module constants because the right
+    values depend on the deployment: a 100 Hz board on a flaky link wants
+    a deeper queue than a thermometer sampled every minute. Passing one
+    survives an upgrade; editing installed source does not.
     """
 
     def __init__(
-        self, client: _Writable[T], maxsize: int = 10_000, poll_interval: float = 0.5
+        self,
+        client: _Writable[T],
+        maxsize: int = DEFAULT_QUEUE_MAXSIZE,
+        poll_interval: float = DEFAULT_POLL_INTERVAL_SECONDS,
+        initial_backoff: float = DEFAULT_INITIAL_BACKOFF_SECONDS,
+        max_backoff: float = DEFAULT_MAX_BACKOFF_SECONDS,
     ) -> None:
         self._client: _Writable[T] = client
         self._queue: queue.Queue[T] = queue.Queue(maxsize=maxsize)
         self._poll_interval: float = poll_interval
+        self._initial_backoff: float = initial_backoff
+        self._max_backoff: float = max_backoff
         self._stop: threading.Event = threading.Event()
         self._thread: threading.Thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
@@ -76,7 +103,7 @@ class PointWriter[T]:
         logged and dropped instead of retried forever, so close() stays
         responsive even during a sustained outage.
         """
-        backoff = _INITIAL_BACKOFF_SECONDS
+        backoff = self._initial_backoff
         attempt = 1
         while True:
             try:
@@ -97,5 +124,5 @@ class PointWriter[T]:
                     len(batch),
                 )
                 return
-            backoff = min(backoff * 2, _MAX_BACKOFF_SECONDS)
+            backoff = min(backoff * 2, self._max_backoff)
             attempt += 1

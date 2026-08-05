@@ -29,7 +29,7 @@ from influxdb_client_3 import Point
 
 from labmon import logs
 from labmon.influx import INFLUXDB_DATABASE
-from labmon.sensors.loop import SensorLoop
+from labmon.sensors.loop import DEFAULT_SUMMARY_INTERVAL_SECONDS, SensorLoop
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -73,6 +73,7 @@ def run(
     noise: float = 0.1,
     log_scale: bool = False,
     unit: str = "",
+    summary_interval: float | None = DEFAULT_SUMMARY_INTERVAL_SECONDS,
 ) -> None:
     """Write simulated readings for `sensor_id` to InfluxDB until interrupted.
 
@@ -82,7 +83,7 @@ def run(
     # The summary is on now that per-reading lines are DEBUG. Without it a
     # sensor at the default level would say nothing at all after startup,
     # and silence is indistinguishable from a wedged process.
-    loop = SensorLoop()
+    loop = SensorLoop(summary_interval=summary_interval)
     walk = RandomWalk(setpoint=setpoint, noise=noise, log_scale=log_scale)
 
     logger.info(
@@ -153,7 +154,7 @@ def main() -> None:
         "--unit",
         default="",
         help="Unit of the reading (e.g. '°C', 'K', 'mbar'). Written as an "
-        + "InfluxDB tag (when set) and shown in the console output.",
+        + "InfluxDB tag when set, and omitted entirely when not.",
     )
     _ = parser.add_argument(
         "--log-level",
@@ -161,6 +162,12 @@ def main() -> None:
         choices=logs.LEVEL_NAMES,
         type=str.upper,
         help="DEBUG shows every reading; INFO shows startup and the summary",
+    )
+    _ = parser.add_argument(
+        "--summary-interval",
+        type=float,
+        default=DEFAULT_SUMMARY_INTERVAL_SECONDS,
+        help="Seconds between 'still writing' summary lines; 0 turns them off",
     )
     args = parser.parse_args()
 
@@ -174,6 +181,9 @@ def main() -> None:
     noise = cast(float, args.noise)
     log_scale = cast(bool, args.log_scale)
     unit = cast(str, args.unit)
+    # argparse cannot hand back None from a float flag, so zero is the off
+    # switch — and "summarise every zero seconds" has no other meaning.
+    summary_interval = cast(float, args.summary_interval) or None
 
     run(
         sensor_id=sensor_id,
@@ -184,6 +194,7 @@ def main() -> None:
         noise=noise,
         log_scale=log_scale,
         unit=unit,
+        summary_interval=summary_interval,
     )
 
 
