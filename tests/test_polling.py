@@ -8,10 +8,20 @@ from typing import override
 import pytest
 from influxdb_client_3 import Point
 
+from labmon.sensors import loop as sensor_loop
 from labmon.sensors import polling
 from labmon.sensors.polling import build_point, poll, write_reading
 
 SignalHandler = Callable[[int, FrameType | None], None]
+
+
+def _field(record: logging.LogRecord, name: str) -> object:
+    """Read a logfmt field off a record.
+
+    `extra=` fields become attributes a type checker cannot know about,
+    so this says plainly that the lookup is dynamic.
+    """
+    return getattr(record, name)  # pyright: ignore[reportAny]
 
 
 class _StopLoop(BaseException):
@@ -45,6 +55,10 @@ class FakeInfluxClient:
 @pytest.fixture
 def fake_client(monkeypatch: pytest.MonkeyPatch) -> FakeInfluxClient:
     client = FakeInfluxClient()
+    # Two seams: poll() gets its client through SensorLoop, while
+    # write_reading() opens one directly because it must flush before it
+    # returns. Both are patched to the same fake.
+    monkeypatch.setattr(sensor_loop, "get_client", lambda: client)
     monkeypatch.setattr(polling, "get_client", lambda: client)
     return client
 
@@ -293,7 +307,39 @@ def test_poll_backoff_is_capped(no_sleep: list[float]) -> None:
     with pytest.raises(_StopLoop):
         poll(read, sensor_id="c", measurement="m", interval=1.0)
 
-    assert max(no_sleep) == polling.MAX_BACKOFF_SECONDS
+    assert max(no_sleep) == polling.DEFAULT_MAX_BACKOFF_SECONDS
+
+
+@pytest.mark.usefixtures("registered_handlers", "fake_client")
+def test_poll_backoff_bounds_are_parameters(no_sleep: list[float]) -> None:
+    """A device known to need a minute to reboot should not be guessed at."""
+    failures = iter(range(30))
+
+    def read() -> float | None:
+        try:
+            _ = next(failures)
+        except StopIteration:
+            raise _StopLoop from None
+        raise RuntimeError("unreachable")
+
+    with pytest.raises(_StopLoop):
+        poll(
+            read,
+            sensor_id="c",
+            measurement="m",
+            interval=1.0,
+            initial_backoff=5.0,
+            max_backoff=20.0,
+        )
+
+    assert no_sleep[0] == 5.0
+    assert max(no_sleep) == 20.0
+
+
+def test_the_backoff_defaults_are_the_documented_ones() -> None:
+    """docs/configuration.md quotes these, so a change must break a test."""
+    assert polling.DEFAULT_INITIAL_BACKOFF_SECONDS == 1.0
+    assert polling.DEFAULT_MAX_BACKOFF_SECONDS == 60.0
 
 
 @pytest.mark.usefixtures("registered_handlers", "fake_client")
@@ -328,18 +374,39 @@ def test_poll_summarises_once_the_interval_elapses(
 ) -> None:
     """The per-reading line is DEBUG, so this carries "it is still working"."""
     # The clock passes the summary interval only on the second reading.
-    ticks = iter([0.0, 1.0, polling.SUMMARY_INTERVAL_SECONDS + 1.0])
+    ticks = iter([0.0, 1.0, sensor_loop.DEFAULT_SUMMARY_INTERVAL_SECONDS + 1.0])
     monkeypatch.setattr(time, "monotonic", lambda: next(ticks))
 
     with (
-        caplog.at_level(logging.INFO, logger=polling.logger.name),
+        caplog.at_level(logging.INFO, logger=sensor_loop.logger.name),
         pytest.raises(_StopLoop),
     ):
         poll(_stop_after([1.0, 2.0]), sensor_id="c", measurement="m")
 
-    summaries = [
-        record.getMessage()
-        for record in caplog.records
-        if "Wrote" in record.getMessage()
+    summaries = [r for r in caplog.records if r.getMessage() == "wrote readings"]
+    assert [(_field(r, "sensor_id"), _field(r, "readings")) for r in summaries] == [
+        ("c", 2)
     ]
-    assert summaries == ["Wrote 2 reading(s) in the last 30s"]
+
+
+@pytest.mark.usefixtures("fake_client", "registered_handlers", "no_sleep")
+def test_poll_passes_its_summary_interval_to_the_loop(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A sensor that reports another way should be able to turn it off."""
+    # Well past the default interval, so a dropped argument would summarise.
+    ticks = iter([0.0, 1.0, sensor_loop.DEFAULT_SUMMARY_INTERVAL_SECONDS + 1.0])
+    monkeypatch.setattr(time, "monotonic", lambda: next(ticks))
+
+    with (
+        caplog.at_level(logging.INFO, logger=sensor_loop.logger.name),
+        pytest.raises(_StopLoop),
+    ):
+        poll(
+            _stop_after([1.0, 2.0]),
+            sensor_id="c",
+            measurement="m",
+            summary_interval=None,
+        )
+
+    assert "wrote readings" not in caplog.text

@@ -152,6 +152,117 @@ Any keys are accepted; nothing is required. Only the table's presence is
 validated, so a bare `provenance = "..."` string is rejected rather than
 silently ignored.
 
+### Not recording while the instrument is off
+
+Some signals are only meaningful while the instrument producing them is
+running. A photodiode watching a laser reads noise overnight; a gauge on
+a vented chamber reads atmosphere. Recorded at full rate those readings
+cost storage, stretch dashboard axes, and drag every average and alert
+threshold computed over the series.
+
+An optional `stop_recording_when` table says what takes a channel out of
+service:
+
+```toml
+[channels.A3]
+sensor_id = "laser-1"
+measurement = "power"
+conversion_factor = "50.0 mW / volt"
+
+[channels.A3.stop_recording_when]
+below = "1 mW"            # under this, the laser is off
+for = "30s"               # ... but only once it has stayed there
+resume_above = "10 mW"    # back over this, resume immediately
+```
+
+The table is written as the conditions that **stop** recording, because
+that is the decision being made: the state being excluded is the one
+worth naming, and `for` then reads on the clause it actually governs —
+"stop recording when the power stays below 1 mW for 30 seconds".
+
+`below` and `above` are the two bounds. A channel may set either, or
+both, and everything between them is recorded:
+
+```toml
+[channels.A4.stop_recording_when]
+raw_voltage = true
+below = "100 mV"
+above = "3.0 V"
+for = "1 min"
+resume_below = "2.9 V"
+```
+
+That channel stops recording once its input has sat outside 100 mV–3.0 V
+for a minute — open input at one end, railed amplifier at the other —
+and resumes as soon as the input is back under 2.9 V.
+
+`raw_voltage = true` compares the bounds against the voltage at the ADC
+input rather than against the converted value, for a channel whose off
+state is better recognised before the conversion: a railed amplifier, or
+a conversion characterised over only part of the input range. The bounds
+are then written in volts whatever the channel converts to.
+
+Every bound is dimensioned and checked at startup against the quantity
+it will be compared to, so a bound in the wrong unit is a config error
+rather than a comparison that silently means something else.
+
+Nothing is written while the gate is closed — not even `input_volts`.
+The gap in the trace is the honest signal, and it is what makes the
+storage saving real.
+
+#### Conservative about stopping, eager about resuming
+
+The two directions are deliberately asymmetric, because their costs are.
+Stopping wrongly loses real data; resuming wrongly costs a handful of
+junk samples.
+
+- `for` is an optional dwell, written as a duration (`"30s"`, `"1 min"`
+  — `"1m"` is one *metre*, and is rejected at startup), and applies to
+  **stopping only**. A brief
+  excursion past a bound does not stop recording. Without it, the first
+  reading outside the band does. A reading that leaves by one bound and
+  comes back inside by way of the other never resets the dwell — outside
+  is outside.
+- Resuming is **always immediate**. Waiting would swallow the turn-on
+  transient, which is often the most interesting part of the trace.
+- `resume_above` and `resume_below` are optional deadbands on `below`
+  and `above` respectively. Without them the stop bounds are reused and
+  there is no deadband, so a value hovering right at a bound alternates
+  between gaps and fragments — which is what a deadband exists to
+  prevent.
+
+Every comparison is strict, so each key means what it says: a reading of
+exactly 3 V is not *above* 3 V and does not stop a channel bounded there,
+and the same at every other bound. A reading sitting exactly on one is
+therefore neither stopping nor resuming, and the gate holds the state it
+was already in.
+
+The four bounds have to read `below <= resume_above < resume_below <=
+above`, and anything else is rejected at startup: the resume band nests
+inside the band recording stops outside of, and bounds that cross
+describe a gate that would flap, or one that would never record at all.
+A deadband without the bound it widens (`resume_above` with no `below`)
+is rejected too, rather than looking configured while doing nothing.
+
+A gate starts out recording, so a misconfigured one errs towards keeping
+data.
+
+#### Reading the gap
+
+Each transition is logged once — never per reading, which at 100 Hz
+would be unreadable — carrying the value that caused it and the bound it
+crossed:
+
+```
+level=info logger=labmon.gate msg="recording stopped" sensor_id=laser-1 limit="below 1 mW" value="0.03 mW"
+```
+
+That line is what makes the gap interpretable. With the `logs` profile
+(see [logging.md](logging.md)) it sits next to the series in Grafana, so
+a flat trace reads as "laser off at 19:42" rather than "sensor died at
+some point last night". Without it, an instrument being off and an
+acquisition crashing look identical in the data.
+
 ### Choosing between `spline` and `piecewise_linear`
 
 Both take the same measured `voltages`/`values` points, which must be
@@ -211,6 +322,11 @@ startup.
 Connection settings (`INFLUXDB_HOST`, `INFLUXDB_DATABASE`,
 `INFLUXDB3_AUTH_TOKEN`) come from the environment, exactly as for
 [`mock-sensor`](mock-sensor.md#configuration).
+
+`--log-level DEBUG` adds a line per reading; `--summary-interval` sets
+how often the "still writing" line appears, and `0` turns it off.
+[`docs/configuration.md`](configuration.md) indexes every setting in the
+project, this one included.
 
 ## Arduino Due specifics
 

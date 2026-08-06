@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 from typing import cast
 
@@ -5,6 +6,7 @@ import pint
 import pytest
 
 from labmon.calibration import (
+    _BAND_ORDER,  # pyright: ignore[reportPrivateUsage]
     AffineConversion,
     Calibration,
     CalibrationError,
@@ -965,3 +967,345 @@ def test_unit_matches_what_a_reading_actually_carries() -> None:
     converted = calibration.conversion.apply(2.0 * ureg.volt)
 
     assert calibration.unit == f"{converted.units:~}"
+
+
+# --------------------------------------------------------------------------
+# stop_recording_when — the per-channel recording gate
+# --------------------------------------------------------------------------
+
+
+_GATED_CHANNEL = """
+[channels.A0]
+sensor_id = "laser-1"
+measurement = "power"
+conversion_factor = "50.0 mW / volt"
+
+[channels.A0.stop_recording_when]
+"""
+
+
+def test_a_channel_without_stop_recording_when_has_no_rule(tmp_path: Path) -> None:
+    """The gate is opt-in: an unconfigured channel records everything."""
+    channels = load_calibration(
+        _write_config(
+            tmp_path,
+            """
+            [channels.A0]
+            sensor_id = "laser-1"
+            measurement = "power"
+            conversion_factor = "50.0 mW / volt"
+            """,
+        )
+    )
+
+    assert channels["A0"].stop_recording_when is None
+
+
+def test_below_stops_recording_under_it(tmp_path: Path) -> None:
+    channels = load_calibration(
+        _write_config(tmp_path, _GATED_CHANNEL + 'below = "1.0 mW"\n')
+    )
+    rule = channels["A0"].stop_recording_when
+
+    assert rule is not None
+    assert rule.below == ureg("1.0 mW")
+    assert rule.above is None
+    # No deadband given, so the stop bound stands in for one.
+    assert rule.resume_floor == ureg("1.0 mW")
+    assert rule.resume_ceiling is None
+    assert rule.dwell_seconds == 0.0
+    assert not rule.raw_voltage
+
+
+def test_above_stops_recording_over_it(tmp_path: Path) -> None:
+    channels = load_calibration(
+        _write_config(tmp_path, _GATED_CHANNEL + 'above = "9.0 mW"\n')
+    )
+    rule = channels["A0"].stop_recording_when
+
+    assert rule is not None
+    assert rule.below is None
+    assert rule.above == ureg("9.0 mW")
+
+
+def test_both_bounds_make_a_band(tmp_path: Path) -> None:
+    """A channel can be meaningless at both ends: dark at one, railed at the other."""
+    channels = load_calibration(
+        _write_config(tmp_path, _GATED_CHANNEL + 'below = "1 mW"\nabove = "9 mW"\n')
+    )
+    rule = channels["A0"].stop_recording_when
+
+    assert rule is not None
+    assert rule.below == ureg("1 mW")
+    assert rule.above == ureg("9 mW")
+
+
+def test_for_sets_the_dwell(tmp_path: Path) -> None:
+    channels = load_calibration(
+        _write_config(tmp_path, _GATED_CHANNEL + 'below = "1.0 mW"\nfor = "5 min"\n')
+    )
+    rule = channels["A0"].stop_recording_when
+
+    assert rule is not None
+    assert rule.dwell_seconds == 300.0
+
+
+def test_resume_above_sets_the_deadband_on_below(tmp_path: Path) -> None:
+    channels = load_calibration(
+        _write_config(
+            tmp_path, _GATED_CHANNEL + 'below = "1.0 mW"\nresume_above = "10.0 mW"\n'
+        )
+    )
+    rule = channels["A0"].stop_recording_when
+
+    assert rule is not None
+    assert rule.resume_floor == ureg("10.0 mW")
+
+
+def test_resume_below_sets_the_deadband_on_above(tmp_path: Path) -> None:
+    channels = load_calibration(
+        _write_config(
+            tmp_path, _GATED_CHANNEL + 'above = "10.0 mW"\nresume_below = "9.0 mW"\n'
+        )
+    )
+    rule = channels["A0"].stop_recording_when
+
+    assert rule is not None
+    assert rule.resume_ceiling == ureg("9.0 mW")
+
+
+def test_raw_voltage_gates_before_the_conversion(tmp_path: Path) -> None:
+    """The bounds are then in volts, whatever the channel converts to."""
+    channels = load_calibration(
+        _write_config(
+            tmp_path,
+            _GATED_CHANNEL + 'raw_voltage = true\nbelow = "100 mV"\nabove = "3.0 V"\n',
+        )
+    )
+    rule = channels["A0"].stop_recording_when
+
+    assert rule is not None
+    assert rule.raw_voltage
+    assert rule.below == ureg("100 mV")
+
+
+def test_raw_voltage_must_be_a_boolean(tmp_path: Path) -> None:
+    with pytest.raises(CalibrationError, match="must be true or false"):
+        _ = load_calibration(
+            _write_config(
+                tmp_path, _GATED_CHANNEL + 'raw_voltage = "yes"\nbelow = "1 mW"\n'
+            )
+        )
+
+
+def test_a_bound_in_the_wrong_dimension_is_rejected(tmp_path: Path) -> None:
+    """The channel produces milliwatts; a bound in kelvin cannot gate it."""
+    with pytest.raises(CalibrationError, match="produces mW"):
+        _ = load_calibration(
+            _write_config(tmp_path, _GATED_CHANNEL + 'below = "1.0 kelvin"\n')
+        )
+
+
+def test_a_raw_voltage_bound_must_be_a_voltage(tmp_path: Path) -> None:
+    """The channel's own unit is irrelevant once the gate reads the input."""
+    with pytest.raises(CalibrationError, match="gates on the raw voltage"):
+        _ = load_calibration(
+            _write_config(
+                tmp_path, _GATED_CHANNEL + 'raw_voltage = true\nbelow = "1.0 mW"\n'
+            )
+        )
+
+
+def test_a_bare_number_is_rejected(tmp_path: Path) -> None:
+    """Dimensioned, so it cannot silently mean the wrong unit."""
+    with pytest.raises(CalibrationError, match="must be a string"):
+        _ = load_calibration(_write_config(tmp_path, _GATED_CHANNEL + "below = 1.0\n"))
+
+
+def test_stop_recording_when_needs_a_bound(tmp_path: Path) -> None:
+    with pytest.raises(CalibrationError, match="needs 'below' or 'above'"):
+        _ = load_calibration(_write_config(tmp_path, _GATED_CHANNEL + 'for = "30s"\n'))
+
+
+def test_a_deadband_without_its_stop_bound_is_rejected(tmp_path: Path) -> None:
+    """Alone it deadbands nothing, so it reads as configured while doing nothing."""
+    with pytest.raises(CalibrationError, match="'resume_above' without 'below'"):
+        _ = load_calibration(
+            _write_config(
+                tmp_path, _GATED_CHANNEL + 'above = "9 mW"\nresume_above = "1 mW"\n'
+            )
+        )
+
+
+def test_a_deadband_inside_its_own_stop_bound_is_rejected(tmp_path: Path) -> None:
+    """Below the level it deadbands, the gate would resume the moment it stopped."""
+    with pytest.raises(CalibrationError, match=re.escape(_BAND_ORDER)):
+        _ = load_calibration(
+            _write_config(
+                tmp_path,
+                _GATED_CHANNEL + 'below = "10.0 mW"\nresume_above = "1.0 mW"\n',
+            )
+        )
+
+
+def test_a_deadband_outside_its_own_stop_bound_is_rejected(tmp_path: Path) -> None:
+    with pytest.raises(CalibrationError, match=re.escape(_BAND_ORDER)):
+        _ = load_calibration(
+            _write_config(
+                tmp_path,
+                _GATED_CHANNEL + 'above = "1.0 mW"\nresume_below = "10.0 mW"\n',
+            )
+        )
+
+
+def test_stop_bounds_that_leave_no_band_are_rejected(tmp_path: Path) -> None:
+    """Nothing is inside a band whose floor is above its ceiling."""
+    with pytest.raises(CalibrationError, match=re.escape(_BAND_ORDER)):
+        _ = load_calibration(
+            _write_config(tmp_path, _GATED_CHANNEL + 'below = "9 mW"\nabove = "1 mW"\n')
+        )
+
+
+def test_a_band_of_zero_width_is_rejected(tmp_path: Path) -> None:
+    """Equal bounds are not a degenerate case to allow: nothing is inside them."""
+    with pytest.raises(CalibrationError, match=re.escape(_BAND_ORDER)):
+        _ = load_calibration(
+            _write_config(tmp_path, _GATED_CHANNEL + 'below = "1 mW"\nabove = "1 mW"\n')
+        )
+
+
+def test_deadbands_that_meet_are_rejected(tmp_path: Path) -> None:
+    """A resume band with no width leaves nothing to come back into."""
+    with pytest.raises(CalibrationError, match=re.escape(_BAND_ORDER)):
+        _ = load_calibration(
+            _write_config(
+                tmp_path,
+                _GATED_CHANNEL
+                + 'below = "1 mW"\nabove = "9 mW"\n'
+                + 'resume_above = "5 mW"\nresume_below = "5 mW"\n',
+            )
+        )
+
+
+def test_a_deadband_equal_to_its_stop_bound_is_accepted(tmp_path: Path) -> None:
+    """Which is exactly what an omitted deadband means, written out."""
+    channels = load_calibration(
+        _write_config(
+            tmp_path, _GATED_CHANNEL + 'below = "1 mW"\nresume_above = "1 mW"\n'
+        )
+    )
+    rule = channels["A0"].stop_recording_when
+
+    assert rule is not None
+    assert rule.resume_floor == ureg("1 mW")
+
+
+def test_deadbands_that_cross_each_other_are_rejected(tmp_path: Path) -> None:
+    """Individually inside their stop bounds, but with no room left to resume in."""
+    with pytest.raises(CalibrationError, match=re.escape(_BAND_ORDER)):
+        _ = load_calibration(
+            _write_config(
+                tmp_path,
+                _GATED_CHANNEL
+                + 'below = "1 mW"\nabove = "9 mW"\n'
+                + 'resume_above = "8 mW"\nresume_below = "2 mW"\n',
+            )
+        )
+
+
+def test_a_full_ordering_is_accepted(tmp_path: Path) -> None:
+    """below <= resume_above < resume_below <= above, all four written out."""
+    channels = load_calibration(
+        _write_config(
+            tmp_path,
+            _GATED_CHANNEL
+            + 'below = "1 mW"\nresume_above = "2 mW"\n'
+            + 'resume_below = "8 mW"\nabove = "9 mW"\n',
+        )
+    )
+    rule = channels["A0"].stop_recording_when
+
+    assert rule is not None
+    assert (rule.resume_floor, rule.resume_ceiling) == (ureg("2 mW"), ureg("8 mW"))
+
+
+def test_bounds_are_ordered_across_units(tmp_path: Path) -> None:
+    """'1000 uW' and '1 mW' are the same level however they are written."""
+    with pytest.raises(CalibrationError, match=re.escape(_BAND_ORDER)):
+        _ = load_calibration(
+            _write_config(
+                tmp_path,
+                _GATED_CHANNEL + 'below = "1 mW"\nresume_above = "900 uW"\n',
+            )
+        )
+
+
+def test_a_dwell_that_is_not_a_time_is_rejected(tmp_path: Path) -> None:
+    with pytest.raises(CalibrationError, match="a duration"):
+        _ = load_calibration(
+            _write_config(tmp_path, _GATED_CHANNEL + 'below = "1 mW"\nfor = "30 mW"\n')
+        )
+
+
+def test_a_dwell_written_as_1m_says_that_m_is_metres(tmp_path: Path) -> None:
+    """The obvious way to write one minute, and it parses as a length."""
+    with pytest.raises(CalibrationError, match="minutes are 'min'"):
+        _ = load_calibration(
+            _write_config(tmp_path, _GATED_CHANNEL + 'below = "1 mW"\nfor = "1m"\n')
+        )
+
+
+def test_a_dwell_in_minutes_is_converted_to_seconds(tmp_path: Path) -> None:
+    channels = load_calibration(
+        _write_config(tmp_path, _GATED_CHANNEL + 'below = "1 mW"\nfor = "1 min"\n')
+    )
+    rule = channels["A0"].stop_recording_when
+
+    assert rule is not None
+    assert rule.dwell_seconds == 60.0
+
+
+def test_stop_recording_when_must_be_a_table(tmp_path: Path) -> None:
+    with pytest.raises(CalibrationError, match="must be a table"):
+        _ = load_calibration(
+            _write_config(
+                tmp_path,
+                """
+                [channels.A0]
+                sensor_id = "laser-1"
+                measurement = "power"
+                conversion_factor = "50.0 mW / volt"
+                stop_recording_when = "below 1 mW"
+                """,
+            )
+        )
+
+
+def test_an_unknown_key_in_stop_recording_when_is_rejected(tmp_path: Path) -> None:
+    """A typo'd 'resume' would otherwise silently mean no deadband at all."""
+    with pytest.raises(CalibrationError, match="unknown key"):
+        _ = load_calibration(
+            _write_config(
+                tmp_path, _GATED_CHANNEL + 'below = "1 mW"\nresume = "9 mW"\n'
+            )
+        )
+
+
+def test_the_gate_is_not_part_of_the_calibration_id(tmp_path: Path) -> None:
+    """Changing when to record does not change how a reading was converted."""
+    ungated = load_calibration(
+        _write_config(
+            tmp_path / "plain",
+            """
+            [channels.A0]
+            sensor_id = "laser-1"
+            measurement = "power"
+            conversion_factor = "50.0 mW / volt"
+            """,
+        )
+    )
+    gated = load_calibration(
+        _write_config(tmp_path / "gated", _GATED_CHANNEL + 'below = "1.0 mW"\n')
+    )
+
+    assert gated["A0"].calibration_id == ungated["A0"].calibration_id

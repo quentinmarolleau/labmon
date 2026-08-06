@@ -27,6 +27,10 @@ import serial
 
 logger: logging.Logger = logging.getLogger(__name__)
 
+# INVARIANT (see docs/configuration.md): the wire contract with the
+# firmware. The board is flashed to send this shape, so changing either
+# here alone stops every reading parsing until the sketch is reflashed
+# to match.
 _FIELD_SEPARATOR = ","
 _FIELDS_PER_LINE = 2
 

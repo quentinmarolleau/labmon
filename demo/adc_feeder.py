@@ -16,12 +16,15 @@ conversions per reading rather than sending one snapshot.
 Stdlib only, so it runs in the labmon image as-is.
 """
 
+import logging
 import math
 import os
 import random
 import socket
 import sys
 import time
+from datetime import UTC, datetime
+from typing import override
 
 # Loopback by default, so running this directly on a workstation cannot
 # expose the feeder to the network. The demo container overrides it with
@@ -37,6 +40,8 @@ FULL_SCALE = (1 << RESOLUTION_BITS) - 1
 VREF = 3.3
 
 SAMPLE_INTERVAL_SECONDS = 1.0
+
+logger: logging.Logger = logging.getLogger("adc-feeder")
 
 
 def _counts(volts: float) -> float:
@@ -102,12 +107,12 @@ def serve(host: str = HOST, port: int = PORT) -> None:
     listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     listener.bind((host, port))
     listener.listen(1)
-    print(f"adc-feeder listening on {host}:{port}", flush=True)
+    logger.info("msg=listening host=%s port=%d", host, port)
 
     started = time.monotonic()
     while True:
         client, address = listener.accept()
-        print(f"adc-feeder: {address[0]} connected", flush=True)
+        logger.info('msg="client connected" peer=%s', address[0])
         try:
             with client:
                 while True:
@@ -118,10 +123,39 @@ def serve(host: str = HOST, port: int = PORT) -> None:
                     time.sleep(SAMPLE_INTERVAL_SECONDS)
         except (BrokenPipeError, ConnectionResetError):
             # serial-sensor restarted; wait for it to come back.
-            print("adc-feeder: client gone, waiting", flush=True)
+            logger.info('msg="client gone, waiting"')
+
+
+class _UtcMilliseconds(logging.Formatter):
+    """Stamps a record the way labmon.logs.LogfmtFormatter does.
+
+    `datefmt` cannot express it: %(asctime)s is local time and has no
+    sub-second field, so the feeder's lines would sort against the
+    sensors' by a different clock and a coarser one — in a query that
+    reads both, which is the whole point of collecting them together.
+    """
+
+    @override
+    def formatTime(self, record: logging.LogRecord, datefmt: str | None = None) -> str:
+        stamped = datetime.fromtimestamp(record.created, UTC)
+        return stamped.isoformat(timespec="milliseconds")
 
 
 if __name__ == "__main__":
+    # The same logfmt shape the sensors emit, spelled out rather than
+    # imported: this file is stdlib-only so it can run in the labmon image
+    # without being part of the package.
+    # Lower-case level names, matching what labmon.logs emits so both
+    # halves of the demo read the same way in Grafana.
+    for level in (logging.DEBUG, logging.INFO, logging.WARNING, logging.ERROR):
+        logging.addLevelName(level, logging.getLevelName(level).lower())
+    handler = logging.StreamHandler()
+    handler.setFormatter(
+        _UtcMilliseconds(
+            "ts=%(asctime)s level=%(levelname)s logger=%(name)s %(message)s"
+        )
+    )
+    logging.basicConfig(level=logging.INFO, handlers=[handler])
     try:
         serve()
     except KeyboardInterrupt:

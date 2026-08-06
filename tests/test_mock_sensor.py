@@ -1,3 +1,4 @@
+import logging
 import math
 import signal
 import sys
@@ -8,6 +9,7 @@ from types import FrameType
 import pytest
 from influxdb_client_3 import Point
 
+from labmon.sensors import loop as sensor_loop
 from labmon.sensors import mock_sensor
 from labmon.sensors.mock_sensor import RandomWalk, main, run
 
@@ -68,7 +70,7 @@ def test_run_writes_points_and_shuts_down_cleanly_on_signal(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fake_client = FakeInfluxClient()
-    monkeypatch.setattr(mock_sensor, "get_client", lambda: fake_client)
+    monkeypatch.setattr(sensor_loop, "get_client", lambda: fake_client)
 
     registered_handlers: dict[int, SignalHandler] = {}
 
@@ -105,7 +107,7 @@ def test_run_writes_points_with_custom_measurement_field_and_log_scale(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fake_client = FakeInfluxClient()
-    monkeypatch.setattr(mock_sensor, "get_client", lambda: fake_client)
+    monkeypatch.setattr(sensor_loop, "get_client", lambda: fake_client)
 
     registered_handlers: dict[int, SignalHandler] = {}
 
@@ -162,6 +164,7 @@ def test_main_parses_defaults_and_calls_run(monkeypatch: pytest.MonkeyPatch) -> 
             "noise": 0.1,
             "log_scale": False,
             "unit": "",
+            "summary_interval": 30.0,
         }
     ]
 
@@ -199,6 +202,7 @@ def test_main_parses_custom_arguments(monkeypatch: pytest.MonkeyPatch) -> None:
             "noise": 0.1,
             "log_scale": False,
             "unit": "",
+            "summary_interval": 30.0,
         }
     ]
 
@@ -243,5 +247,100 @@ def test_main_parses_pressure_gauge_arguments(monkeypatch: pytest.MonkeyPatch) -
             "noise": 0.05,
             "log_scale": True,
             "unit": "mbar",
+            "summary_interval": 30.0,
         }
     ]
+
+
+def test_an_unknown_log_level_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A typo must fail at the command line, not quietly become INFO."""
+    monkeypatch.setattr(sys, "argv", ["mock-sensor", "--log-level", "DEGUB"])
+
+    with pytest.raises(SystemExit) as exit_info:
+        main()
+
+    assert exit_info.value.code == 2
+
+
+def test_a_lower_case_log_level_is_accepted(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[dict[str, object]] = []
+
+    def fake_run(**kwargs: object) -> None:
+        calls.append(kwargs)
+
+    monkeypatch.setattr(mock_sensor, "run", fake_run)
+    monkeypatch.setattr(sys, "argv", ["mock-sensor", "--log-level", "debug"])
+
+    main()
+
+    assert logging.getLogger().level == logging.DEBUG
+    assert len(calls) == 1
+
+
+def test_main_accepts_a_custom_summary_interval(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A quiet sensor may want the heartbeat rarer than every 30s."""
+    calls: list[dict[str, object]] = []
+
+    def fake_run(**kwargs: object) -> None:
+        calls.append(kwargs)
+
+    monkeypatch.setattr(mock_sensor, "run", fake_run)
+    monkeypatch.setattr(sys, "argv", ["mock-sensor", "--summary-interval", "300"])
+
+    main()
+
+    [call] = calls
+    assert call["summary_interval"] == 300.0
+
+
+def test_a_summary_interval_of_zero_turns_the_heartbeat_off(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Zero is the off switch, since a float flag cannot take None."""
+    calls: list[dict[str, object]] = []
+
+    def fake_run(**kwargs: object) -> None:
+        calls.append(kwargs)
+
+    monkeypatch.setattr(mock_sensor, "run", fake_run)
+    monkeypatch.setattr(sys, "argv", ["mock-sensor", "--summary-interval", "0"])
+
+    main()
+
+    [call] = calls
+    assert call["summary_interval"] is None
+
+
+def test_run_passes_its_summary_interval_to_the_loop(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The flag is only worth parsing if it reaches the loop that uses it."""
+    monkeypatch.setattr(sensor_loop, "get_client", FakeInfluxClient)
+
+    def ignore_signal(_signum: int, _handler: SignalHandler) -> None:
+        return None
+
+    monkeypatch.setattr(signal, "signal", ignore_signal)
+    # Well past the default interval, so a dropped argument would summarise.
+    ticks = iter([0.0, sensor_loop.DEFAULT_SUMMARY_INTERVAL_SECONDS + 1.0])
+    monkeypatch.setattr(time, "monotonic", lambda: next(ticks))
+
+    def fake_sleep(seconds: float) -> None:
+        raise _StopLoop(seconds)
+
+    monkeypatch.setattr(time, "sleep", fake_sleep)
+
+    with (
+        caplog.at_level(logging.INFO, logger=sensor_loop.logger.name),
+        pytest.raises(_StopLoop),
+    ):
+        run(
+            sensor_id="test-sensor",
+            interval=1.0,
+            setpoint=10.0,
+            summary_interval=None,
+        )
+
+    assert "wrote readings" not in caplog.text

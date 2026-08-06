@@ -37,31 +37,24 @@ Requires INFLUXDB3_AUTH_TOKEN to be set (e.g. via .env / direnv).
 """
 
 import logging
-import signal
-import sys
 import time
-from collections import Counter
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
-from types import FrameType
 
 from influxdb_client_3 import Point
 
 from labmon.influx import INFLUXDB_DATABASE, get_client
-from labmon.writer import PointWriter
+from labmon.sensors.loop import DEFAULT_SUMMARY_INTERVAL_SECONDS, SensorLoop
 
 logger: logging.Logger = logging.getLogger(__name__)
 
 # A read that raises backs off instead of retrying at the nominal interval,
 # so an instrument that is switched off is not hammered all night. Capped so
-# recovery is still noticed promptly once it comes back.
-INITIAL_BACKOFF_SECONDS = 1.0
-MAX_BACKOFF_SECONDS = 60.0
-
-# How often to report that readings are still arriving. Matches
-# serial_sensor: one line per reading is unreadable at any real rate, but
-# silence gives an operator no way to tell "working" from "wedged".
-SUMMARY_INTERVAL_SECONDS = 30.0
+# recovery is still noticed promptly once it comes back. Defaults rather
+# than fixed constants: an instrument whose reboot takes a known minute
+# should be told that, not guessed at.
+DEFAULT_INITIAL_BACKOFF_SECONDS = 1.0
+DEFAULT_MAX_BACKOFF_SECONDS = 60.0
 
 
 def build_point(
@@ -140,6 +133,9 @@ def poll(
     interval: float = 5.0,
     field: str = "value",
     tags: Mapping[str, str] | None = None,
+    initial_backoff: float = DEFAULT_INITIAL_BACKOFF_SECONDS,
+    max_backoff: float = DEFAULT_MAX_BACKOFF_SECONDS,
+    summary_interval: float | None = DEFAULT_SUMMARY_INTERVAL_SECONDS,
 ) -> None:
     """Read every `interval` seconds and write what comes back, forever.
 
@@ -151,70 +147,60 @@ def poll(
     SDK that throws on a transient network blip, a device that reports busy,
     an expired session — none of these should end the process, because the
     failure that matters is the one nobody notices until a week of data is
-    missing. Successive failures back off up to MAX_BACKOFF_SECONDS and
-    return to the nominal interval on the first success.
+    missing. Successive failures double the wait from `initial_backoff` up
+    to `max_backoff`, and return to the nominal interval on the first
+    success. An instrument with a known recovery time should be given it
+    rather than left to the defaults.
 
     Runs until SIGINT (Ctrl+C) or SIGTERM (e.g. `docker stop`), at which
     point queued readings are flushed and the client closed.
     """
-    writer: PointWriter[Point] = PointWriter[Point](get_client())
-
-    def shutdown(_signum: int, _frame: FrameType | None) -> None:
-        writer.close()
-        sys.exit(0)
-
-    _ = signal.signal(signal.SIGINT, shutdown)
-    _ = signal.signal(signal.SIGTERM, shutdown)
+    loop = SensorLoop(summary_interval=summary_interval)
 
     logger.info(
-        "Writing '%s' readings for '%s' to %s every %gs",
-        measurement,
-        sensor_id,
-        INFLUXDB_DATABASE,
-        interval,
+        "writing readings",
+        extra={
+            "sensor_id": sensor_id,
+            "measurement": measurement,
+            "database": INFLUXDB_DATABASE,
+            "interval_s": interval,
+        },
     )
 
-    written: Counter[str] = Counter()
-    next_summary = time.monotonic() + SUMMARY_INTERVAL_SECONDS
-    backoff = INITIAL_BACKOFF_SECONDS
+    backoff = initial_backoff
 
     while True:
         try:
             value = read()
         except Exception:
             logger.warning(
-                "Reading '%s' failed; retrying in %.0fs",
-                sensor_id,
-                backoff,
+                "read failed",
+                extra={"sensor_id": sensor_id, "retry_in_s": f"{backoff:.0f}"},
                 exc_info=True,
             )
             time.sleep(backoff)
-            backoff = min(backoff * 2, MAX_BACKOFF_SECONDS)
+            backoff = min(backoff * 2, max_backoff)
             continue
 
-        backoff = INITIAL_BACKOFF_SECONDS
+        backoff = initial_backoff
         if value is not None:
-            writer.write(
-                build_point(
-                    value,
-                    sensor_id=sensor_id,
-                    measurement=measurement,
-                    unit=unit,
-                    field=field,
-                    tags=tags,
-                )
+            point = build_point(
+                value,
+                sensor_id=sensor_id,
+                measurement=measurement,
+                unit=unit,
+                field=field,
+                tags=tags,
             )
-            written[sensor_id] += 1
-            logger.debug("%s: %.4g %s", sensor_id, value, unit)
-
-        now = time.monotonic()
-        if now >= next_summary:
-            logger.info(
-                "Wrote %d reading(s) in the last %.0fs",
-                written.total(),
-                SUMMARY_INTERVAL_SECONDS,
+            loop.record(point, sensor_id)
+            logger.debug(
+                "reading",
+                extra={
+                    "sensor_id": sensor_id,
+                    "value": f"{value:.4g}",
+                    "unit": unit,
+                },
             )
-            written.clear()
-            next_summary = now + SUMMARY_INTERVAL_SECONDS
 
+        loop.summarise_if_due()
         time.sleep(interval)

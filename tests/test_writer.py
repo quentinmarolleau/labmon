@@ -93,12 +93,12 @@ def test_survives_idle_polling_before_a_point_arrives() -> None:
 
 
 def test_write_retries_transient_failures_then_succeeds(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    monkeypatch.setattr(writer_module, "_INITIAL_BACKOFF_SECONDS", 0.01)
-    monkeypatch.setattr(writer_module, "_MAX_BACKOFF_SECONDS", 0.01)
     client = FlakyClient[int](fail_times=2)
-    writer = PointWriter[int](client, poll_interval=0.01)
+    writer = PointWriter[int](
+        client, poll_interval=0.01, initial_backoff=0.01, max_backoff=0.01
+    )
 
     with caplog.at_level(logging.WARNING):
         writer.write(1)
@@ -129,3 +129,54 @@ def test_close_drops_a_batch_still_failing_at_shutdown(
     assert client.attempts >= 1
     assert client.closed.is_set()
     assert "Dropping a batch of 1 point(s)" in caplog.text
+
+
+# --------------------------------------------------------------------------
+# Every knob is a parameter, not an edit to installed source
+# --------------------------------------------------------------------------
+
+
+def test_the_backoff_defaults_are_the_documented_ones() -> None:
+    """docs/configuration.md quotes these, so a change must break a test."""
+    assert writer_module.DEFAULT_QUEUE_MAXSIZE == 10_000
+    assert writer_module.DEFAULT_POLL_INTERVAL_SECONDS == 0.5
+    assert writer_module.DEFAULT_INITIAL_BACKOFF_SECONDS == 1.0
+    assert writer_module.DEFAULT_MAX_BACKOFF_SECONDS == 30.0
+
+
+def test_the_first_retry_waits_the_backoff_it_was_given(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A one-second default would not fit three attempts in this window."""
+    client = FlakyClient[int](fail_times=2)
+    writer = PointWriter[int](
+        client, poll_interval=0.01, initial_backoff=0.01, max_backoff=0.01
+    )
+
+    with caplog.at_level(logging.CRITICAL, logger="labmon.writer"):
+        writer.write(1)
+        time.sleep(0.1)
+        writer.close()
+
+    assert client.attempts == 3
+
+
+def test_the_cap_stops_the_backoff_doubling_away(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Uncapped doubling from 1ms reaches ~64ms by the eighth attempt.
+
+    Capping at 2ms keeps every wait short, so a fixed window fits far
+    more attempts than doubling would — which is what the cap is for.
+    """
+    client = AlwaysFailingClient[int]()
+    writer = PointWriter[int](
+        client, poll_interval=0.001, initial_backoff=0.001, max_backoff=0.002
+    )
+
+    with caplog.at_level(logging.CRITICAL, logger="labmon.writer"):
+        writer.write(1)
+        time.sleep(0.2)
+        writer.close()
+
+    assert client.attempts > 20

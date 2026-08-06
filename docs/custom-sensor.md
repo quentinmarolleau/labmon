@@ -59,6 +59,22 @@ already handled, and swallowing an error turns a broken instrument into a
 flat line — the failure mode nobody notices until a week of data is
 missing.
 
+The backoff defaults to one second, doubling to a minute. An instrument
+with a known recovery time should be told it rather than left to guess:
+
+```python
+poll(
+    read_value,
+    sensor_id="cryo-1",
+    measurement="temperature",
+    initial_backoff=30.0,
+    max_backoff=300.0,
+)
+```
+
+`poll` and `PointWriter` take a handful of other parameters, all listed
+in [`docs/configuration.md`](configuration.md#library-parameters).
+
 ### Recording more than one number
 
 `build_point()` is public for a device read that yields several values at

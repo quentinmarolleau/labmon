@@ -21,17 +21,13 @@ Requires INFLUXDB3_AUTH_TOKEN to be set (e.g. via .env / direnv).
 
 import argparse
 import logging
-import signal
-import sys
-import time
-from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
-from types import FrameType
 from typing import cast
 
 from influxdb_client_3 import Point
 
+from labmon import logs
 from labmon.calibration import (
     ADC_RESOLUTION_BITS,
     ADC_VREF_VOLTS,
@@ -40,16 +36,22 @@ from labmon.calibration import (
     raw_to_voltage,
     ureg,
 )
-from labmon.influx import INFLUXDB_DATABASE, get_client
+from labmon.gate import RecordingGate
+from labmon.influx import INFLUXDB_DATABASE
+from labmon.sensors.loop import DEFAULT_SUMMARY_INTERVAL_SECONDS, SensorLoop
 from labmon.sensors.serial_source import (
     DEFAULT_BAUDRATE,
     RawSource,
     SerialRawSource,
     open_serial_port,
 )
-from labmon.writer import PointWriter
 
 logger: logging.Logger = logging.getLogger(__name__)
+
+# INVARIANT (see docs/configuration.md): the three names below are the
+# schema every stored reading was written under. Changing one splits the
+# history in two — rows already in InfluxDB keep the old name, and no
+# query spans both — so they are deliberately not configurable.
 
 # The InfluxDB field every reading is written to. Unlike the mock
 # sensor's --field, there's nothing to vary here: a channel's identity
@@ -67,14 +69,6 @@ INPUT_FIELD_NAME = "input_volts"
 # because a calibration changes a handful of times over a sensor's life.
 CALIBRATION_ID_TAG = "calibration_id"
 
-# How often to report that readings are still arriving. The per-reading
-# line moved to DEBUG because at 100 Hz across a handful of channels it
-# emits hundreds of lines a second, which costs a fifth of the
-# acquisition loop and buries the warnings worth seeing. This keeps the
-# "it is working" signal an operator actually wants, at a volume a
-# journal can hold.
-SUMMARY_INTERVAL_SECONDS = 30.0
-
 
 def _log_calibrations(calibrations: dict[str, Calibration]) -> None:
     """Record which calibration each channel started with.
@@ -87,11 +81,13 @@ def _log_calibrations(calibrations: dict[str, Calibration]) -> None:
             f"{key}={value!r}" for key, value in calibration.provenance.items()
         )
         logger.info(
-            "Channel %s: %s calibration %s%s",
-            channel,
-            calibration.sensor_id,
-            calibration.calibration_id,
-            f" ({details})" if details else "",
+            "calibration in force",
+            extra={
+                "channel": channel,
+                "sensor_id": calibration.sensor_id,
+                "calibration_id": calibration.calibration_id,
+                "provenance": details or "-",
+            },
         )
 
 
@@ -100,6 +96,7 @@ def run(
     calibrations: dict[str, Calibration],
     resolution_bits: int = ADC_RESOLUTION_BITS,
     v_ref: float = ADC_VREF_VOLTS,
+    summary_interval: float | None = DEFAULT_SUMMARY_INTERVAL_SECONDS,
 ) -> None:
     """Write calibrated readings from `source` to InfluxDB until interrupted.
 
@@ -107,20 +104,16 @@ def run(
     received, at which point the serial port and InfluxDB client are
     both closed cleanly.
     """
-    writer: PointWriter[Point] = PointWriter[Point](get_client())
-
-    def shutdown(_signum: int, _frame: FrameType | None) -> None:
-        source.close()
-        writer.close()
-        sys.exit(0)
-
-    _ = signal.signal(signal.SIGINT, shutdown)
-    _ = signal.signal(signal.SIGTERM, shutdown)
+    # The port is closed before the writer, so nothing new arrives while
+    # the queue drains.
+    loop = SensorLoop(closes=source, summary_interval=summary_interval)
 
     logger.info(
-        "Writing calibrated readings for channel(s) %s to %s",
-        ", ".join(sorted(calibrations)) or "(none configured)",
-        INFLUXDB_DATABASE,
+        "writing calibrated readings",
+        extra={
+            "channels": ",".join(sorted(calibrations)) or "-",
+            "database": INFLUXDB_DATABASE,
+        },
     )
     _log_calibrations(calibrations)
 
@@ -128,8 +121,15 @@ def run(
     # warn once each rather than on every reading forever.
     warned_channels: set[str] = set()
 
-    written: Counter[str] = Counter()
-    next_summary = time.monotonic() + SUMMARY_INTERVAL_SECONDS
+    # One gate per channel, since each carries its own deadband state:
+    # sharing one would let an instrument being off silence a channel
+    # that is still running. Channels without a `stop_recording_when`
+    # table are absent here and record everything.
+    gates = {
+        channel: RecordingGate(calibration.stop_recording_when, calibration.sensor_id)
+        for channel, calibration in calibrations.items()
+        if calibration.stop_recording_when is not None
+    }
 
     while True:
         reading = source.read()
@@ -141,13 +141,20 @@ def run(
             if reading.channel not in warned_channels:
                 warned_channels.add(reading.channel)
                 logger.warning(
-                    "No calibration for channel %r; ignoring its readings",
-                    reading.channel,
+                    "no calibration for channel; ignoring its readings",
+                    extra={"channel": reading.channel},
                 )
             continue
 
         voltage = raw_to_voltage(reading.raw_count, resolution_bits, v_ref)
         value = calibration.conversion.apply(voltage)
+
+        gate = gates.get(reading.channel)
+        if gate is not None and not gate.admits(value, voltage):
+            # Nothing is written at all, not even input_volts: a
+            # half-populated series is harder to read than a gap, and the
+            # transition the gate logged is the evidence for the gap.
+            continue
 
         # The board has no clock, so the host stamps the reading on
         # arrival; serial transit is negligible next to sample rates here.
@@ -164,22 +171,16 @@ def run(
             # correctable after the fact; without it, readings already
             # written can't be recomputed.
             point = point.field(INPUT_FIELD_NAME, voltage.to(ureg.volt).magnitude)
-        writer.write(point)
-        written[calibration.sensor_id] += 1
+        loop.record(point, calibration.sensor_id)
         logger.debug(
-            "%s: %.4g %s", calibration.sensor_id, value.magnitude, calibration.unit
+            "reading",
+            extra={
+                "sensor_id": calibration.sensor_id,
+                "value": f"{value.magnitude:.4g}",
+                "unit": calibration.unit,
+            },
         )
-
-        now = time.monotonic()
-        if now >= next_summary:
-            logger.info(
-                "Wrote %d reading(s) in the last %.0fs (%s)",
-                written.total(),
-                SUMMARY_INTERVAL_SECONDS,
-                ", ".join(f"{name} {count}" for name, count in sorted(written.items())),
-            )
-            written.clear()
-            next_summary = now + SUMMARY_INTERVAL_SECONDS
+        loop.summarise_if_due()
 
 
 def main() -> None:
@@ -215,6 +216,19 @@ def main() -> None:
         default=ADC_VREF_VOLTS,
         help="ADC reference voltage (default suits a 3.3V part)",
     )
+    _ = parser.add_argument(
+        "--log-level",
+        default="INFO",
+        choices=logs.LEVEL_NAMES,
+        type=str.upper,
+        help="DEBUG shows every reading; INFO shows startup and the summary",
+    )
+    _ = parser.add_argument(
+        "--summary-interval",
+        type=float,
+        default=DEFAULT_SUMMARY_INTERVAL_SECONDS,
+        help="Seconds between 'still writing' summary lines; 0 turns them off",
+    )
     args = parser.parse_args()
 
     port = cast(str, args.port)
@@ -222,10 +236,11 @@ def main() -> None:
     baudrate = cast(int, args.baudrate)
     resolution_bits = cast(int, args.resolution_bits)
     v_ref = cast(float, args.vref)
+    # argparse cannot hand back None from a float flag, so zero is the off
+    # switch — and "summarise every zero seconds" has no other meaning.
+    summary_interval = cast(float, args.summary_interval) or None
 
-    logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
-    )
+    logs.configure(logs.level_from_name(cast(str, args.log_level)))
 
     # Load the calibration before opening the port: a bad config should
     # fail immediately rather than after touching the hardware.
@@ -237,6 +252,7 @@ def main() -> None:
         calibrations=calibrations,
         resolution_bits=resolution_bits,
         v_ref=v_ref,
+        summary_interval=summary_interval,
     )
 
 

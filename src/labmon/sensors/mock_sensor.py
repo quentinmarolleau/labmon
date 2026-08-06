@@ -18,19 +18,20 @@ Requires INFLUXDB3_AUTH_TOKEN to be set (e.g. via .env / direnv).
 """
 
 import argparse
+import logging
 import math
 import random
-import signal
-import sys
 import time
 from datetime import UTC, datetime
-from types import FrameType
 from typing import cast
 
 from influxdb_client_3 import Point
 
-from labmon.influx import INFLUXDB_DATABASE, get_client
-from labmon.writer import PointWriter
+from labmon import logs
+from labmon.influx import INFLUXDB_DATABASE
+from labmon.sensors.loop import DEFAULT_SUMMARY_INTERVAL_SECONDS, SensorLoop
+
+logger: logging.Logger = logging.getLogger(__name__)
 
 
 class RandomWalk:
@@ -72,26 +73,27 @@ def run(
     noise: float = 0.1,
     log_scale: bool = False,
     unit: str = "",
+    summary_interval: float | None = DEFAULT_SUMMARY_INTERVAL_SECONDS,
 ) -> None:
     """Write simulated readings for `sensor_id` to InfluxDB until interrupted.
 
     Runs until a SIGINT (Ctrl+C) or SIGTERM (e.g. `docker stop`) is
     received, at which point the InfluxDB client is closed cleanly.
     """
-    writer: PointWriter[Point] = PointWriter[Point](get_client())
+    # The summary is on now that per-reading lines are DEBUG. Without it a
+    # sensor at the default level would say nothing at all after startup,
+    # and silence is indistinguishable from a wedged process.
+    loop = SensorLoop(summary_interval=summary_interval)
     walk = RandomWalk(setpoint=setpoint, noise=noise, log_scale=log_scale)
 
-    def shutdown(_signum: int, _frame: FrameType | None) -> None:
-        writer.close()
-        sys.exit(0)
-
-    _ = signal.signal(signal.SIGINT, shutdown)
-    _ = signal.signal(signal.SIGTERM, shutdown)
-
-    unit_suffix = f" {unit}" if unit else ""
-    print(
-        f"Writing mock '{measurement}' readings for '{sensor_id}' to "
-        + f"{INFLUXDB_DATABASE} every {interval}s"
+    logger.info(
+        "writing simulated readings",
+        extra={
+            "sensor_id": sensor_id,
+            "measurement": measurement,
+            "database": INFLUXDB_DATABASE,
+            "interval_s": interval,
+        },
     )
     while True:
         reading_time = datetime.now(UTC)
@@ -100,8 +102,12 @@ def run(
         if unit:
             point = point.tag("unit", unit)
         point = point.field(field, reading).time(reading_time, write_precision="ms")
-        writer.write(point)
-        print(f"{sensor_id}: {reading:.4g}{unit_suffix}")
+        loop.record(point, sensor_id)
+        logger.debug(
+            "reading",
+            extra={"sensor_id": sensor_id, "value": f"{reading:.4g}", "unit": unit},
+        )
+        loop.summarise_if_due()
         time.sleep(interval)
 
 
@@ -148,9 +154,24 @@ def main() -> None:
         "--unit",
         default="",
         help="Unit of the reading (e.g. '°C', 'K', 'mbar'). Written as an "
-        + "InfluxDB tag (when set) and shown in the console output.",
+        + "InfluxDB tag when set, and omitted entirely when not.",
+    )
+    _ = parser.add_argument(
+        "--log-level",
+        default="INFO",
+        choices=logs.LEVEL_NAMES,
+        type=str.upper,
+        help="DEBUG shows every reading; INFO shows startup and the summary",
+    )
+    _ = parser.add_argument(
+        "--summary-interval",
+        type=float,
+        default=DEFAULT_SUMMARY_INTERVAL_SECONDS,
+        help="Seconds between 'still writing' summary lines; 0 turns them off",
     )
     args = parser.parse_args()
+
+    logs.configure(logs.level_from_name(cast(str, args.log_level)))
 
     sensor_id = cast(str, args.sensor_id)
     interval = cast(float, args.interval)
@@ -160,6 +181,9 @@ def main() -> None:
     noise = cast(float, args.noise)
     log_scale = cast(bool, args.log_scale)
     unit = cast(str, args.unit)
+    # argparse cannot hand back None from a float flag, so zero is the off
+    # switch — and "summarise every zero seconds" has no other meaning.
+    summary_interval = cast(float, args.summary_interval) or None
 
     run(
         sensor_id=sensor_id,
@@ -170,6 +194,7 @@ def main() -> None:
         noise=noise,
         log_scale=log_scale,
         unit=unit,
+        summary_interval=summary_interval,
     )
 
 

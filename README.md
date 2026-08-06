@@ -37,6 +37,7 @@ together visually.*
 - [The dashboard](#the-dashboard) — what Grafana brings along
 - [Connecting a real instrument](#connecting-a-real-instrument)
 - [Running it across the lab](#running-it-across-the-lab)
+- [Configuration](docs/configuration.md) — every setting, and where it lives
 - [How it works](#how-it-works)
 - [Project structure](#project-structure)
 - [Development](#development)
@@ -259,7 +260,7 @@ this repository.
 - `firmware/` — reference Arduino sketches for boards labmon reads
 - `demo/` — stands in for a board so the demo runs the real acquisition path
 - `tests/` — pytest suite
-- `docs/` — usage docs per component
+- `docs/` — usage docs per component, indexed by `docs/configuration.md`
 - `typings/` — local type stubs for untyped third-party dependencies
 - `grafana/` — provisioned datasources and dashboards
 - `loki/` · `alloy/` — log storage and collection, behind the `logs` profile

@@ -78,6 +78,40 @@ mode = "expression"
 expression = "10**(1.667*v - 11.33)"       # a typical Pirani gauge curve
 value_unit = "mbar"
 
+# --- stop_recording_when: take a channel out of service while its -------
+# --- instrument is off --------------------------------------------------
+# Optional, one table per channel. A signal that is only meaningful while
+# its instrument is running — a photodiode watching a laser, a gauge on a
+# chamber that gets vented — otherwise records noise at full rate,
+# stretching dashboard axes and dragging every average computed over it.
+#
+# Written as what STOPS the recording, so `for` reads on the clause it
+# governs: stop recording once the power has stayed below 1 mW for 30
+# seconds. Conservative about stopping, eager about resuming — a resume
+# is always immediate, so the turn-on transient is not swallowed.
+# Nothing is written while the gate is closed, so the trace shows a gap;
+# the transition is logged once, which is what makes that gap readable.
+#
+# `below` and `above` are the bounds; set either or both, and everything
+# between them is recorded. They are dimensioned and checked against what
+# the channel produces, so a wrong unit fails at startup.
+[channels.A0.stop_recording_when]
+below = "1.0 mW"           # under this, the laser is off
+for = "30s"                # a brief dip does not stop recording
+resume_above = "10.0 mW"   # deadband, so a value sitting at the bound
+                           # does not flap between gap and fragment
+
+# The two-sided form, gating on the raw input rather than the converted
+# value: an open input at one end, a railed amplifier at the other. The
+# bounds are then in volts whatever the channel converts to, and must
+# read below <= resume_above < resume_below <= above.
+# [channels.A1.stop_recording_when]
+# raw_voltage = true
+# below = "100 mV"
+# above = "3.0 V"
+# for = "1 min"                     # 'm' would be metres
+# resume_below = "2.9 V"
+
 # --- provenance: how a calibration was obtained -------------------------
 # Optional, free-form, one table per channel. Logged at startup and never
 # written to InfluxDB, so it documents the file without touching the
