@@ -73,16 +73,22 @@ services:
         target: /var/lib/influxdb3/data
     # influxdb3 takes a few seconds to start accepting connections after the
     # container starts, so `docker compose up -d --wait` needs this to know
-    # when the server is actually ready (any HTTP response counts, even 401).
+    # when the server is actually ready.
     #
-    # It stays unauthenticated on purpose: the token is issued by this server,
-    # so during first-time setup there is no token to send yet, and a check
-    # that required one would never go healthy. The cost is that /health
-    # answers 401 and influxdb3 logs "the request was not authenticated" once
-    # per interval, forever. That line is expected and is not a real failure —
-    # see docs/deployment.md.
+    # This opens the port and closes it without sending a request, which is
+    # what makes it silent. Every influxdb3 endpoint answers 401 without a
+    # token — and the token is issued by this server, so during first-time
+    # setup there is none to send. An HTTP probe therefore had to accept 401
+    # as proof of life, and influxdb3 logged an ERROR for each one: ~164,000
+    # lines a day, invisible while logs were ephemeral and ~5 million per
+    # retention window once the `logs` profile stores them. A TCP connect
+    # asks nothing, so there is nothing to reject and nothing to log.
+    #
+    # It proves the listener is bound rather than that HTTP answers, which
+    # is all the 401 probe established either. `nc` is not in the image;
+    # bash is, and /dev/tcp is a bash builtin rather than a binary.
     healthcheck:
-      test: ["CMD", "curl", "-s", "-o", "/dev/null", "http://127.0.0.1:8181/health"]
+      test: ["CMD", "bash", "-c", "timeout 2 bash -c '</dev/tcp/127.0.0.1/8181'"]
       interval: 1s
       timeout: 2s
       retries: 30
@@ -121,6 +127,10 @@ services:
         source: .grafana/data
         target: /var/lib/grafana
     healthcheck:
+      # Left at one second on purpose. Grafana's /api/health answers 200
+      # without a token and logs nothing per probe, so it never contributed
+      # to the noise that changed the InfluxDB check above — slowing it down
+      # would only delay noticing that Grafana had died.
       test: ["CMD", "curl", "-s", "-o", "/dev/null", "http://127.0.0.1:3000/api/health"]
       interval: 1s
       timeout: 2s
