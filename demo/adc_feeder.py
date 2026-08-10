@@ -24,7 +24,7 @@ import socket
 import sys
 import time
 from datetime import UTC, datetime
-from typing import override
+from typing import cast, override
 
 # Loopback by default, so running this directly on a workstation cannot
 # expose the feeder to the network. The demo container overrides it with
@@ -111,8 +111,15 @@ def serve(host: str = HOST, port: int = PORT) -> None:
 
     started = time.monotonic()
     while True:
-        client, address = listener.accept()
-        logger.info('msg="client connected" peer=%s', address[0])
+        # Indexed rather than unpacked. `accept()` returns the peer address
+        # as `Any` in typeshed, because its shape depends on the address
+        # family, and unpacking binds that `Any` to a name — which is what
+        # a type checker objects to. Indexing keeps it unnamed until the
+        # cast says what an AF_INET address actually is.
+        accepted = listener.accept()
+        client = accepted[0]
+        peer, _port = cast(tuple[str, int], accepted[1])
+        logger.info('msg="client connected" peer=%s', peer)
         try:
             with client:
                 while True:
