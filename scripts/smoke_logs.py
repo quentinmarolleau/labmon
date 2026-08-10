@@ -58,13 +58,28 @@ class _Rejected(Exception):
 
 
 def _running_containers() -> set[str]:
-    """Container names Docker currently reports as running."""
-    result = subprocess.run(
-        ["docker", "ps", "--format", "{{.Names}}"],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
+    """Container names Compose reports as running for this project.
+
+    Scoped to the project rather than asking `docker ps` for the whole
+    host: on a workstation that sweeps in every unrelated container and
+    holds each one to the same rule, so a quiet one fails the check for
+    good. Profiles do not narrow this — Compose lists everything running
+    under the project whichever profile started it.
+    """
+    try:
+        result = subprocess.run(
+            ["docker", "compose", "ps", "--format", "{{.Name}}"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except FileNotFoundError:
+        raise _Rejected("docker is not on PATH") from None
+    except subprocess.CalledProcessError as error:
+        # Usually being run from outside the repo, where there is no
+        # compose file to read.
+        detail = cast(str, error.stderr) or ""
+        raise _Rejected(f"`docker compose ps` failed — {detail.strip()}") from error
     return {name for name in result.stdout.split("\n") if name.strip()}
 
 
@@ -107,13 +122,16 @@ def main() -> int:
     timeout = cast(float, args.timeout)
     password = cast(str, args.password)
 
-    running = _running_containers()
+    try:
+        running = _running_containers()
+    except _Rejected as rejected:
+        print(f"cannot list the stack's containers: {rejected}", file=sys.stderr)
+        return 1
     if not running:
         print("no running containers — is the stack up?", file=sys.stderr)
         return 1
 
     deadline = time.monotonic() + timeout
-    missing: set[str] = set(running)
     while True:
         try:
             collected = _collected_containers(password)
