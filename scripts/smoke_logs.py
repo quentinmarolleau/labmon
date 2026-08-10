@@ -52,6 +52,20 @@ _LABEL_VALUES = (
 # lock the admin out of the UI as well.
 _TERMINAL_STATUSES = frozenset({401, 403})
 
+# Containers held to a lower standard, because they are meant to be quiet.
+#
+# Loki runs at log_level=warn (see loki/config.yaml) exactly so the thing
+# collecting the logs is not itself a log source. What it emits in practice
+# is a single line — a transient ring-initialisation error at startup — and
+# that error is the only reason it would satisfy a check like this one.
+# Requiring it means the suite passes on an upstream bug and starts failing
+# the day that bug is fixed, reporting a collection fault that is really a
+# log-level setting two files away.
+#
+# The other eleven containers prove collection works. This one proves
+# nothing either way, so it is not asked to.
+_EXPECTED_SILENT = frozenset({"loki"})
+
 
 class _Rejected(Exception):
     """A failure no amount of waiting will fix."""
@@ -123,13 +137,14 @@ def main() -> int:
     password = cast(str, args.password)
 
     try:
-        running = _running_containers()
+        started = _running_containers()
     except _Rejected as rejected:
         print(f"cannot list the stack's containers: {rejected}", file=sys.stderr)
         return 1
-    if not running:
+    if not started:
         print("no running containers — is the stack up?", file=sys.stderr)
         return 1
+    running = started - _EXPECTED_SILENT
 
     deadline = time.monotonic() + timeout
     while True:
@@ -146,7 +161,9 @@ def main() -> int:
 
         missing = running - collected
         if not missing:
-            print(f"all {len(running)} running containers have logs in Loki")
+            exempt = sorted(started - running)
+            note = f", not counting {', '.join(exempt)}" if exempt else ""
+            print(f"all {len(running)} running containers have logs in Loki{note}")
             return 0
 
         if time.monotonic() >= deadline:
