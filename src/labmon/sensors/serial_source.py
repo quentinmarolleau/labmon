@@ -77,7 +77,10 @@ def parse_reading(line: bytes) -> RawReading | None:
     try:
         text = line.decode("utf-8").strip()
     except UnicodeDecodeError:
-        logger.warning("Skipping malformed line (not valid UTF-8): %r", line)
+        logger.warning(
+            "skipping malformed line",
+            extra={"reason": "not valid UTF-8", "line": line},
+        )
         return None
 
     if not text:
@@ -86,25 +89,35 @@ def parse_reading(line: bytes) -> RawReading | None:
     fields = [field.strip() for field in text.split(_FIELD_SEPARATOR)]
     if len(fields) != _FIELDS_PER_LINE:
         logger.warning(
-            "Skipping malformed line (expected '<channel>,<count>'): %r", line
+            "skipping malformed line",
+            extra={"reason": "expected '<channel>,<count>'", "line": line},
         )
         return None
 
     channel, raw_count = fields
     if not channel:
-        logger.warning("Skipping malformed line (empty channel): %r", line)
+        logger.warning(
+            "skipping malformed line",
+            extra={"reason": "empty channel", "line": line},
+        )
         return None
 
     try:
         count = float(raw_count)
     except ValueError:
-        logger.warning("Skipping malformed line (count is not a number): %r", line)
+        logger.warning(
+            "skipping malformed line",
+            extra={"reason": "count is not a number", "line": line},
+        )
         return None
 
     # float() accepts "nan" and "inf", which would otherwise reach InfluxDB
     # and poison every aggregate computed over the series.
     if not math.isfinite(count):
-        logger.warning("Skipping malformed line (count is not finite): %r", line)
+        logger.warning(
+            "skipping malformed line",
+            extra={"reason": "count is not finite", "line": line},
+        )
         return None
 
     return RawReading(channel=channel, raw_count=count)

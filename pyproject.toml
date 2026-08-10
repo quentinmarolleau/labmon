@@ -35,6 +35,35 @@ spline = [
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.ruff]
+# Matches requires-python above. Without it ruff infers a target from
+# whichever interpreter happens to run it, so a rule that rewrites for a
+# newer Python (pyupgrade) could propose something CI's oldest supported
+# version cannot parse.
+target-version = "py312"
+
+[tool.ruff.lint]
+# Added to ruff's defaults rather than replacing them, so a rule the
+# upstream project decides is worth having by default arrives here too.
+# The cost is that a release can introduce one and turn CI red on code
+# nobody touched; the answer to that is to pin ruff in the dev
+# dependencies when it happens, not to freeze the rule set in advance.
+extend-select = [
+    "G",   # flake8-logging-format
+    "LOG", # flake8-logging
+]
+
+# `G` is the reason this section exists. Every logging call in the package
+# names its data in `extra=` so a collector reads fields rather than
+# parsing a sentence, and nothing enforced that: `G003` had already crept
+# back into writer.py. Note that `G004` flags f-strings in logging calls
+# and leaves `logger.warning("...%r", value)` alone — the lazy form is the
+# endorsed one, so a sweep towards f-strings would fight this rule.
+#
+# `LOG` is its neighbour: `logging.warn()`, a logger built with the wrong
+# name, `.error()` where `.exception()` was meant. Clean today, and it
+# guards the same call sites from a different direction.
+
 [tool.basedpyright]
 include = ["src", "tests", "scripts"]
 stubPath = "typings"

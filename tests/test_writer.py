@@ -8,6 +8,15 @@ from labmon import writer as writer_module
 from labmon.writer import PointWriter
 
 
+def _field(record: logging.LogRecord, name: str) -> object:
+    """Read a logfmt field off a record.
+
+    `extra=` fields become attributes a type checker cannot know about,
+    so this says plainly that the lookup is dynamic.
+    """
+    return getattr(record, name)  # pyright: ignore[reportAny]
+
+
 class FakeClient[T]:
     def __init__(self) -> None:
         self.batches: list[list[T]] = []
@@ -108,7 +117,9 @@ def test_write_retries_transient_failures_then_succeeds(
     written = [point for batch in client.batches for point in batch]
     assert written == [1]
     assert client.attempts == 3
-    assert caplog.text.count("Write attempt") == 2
+    retries = [r for r in caplog.records if r.getMessage() == "write attempt failed"]
+    assert [_field(r, "attempt") for r in retries] == [1, 2]
+    assert all(_field(r, "points") == 1 for r in retries)
 
 
 def test_close_drops_a_batch_still_failing_at_shutdown(
@@ -128,7 +139,14 @@ def test_close_drops_a_batch_still_failing_at_shutdown(
     assert elapsed < 1.0
     assert client.attempts >= 1
     assert client.closed.is_set()
-    assert "Dropping a batch of 1 point(s)" in caplog.text
+    # Asserting on the field rather than the sentence: the batch size is
+    # the part that matters, and a reworded message should not fail here.
+    [dropped] = [
+        r
+        for r in caplog.records
+        if r.getMessage() == "dropping an unwritten batch at shutdown"
+    ]
+    assert _field(dropped, "points") == 1
 
 
 # --------------------------------------------------------------------------
