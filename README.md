@@ -288,6 +288,10 @@ Test coverage is held at 100%, and basedpyright runs on its default
 (strictest) preset with zero errors and zero warnings — see
 [`CONTRIBUTING.md`](CONTRIBUTING.md) for the reasoning and the workflow.
 
+`uv run pre-commit install --allow-missing-config` runs the quick half of that list on every
+commit and the slow half on every push, from the same lockfile CI uses.
+Optional, and skippable with `--no-verify`.
+
 ## Status
 
 Alpha, and honest about it: the software is tested and running, but the

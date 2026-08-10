@@ -28,6 +28,45 @@ Common types used in this repo: `feat`, `fix`, `docs`, `test`, `ci`,
 `chore`. Write the message body around *why*, not just *what* — the diff
 already shows what changed.
 
+## Git hooks
+
+Optional, and worth the one command:
+
+```bash
+uv run pre-commit install --allow-missing-config
+```
+
+Cloning installs nothing, so skipping this leaves everything exactly as
+it was — CI is still the gate. What it buys is finding a formatting slip
+in half a second instead of after a push and a runner wait.
+
+`--allow-missing-config` matters more than it looks: without it, every
+commit on a branch that predates this file fails with "No
+`.pre-commit-config.yaml` file was found", including merges of older
+branches. With it, the hooks quietly do nothing there.
+
+The hooks are split by what they cost:
+
+| When | What runs | Roughly |
+|---|---|---|
+| every commit | `gitleaks`, `ruff format`, `ruff check`, `typos` | 0.6 s |
+| commit message | `cog verify` | instant |
+| every push | `basedpyright`, `pytest` | 14 s |
+
+`docker compose config` joins the commit hooks only when a compose file is
+staged, and skips itself if the Docker daemon isn't running.
+
+Two things worth knowing:
+
+- **The hooks run the tools from `uv.lock`**, via `uv run --locked` — the
+  same commands and versions as `.github/workflows/ci.yml`. There are no
+  tool versions in `.pre-commit-config.yaml` to drift out of step, so
+  `uv lock --upgrade` moves the hooks and CI together.
+- **`git commit --no-verify` skips all of it**, deliberately. A gate you
+  can't bypass is a gate people stop using. Installing over hooks you
+  already have keeps yours too: pre-commit moves them to
+  `.git/hooks/*.legacy` and runs them first.
+
 ## Before opening a PR
 
 ```bash
@@ -41,6 +80,10 @@ uv run typos
 All five must pass locally — they're exactly what CI runs. Drop
 `--check` to have the formatter apply its changes instead of reporting
 them.
+
+With the hooks installed, pushing has already run the last three of
+these, so this list is the belt to their braces — and the one to reach
+for when you've been using `--no-verify`.
 
 ## Testing
 
