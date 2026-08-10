@@ -39,6 +39,9 @@ build-backend = "hatchling.build"
 include = ["src", "tests", "scripts"]
 stubPath = "typings"
 
+[tool.ruff.lint]
+extend-select = ["G"]
+
 [tool.coverage.run]
 source = ["src"]
 

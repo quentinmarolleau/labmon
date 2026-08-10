@@ -11,6 +11,11 @@ from labmon.sensors.serial_source import (
 )
 
 
+def _field(record: logging.LogRecord, name: str) -> object:
+    """Read a structured log field off a record."""
+    return getattr(record, name)  # pyright: ignore[reportAny]
+
+
 class FakeSerialPort:
     """Stands in for a pyserial Serial, replaying canned lines."""
 
@@ -64,27 +69,34 @@ def test_parse_reading_ignores_a_blank_line() -> None:
 
 
 @pytest.mark.parametrize(
-    "line",
+    ("line", "reason"),
     [
-        pytest.param(b"garbage\n", id="no-separator"),
-        pytest.param(b"A0,2048,extra\n", id="too-many-fields"),
-        pytest.param(b"A0,not-a-number\n", id="non-numeric-count"),
+        pytest.param(b"garbage\n", "expected '<channel>,<count>'", id="no-separator"),
+        pytest.param(
+            b"A0,2048,extra\n", "expected '<channel>,<count>'", id="too-many-fields"
+        ),
+        pytest.param(
+            b"A0,not-a-number\n", "count is not a number", id="non-numeric-count"
+        ),
         # float() would accept these where int() did not; a non-finite
         # count reaching InfluxDB poisons every aggregate over the series.
-        pytest.param(b"A0,nan\n", id="nan-count"),
-        pytest.param(b"A0,inf\n", id="inf-count"),
-        pytest.param(b"A0,-inf\n", id="negative-inf-count"),
-        pytest.param(b",2048\n", id="empty-channel"),
-        pytest.param(b"\xff\xfe\n", id="undecodable-bytes"),
+        pytest.param(b"A0,nan\n", "count is not finite", id="nan-count"),
+        pytest.param(b"A0,inf\n", "count is not finite", id="inf-count"),
+        pytest.param(b"A0,-inf\n", "count is not finite", id="negative-inf-count"),
+        pytest.param(b",2048\n", "empty channel", id="empty-channel"),
+        pytest.param(b"\xff\xfe\n", "not valid UTF-8", id="undecodable-bytes"),
     ],
 )
 def test_parse_reading_skips_a_malformed_line(
-    line: bytes, caplog: pytest.LogCaptureFixture
+    line: bytes, reason: str, caplog: pytest.LogCaptureFixture
 ) -> None:
     with caplog.at_level(logging.WARNING):
         assert parse_reading(line) is None
 
-    assert "Skipping malformed line" in caplog.text
+    (record,) = caplog.records
+    assert record.message == "skipping malformed line"
+    assert _field(record, "line") == line
+    assert _field(record, "reason") == reason
 
 
 def test_read_returns_successive_readings() -> None:

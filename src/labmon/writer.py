@@ -111,18 +111,16 @@ class PointWriter[T]:
                 return
             except Exception:
                 logger.warning(
-                    "Write attempt %d failed for a batch of %d point(s);"
-                    + " retrying in %.0fs",
-                    attempt,
-                    len(batch),
-                    backoff,
+                    "write attempt failed",
+                    extra={
+                        "attempt": attempt,
+                        "points": len(batch),
+                        "retry_in_s": f"{backoff:.0f}",
+                    },
                     exc_info=True,
                 )
             if self._stop.wait(timeout=backoff):
-                logger.error(
-                    "Dropping a batch of %d point(s) still unwritten at shutdown",
-                    len(batch),
-                )
+                logger.error("dropping batch at shutdown", extra={"points": len(batch)})
                 return
             backoff = min(backoff * 2, self._max_backoff)
             attempt += 1

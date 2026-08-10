@@ -8,6 +8,11 @@ from labmon import writer as writer_module
 from labmon.writer import PointWriter
 
 
+def _field(record: logging.LogRecord, name: str) -> object:
+    """Read a structured log field off a record."""
+    return getattr(record, name)  # pyright: ignore[reportAny]
+
+
 class FakeClient[T]:
     def __init__(self) -> None:
         self.batches: list[list[T]] = []
@@ -108,7 +113,12 @@ def test_write_retries_transient_failures_then_succeeds(
     written = [point for batch in client.batches for point in batch]
     assert written == [1]
     assert client.attempts == 3
-    assert caplog.text.count("Write attempt") == 2
+    retries = [
+        record for record in caplog.records if record.message == "write attempt failed"
+    ]
+    assert len(retries) == 2
+    assert [_field(record, "attempt") for record in retries] == [1, 2]
+    assert all(_field(record, "points") == 1 for record in retries)
 
 
 def test_close_drops_a_batch_still_failing_at_shutdown(
@@ -128,7 +138,13 @@ def test_close_drops_a_batch_still_failing_at_shutdown(
     assert elapsed < 1.0
     assert client.attempts >= 1
     assert client.closed.is_set()
-    assert "Dropping a batch of 1 point(s)" in caplog.text
+    (record,) = [
+        record
+        for record in caplog.records
+        if record.message == "dropping batch at shutdown"
+    ]
+    assert record.message == "dropping batch at shutdown"
+    assert _field(record, "points") == 1
 
 
 # --------------------------------------------------------------------------
