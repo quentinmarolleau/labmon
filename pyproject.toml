@@ -51,6 +51,7 @@ target-version = "py312"
 extend-select = [
     "G",   # flake8-logging-format
     "LOG", # flake8-logging
+    "RUF", # ruff's own rules
 ]
 
 # `G` is the reason this section exists. Every logging call in the package
@@ -63,6 +64,11 @@ extend-select = [
 # `LOG` is its neighbour: `logging.warn()`, a logger built with the wrong
 # name, `.error()` where `.exception()` was meant. Clean today, and it
 # guards the same call sites from a different direction.
+#
+# `RUF043` is why `RUF` is here. A `pytest.raises(match=...)` pattern is a
+# regex whether or not it was meant as one, so `match="a (b)"` silently
+# asserts something other than it appears to. Marking the deliberate ones
+# raw makes the accidental ones visible.
 
 [tool.basedpyright]
 include = ["src", "tests", "scripts"]
