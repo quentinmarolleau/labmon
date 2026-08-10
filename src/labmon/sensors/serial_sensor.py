@@ -149,6 +149,12 @@ def run(
         voltage = raw_to_voltage(reading.raw_count, resolution_bits, v_ref)
         value = calibration.conversion.apply(voltage)
 
+        # Before the gate, which compares against bounds: every comparison
+        # with a NaN is False, so a gate would admit it and a gate-less
+        # channel would never look at it at all.
+        if not loop.admits(value.magnitude, sensor_id=calibration.sensor_id):
+            continue
+
         gate = gates.get(reading.channel)
         if gate is not None and not gate.admits(value, voltage):
             # Nothing is written at all, not even input_volts: a

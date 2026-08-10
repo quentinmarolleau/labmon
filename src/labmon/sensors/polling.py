@@ -37,6 +37,7 @@ Requires INFLUXDB3_AUTH_TOKEN to be set (e.g. via .env / direnv).
 """
 
 import logging
+import math
 import time
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
@@ -71,7 +72,14 @@ def build_point(
     Exposed so a sensor with something unusual to record — several fields
     from one device read, say — can build on the same tag conventions
     rather than inventing its own.
+
+    Raises ValueError for a non-finite value. `float()` accepts `nan` and
+    `inf`, and one of either poisons every average, minimum and maximum
+    over the series from then on, so the primitive refuses to build one
+    rather than leaving each caller to remember.
     """
+    if not math.isfinite(value):
+        raise ValueError(f"refusing to build a point for a non-finite value: {value!r}")
     point = Point(measurement).tag("sensor_id", sensor_id)
     # An empty unit tag is not the same as no unit tag: it would split the
     # series in two, and the halves would look identical in a legend.
@@ -103,7 +111,19 @@ def write_reading(
     its WAL (see docs/latency.md). That is the price of the reading
     actually being stored, and it is paid once per run rather than once per
     reading.
+
+    A non-finite reading is reported and skipped rather than raised. This
+    typically runs under a systemd timer with Restart=on-failure, where an
+    exception would turn one bad reading from a vendor API into a restart
+    loop; there is no next tick to recover on, so the run ends cleanly
+    having written nothing.
     """
+    if not math.isfinite(value):
+        logger.warning(
+            "reading is non-finite; writing nothing",
+            extra={"sensor_id": sensor_id, "value": repr(value)},
+        )
+        return
     client = get_client()
     try:
         client.write(
@@ -183,7 +203,7 @@ def poll(
             continue
 
         backoff = initial_backoff
-        if value is not None:
+        if value is not None and loop.admits(value, sensor_id=sensor_id):
             point = build_point(
                 value,
                 sensor_id=sensor_id,

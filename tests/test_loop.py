@@ -171,6 +171,121 @@ def test_a_loop_without_a_summary_never_emits_one(
 
 
 # --------------------------------------------------------------------------
+# Readings a conversion made non-finite
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.usefixtures("fake_client", "registered_handlers")
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_a_non_finite_reading_is_refused_and_warned_about(
+    value: float, caplog: pytest.LogCaptureFixture
+) -> None:
+    loop = SensorLoop()
+
+    with caplog.at_level(logging.WARNING, logger=sensor_loop.logger.name):
+        admitted = loop.admits(value, sensor_id="cryo-diode")
+
+    assert admitted is False
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert _field(warnings[0], "sensor_id") == "cryo-diode"
+
+
+@pytest.mark.usefixtures("fake_client", "registered_handlers")
+def test_a_finite_reading_is_admitted_without_a_word(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    loop = SensorLoop()
+
+    with caplog.at_level(logging.DEBUG, logger=sensor_loop.logger.name):
+        admitted = loop.admits(1.0, sensor_id="cryo-diode")
+
+    assert admitted is True
+    assert caplog.records == []
+
+
+@pytest.mark.usefixtures("fake_client", "registered_handlers")
+def test_the_warning_is_once_per_sensor_not_once_per_reading(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A calibration wrong below some voltage fires on every reading.
+
+    One line saying so is the signal; the rest is the summary's job.
+    """
+    loop = SensorLoop()
+
+    with caplog.at_level(logging.WARNING, logger=sensor_loop.logger.name):
+        for _ in range(3):
+            _ = loop.admits(float("nan"), sensor_id="cryo-diode")
+        _ = loop.admits(float("nan"), sensor_id="room-1")
+
+    warned = [_field(r, "sensor_id") for r in caplog.records]
+    assert warned == ["cryo-diode", "room-1"]
+
+
+@pytest.mark.usefixtures("fake_client", "registered_handlers")
+def test_the_summary_counts_what_was_skipped(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    ticks = iter([0.0, sensor_loop.DEFAULT_SUMMARY_INTERVAL_SECONDS + 1.0])
+    monkeypatch.setattr(time, "monotonic", lambda: next(ticks))
+    loop = SensorLoop()
+    loop.record(_point(1.0), "cryo-diode")
+    _ = loop.admits(float("nan"), sensor_id="cryo-diode")
+    _ = loop.admits(float("nan"), sensor_id="cryo-diode")
+
+    with caplog.at_level(logging.INFO, logger=sensor_loop.logger.name):
+        loop.summarise_if_due()
+
+    summaries = [r for r in caplog.records if r.getMessage() == "wrote readings"]
+    assert [(_field(r, "readings"), _field(r, "skipped")) for r in summaries] == [
+        (1, 2)
+    ]
+
+
+@pytest.mark.usefixtures("fake_client", "registered_handlers")
+def test_a_sensor_that_only_skipped_is_still_reported(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Otherwise a channel producing nothing but NaN vanishes from the log.
+
+    Which is the case most worth seeing: the trace is flat and the
+    summary is the only thing that can say why.
+    """
+    ticks = iter([0.0, sensor_loop.DEFAULT_SUMMARY_INTERVAL_SECONDS + 1.0])
+    monkeypatch.setattr(time, "monotonic", lambda: next(ticks))
+    loop = SensorLoop()
+    _ = loop.admits(float("nan"), sensor_id="cryo-diode")
+
+    with caplog.at_level(logging.INFO, logger=sensor_loop.logger.name):
+        loop.summarise_if_due()
+
+    summaries = [r for r in caplog.records if r.getMessage() == "wrote readings"]
+    assert [
+        (_field(r, "sensor_id"), _field(r, "readings"), _field(r, "skipped"))
+        for r in summaries
+    ] == [("cryo-diode", 0, 1)]
+
+
+@pytest.mark.usefixtures("fake_client", "registered_handlers")
+def test_skips_do_not_carry_into_the_next_window(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    interval = sensor_loop.DEFAULT_SUMMARY_INTERVAL_SECONDS
+    ticks = iter([0.0, interval + 1.0, 2 * interval + 2.0])
+    monkeypatch.setattr(time, "monotonic", lambda: next(ticks))
+    loop = SensorLoop()
+    _ = loop.admits(float("nan"), sensor_id="cryo-diode")
+
+    with caplog.at_level(logging.INFO, logger=sensor_loop.logger.name):
+        loop.summarise_if_due()
+        caplog.clear()
+        loop.summarise_if_due()
+
+    assert "wrote readings" not in caplog.text
+
+
+# --------------------------------------------------------------------------
 # Tuning the writer without editing installed source
 # --------------------------------------------------------------------------
 

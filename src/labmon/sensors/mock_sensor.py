@@ -98,15 +98,21 @@ def run(
     while True:
         reading_time = datetime.now(UTC)
         reading = walk.next()
-        point = Point(measurement).tag("sensor_id", sensor_id)
-        if unit:
-            point = point.tag("unit", unit)
-        point = point.field(field, reading).time(reading_time, write_precision="ms")
-        loop.record(point, sensor_id)
-        logger.debug(
-            "reading",
-            extra={"sensor_id": sensor_id, "value": f"{reading:.4g}", "unit": unit},
-        )
+        # The walk cannot currently produce one, but this file is also the
+        # template a user copies and edits, and the guard belongs wherever
+        # a value becomes a field. Guarding the write rather than skipping
+        # the rest of the iteration, so the pacing stays in one place and a
+        # bad reading cannot turn the loop into a spin.
+        if loop.admits(reading, sensor_id=sensor_id):
+            point = Point(measurement).tag("sensor_id", sensor_id)
+            if unit:
+                point = point.tag("unit", unit)
+            point = point.field(field, reading).time(reading_time, write_precision="ms")
+            loop.record(point, sensor_id)
+            logger.debug(
+                "reading",
+                extra={"sensor_id": sensor_id, "value": f"{reading:.4g}", "unit": unit},
+            )
         loop.summarise_if_due()
         time.sleep(interval)
 
