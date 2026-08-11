@@ -163,7 +163,7 @@ services:
     # so the seconds before Loki is ready cost nothing.
 
   alloy:
-    image: grafana/alloy:v1.18.0
+    image: grafana/alloy:v1.18.1
     container_name: alloy
     profiles: [logs]
     depends_on:
