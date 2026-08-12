@@ -16,10 +16,10 @@ dev = [
     "basedpyright>=1.39.9",
     "pytest>=8.0.0",
     "pytest-cov>=7.1.0",
-    "ruff>=0.16.1",
+    "ruff>=0.16.2",
     "scipy>=1.18.0",
     "scipy-stubs>=1.18.0.1",
-    "typos>=1.48.0",
+    "typos>=1.49.0",
 ]
 
 [project.scripts]
