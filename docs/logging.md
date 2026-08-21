@@ -25,7 +25,13 @@ then:
 docker compose up -d --wait
 ```
 
-Open Grafana, go to **Explore**, pick the **Loki** datasource, and query:
+Open Grafana and the **Logs** dashboard, in the same `labmon` folder as
+the overview. It shows log volume by level, the warning and error lines
+themselves, readings skipped per sensor, and an unparsed view of
+everything, with a dropdown to narrow to one container.
+
+For anything the dashboard does not answer, go to **Explore**, pick the
+**Loki** datasource, and query directly:
 
 ```logql
 {container="mock-room-1"}
@@ -81,6 +87,18 @@ Query on the fields in Grafana:
 {container=~".+"} | logfmt | level="warning"
 {container=~".+"} | logfmt | sensor_id="cryo-77k"
 ```
+
+**Severities are not spelled the same across the stack.** Python's logging
+module produces `warning` and `critical`; the Go services — Grafana, Loki
+and Alloy — produce `warn` and `fatal`. Since every container is collected
+into the same place, a filter naming one spelling silently drops the other
+half, which reads as a quiet stack rather than a missed filter. Match both:
+
+```logql
+{container=~".+"} | logfmt | level=~"warn|warning"
+```
+
+The Logs dashboard's panels already do.
 
 ### What is logged, and at what level
 

@@ -30,6 +30,13 @@ What the dashboard is *showing* is covered in
 constraints worth knowing before editing any of these panels. The rest of
 this page is about writing panels of your own.
 
+The **Logs** dashboard sits beside it in the same folder, reading Loki
+rather than InfluxDB: log volume by level, warning and error counts, the
+warning and error lines themselves, readings skipped per sensor, and an
+unparsed view of every container. It needs the `logs` profile — without
+it the Loki datasource is provisioned but nothing is running behind it,
+and every panel reads empty. See [`docs/logging.md`](logging.md).
+
 ## How the datasource is wired
 
 `grafana/provisioning/datasources/influxdb3.yaml` provisions an `InfluxDB3`
@@ -125,24 +132,38 @@ chain over the file on every load, and those migrations rewrite panels.
 
 ## What CI checks about a dashboard
 
-`tests/test_dashboard.py` runs a handful of structural checks over
-`lab-overview.json` on every PR. They exist because Grafana's failure mode
-for a malformed dashboard is silence: a query under the wrong key, or a
-datasource uid nobody provisioned, renders "No data" and logs nothing, so
-the dashboard keeps looking correct while showing you nothing.
+`tests/test_dashboard.py` runs a handful of structural checks over every
+file in `grafana/dashboards/` on every PR. They exist because Grafana's
+failure mode for a malformed dashboard is silence: a query under the wrong
+key, or a datasource uid nobody provisioned, renders "No data" and logs
+nothing, so the dashboard keeps looking correct while showing you nothing.
 
-The checks cover the mistakes this file has actually made — every data panel
-carrying at least one target, `rawSql` present and non-empty, no leftover
-`query` twin, the datasource uid matching what
-provisioning creates, unique panel ids, every `$variable` declared, custom
-variables carrying their values inline, `xychart` panels declaring a
-`pluginVersion`, and any `*-panel` type (the naming convention for community
-plugins) appearing in `GRAFANA_PLUGINS`.
+A dashboard you add is picked up with no change to the test file.
+
+The checks cover the mistakes these files have actually made — every data
+panel carrying at least one target, a non-empty query under the key its own
+backend reads (`rawSql` for InfluxDB, `expr` for Loki), no leftover `query`
+twin, every datasource reference resolving to a uid provisioning actually
+creates *and* agreeing with the type it is provisioned as, unique panel ids,
+every `$variable` declared, custom variables carrying their values inline,
+`xychart` panels declaring a `pluginVersion`, and any `*-panel` type (the
+naming convention for community plugins) appearing in `GRAFANA_PLUGINS`.
+
+Datasource references are checked wherever they appear — panels, targets and
+template variables — because an optional datasource makes a particular
+mistake easy: Loki only runs under the `logs` profile, so a dashboard
+reading it can be committed while the provisioning file that backs it is
+still unstaged. The result renders empty for everyone.
+
+Adding a datasource of a new type needs one line in the test file, mapping
+that type to the key it reads its query from. A type the suite does not know
+fails rather than being skipped, so the check cannot be silently switched
+off by using a backend nobody taught it about.
 
 None of them run a query, so SQL that is structurally fine but names a
 column the schema does not have passes here. Catching that needs a live
-stack, not a JSON parse.
-
-A second dashboard is not covered automatically — the paths at the top of
-that file name `lab-overview.json` directly. Point them at a directory when
-there is a second one worth checking.
+stack, not a JSON parse — which is what `scripts/smoke_dashboard.py` does,
+though only for `lab-overview.json`: it speaks SQL and reads `rawSql`, so
+the Logs dashboard's LogQL is checked for shape here and not for meaning
+anywhere. `scripts/smoke_logs.py` covers the other half, proving collection
+reaches Loki at all.
