@@ -43,7 +43,11 @@ and every panel reads empty. See [`docs/logging.md`](logging.md).
 datasource using Grafana's built-in InfluxDB data source in **SQL** mode,
 which talks to InfluxDB 3's Flight SQL (gRPC) interface rather than the
 legacy InfluxQL/Flux modes. Since this stack has no TLS between containers,
-`insecureGrpc: true` tells Grafana not to expect it. The auth token and
+`insecureGrpc: true` tells Grafana not to expect it — and that stays true
+under the `tls` profile, which encrypts the boundary rather than the
+Docker network (see
+[`docs/deployment.md`](deployment.md#what-is-encrypted-and-what-is-not)).
+The auth token and
 database name are injected from the `INFLUXDB3_AUTH_TOKEN` and
 `INFLUXDB_DATABASE` environment variables via provisioning's `${VAR}`
 expansion (confirmed against Grafana's provisioning source — this

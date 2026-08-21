@@ -93,19 +93,108 @@ from the rest of the LAN needs no compose changes, just:
    sudo ufw allow 8181/tcp   # InfluxDB
    sudo ufw allow 3000/tcp   # Grafana
    ```
+   With the `tls` profile on these become 8443 and 3443 — see
+   [Encrypting client and viewer
+   traffic](#encrypting-client-and-viewer-traffic).
 
 Viewers reach Grafana at `http://<server-ip-or-hostname>:3000`; clients
 write to InfluxDB at `http://<server-ip-or-hostname>:8181`.
 
-## Security: plain HTTP, by design (for now)
+## Encrypting client and viewer traffic
 
-This stack talks plain HTTP/gRPC, with no TLS — the same as the local
-demo (see [`docs/grafana.md`](grafana.md)'s note on `insecureGrpc`). On a
-real LAN this means `INFLUXDB3_AUTH_TOKEN` travels unencrypted between
-clients and the server. That's an accepted tradeoff for a trusted lab
-network, not an oversight — TLS (e.g. via a reverse proxy, or InfluxDB's
-own TLS support) is a reasonable future upgrade if the network model ever
-changes, but isn't built here.
+By default the stack talks plain HTTP/gRPC on 8181 and 3000, so
+`INFLUXDB3_AUTH_TOKEN` crosses the LAN in clear text. On a trusted lab
+network that is an accepted tradeoff rather than an oversight, and it
+stays the default.
+
+The `tls` profile removes it. One extra container, a Caddy reverse proxy,
+terminates TLS in front of both services — 8443 for InfluxDB, 3443 for
+Grafana — while the plain ports keep answering exactly as before. Nothing
+about turning it on breaks a client that has not moved yet, so a running
+deployment migrates one machine at a time.
+
+Certificates come from Caddy's own embedded CA rather than from Let's
+Encrypt. A lab server has no public DNS name, so ACME has no way to
+validate it ([#66](https://github.com/quentinmarolleau/labmon/issues/66)
+tracks the case where that changes). Instead the stack signs its own, and
+each client is given one root certificate to trust.
+
+### Turning it on
+
+1. **List the addresses clients use.** A certificate is only valid for the
+   names and addresses it was issued for, so put them in the server's
+   `.env` — one list per port, entries separated by a comma *and* a
+   space:
+
+   ```bash
+   LABMON_TLS_INFLUXDB_SITES="https://192.168.1.50:8443, https://lab-server:8443"
+   LABMON_TLS_GRAFANA_SITES="https://192.168.1.50:3443, https://lab-server:3443"
+   LABMON_TLS_DEFAULT_SNI=192.168.1.50
+   ```
+
+   Set `LABMON_TLS_DEFAULT_SNI` to whichever address clients actually
+   dial. A client connecting to a bare IP sends no server name along with
+   the handshake, leaving the proxy nothing to pick a certificate with —
+   and it then drops the connection, which surfaces as the server being
+   unreachable rather than as a trust problem.
+
+2. **Start the profile and export the root:**
+
+   ```bash
+   COMPOSE_PROFILES=tls docker compose up -d --wait
+   ./scripts/export-ca.sh
+   ```
+
+   Add `tls` to whatever profiles the deployment already uses. The script
+   writes `labmon-ca.crt`. That file is a public certificate, not a
+   secret — the private key stays inside the `caddy-data` volume and
+   never leaves the server — but a *substituted* root is exactly what an
+   interceptor would need, so copy it by a route that reliably delivers
+   the right file.
+
+3. **Point each client at the proxy** and hand it the root — see
+   [`docs/client-setup.md`](client-setup.md#connecting-over-tls).
+
+4. **Send viewers to `https://<server>:3443`.** A browser that has not
+   been given the root treats the site like any other self-signed one and
+   warns before loading it; importing `labmon-ca.crt` into the browser's
+   or the operating system's trust store clears that. Nothing else about
+   Grafana changes.
+
+5. **Move the firewall over.** Open 8443 and 3443; close 8181 and 3000 to
+   the LAN once the last client and viewer has switched.
+
+### What is encrypted, and what is not
+
+The boundary, and only the boundary. Grafana still reaches InfluxDB, and
+Alloy still reaches Loki, over plain HTTP inside the Docker network — one
+bridge on one host, where encryption buys nothing and would mean handing
+trust to every service as well as to every client. That is why
+`insecureGrpc: true` stays in the provisioned datasource with the profile
+on (see [`docs/grafana.md`](grafana.md)).
+
+TLS also does nothing about the token itself. It stops the credential
+being readable in transit; every client still holds an admin credential
+at rest, which is the subject of the next section.
+
+### Certificate lifecycle
+
+Nothing here needs renewing by hand, and nothing needs redistributing
+after the first time:
+
+| | Valid for | Rotated by |
+|---|---|---|
+| Leaf, served to clients | 12 hours | Caddy, automatically |
+| Intermediate | 7 days | Caddy, automatically |
+| Root, distributed to clients | ~10 years | Nothing — it is the anchor |
+
+Clients verify against the root, so the leaf and intermediate churning
+underneath is invisible to them. What matters instead is the `caddy-data`
+volume, which holds the CA's private key. Delete it and Caddy generates a
+fresh root on next start, at which point every client rejects the server
+until it is given the new file. Back it up with the rest of the stack's
+volumes, or accept that losing it means one round of visiting every
+client.
 
 ## One token, and it is an admin token
 
@@ -128,10 +217,9 @@ What follows from that:
 - **Site clients accordingly.** Treat any machine holding the token as
   trusted infrastructure, because it is.
 - **Keep port 8181 off network segments that do not need it.** This is
-  the strongest argument for the reverse proxy in
-  [#52](https://github.com/quentinmarolleau/labmon/issues/52): once
-  clients reach InfluxDB through it, the database's own port need not be
-  reachable at all.
+  the strongest argument for running the `tls` profile: once clients
+  reach InfluxDB through the proxy, the database's own port need not be
+  reachable from the LAN at all.
 - **TLS does not solve this.** It protects the token in transit. Every
   client still holds an admin credential at rest.
 - **Rotate on any suspicion**, using the drill below.
