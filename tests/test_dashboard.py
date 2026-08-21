@@ -376,3 +376,37 @@ def test_third_party_panel_types_are_installed_by_the_demo(
             f"{panel.get('title')!r} uses panel plugin {panel_type!r}, which "
             f"GRAFANA_PLUGINS does not install (it installs {sorted(installed)})"
         )
+
+
+# --------------------------------------------------------------------------
+# the provisioning tree
+# --------------------------------------------------------------------------
+
+# Every directory Grafana looks for under /etc/grafana/provisioning. It
+# reports a missing one at ERROR rather than DEBUG, so the two this
+# deployment does not use still have to be there — otherwise they are two
+# permanent false positives on the error dashboard, which is how a reader
+# learns to ignore it.
+_PROVISIONING_DIRS = ("alerting", "dashboards", "datasources", "plugins")
+
+
+@pytest.mark.parametrize("name", _PROVISIONING_DIRS)
+def test_grafana_reads_a_provisioning_directory_that_is_there(name: str) -> None:
+    """Present, and not empty.
+
+    Git tracks files rather than directories, so an empty one exists on
+    the machine that made it and nowhere else. Asserting only that it is
+    present would keep passing on a working copy where the directory
+    lingers untracked, which is precisely the copy the author is looking
+    at when they delete its placeholder.
+    """
+    directory = _REPO_ROOT / "grafana" / "provisioning" / name
+
+    assert directory.is_dir(), (
+        f"grafana/provisioning/{name} is missing; Grafana logs an ERROR on "
+        "every boot for a provisioning directory it cannot read"
+    )
+    assert any(directory.iterdir()), (
+        f"grafana/provisioning/{name} is empty, so it will not survive a "
+        "fresh clone; commit a .gitkeep in it"
+    )
