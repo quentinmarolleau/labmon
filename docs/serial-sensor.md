@@ -303,11 +303,28 @@ expression = "10**(1.667*v - 11.33)"
 value_unit = "mbar"
 ```
 
-Expressions are evaluated by [asteval](https://github.com/lmfit/asteval)
-in a restricted interpreter — arithmetic only, with no ability to import
-modules or reach the filesystem. An expression that references an
-unknown name, or returns something that isn't a number, is rejected at
-startup.
+Expressions are evaluated by [asteval](https://github.com/lmfit/asteval),
+which does not import modules or reach the filesystem. An expression that
+references an unknown name, or returns something that isn't a number, is
+rejected at startup.
+
+#### A calibration file is code, not configuration
+
+That restriction makes typos safe. It is **not** a security boundary, and
+asteval's own documentation says so plainly: a crafted expression can
+still exhaust memory or crash the interpreter, and escapes have been
+found before.
+
+For the intended use this changes nothing — whoever writes
+`calibration.toml` already controls the process that reads it, so there
+is no boundary to cross. It matters because these files do not *look*
+like code. They are small, they are TOML, and they encode something a
+colleague might reasonably want to reuse, so they are exactly the kind of
+artefact that gets emailed between groups.
+
+**Give a calibration file the same trust you would give a Python file
+from the same source.** Review a third-party one before loading it, and
+do not accept one from outside the lab.
 
 ## Options
 
