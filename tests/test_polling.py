@@ -183,6 +183,66 @@ def _stop_after(values: list[float | None]) -> Callable[[], float | None]:
     return read
 
 
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_build_point_refuses_a_non_finite_value(value: float) -> None:
+    """The primitive will not construct a point that poisons a series."""
+    with pytest.raises(ValueError, match="non-finite"):
+        _ = build_point(value, sensor_id="c", measurement="m")
+
+
+def test_write_reading_skips_a_non_finite_value_without_raising(
+    fake_client: FakeInfluxClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A one-shot run under a systemd timer must not fail on a bad read.
+
+    Restart=on-failure would turn one NaN from a vendor API into a
+    restart loop, so this reports and exits cleanly having written
+    nothing.
+    """
+    with caplog.at_level(logging.WARNING, logger=polling.logger.name):
+        write_reading(float("nan"), sensor_id="c", measurement="m")
+
+    assert fake_client.points == []
+    # No connection is opened at all: there is nothing to send, and a
+    # timer-driven script should not touch the network to decide that.
+    assert fake_client.closed is False
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert _field(warnings[0], "sensor_id") == "c"
+
+
+@pytest.mark.usefixtures("no_sleep")
+def test_poll_keeps_going_after_a_non_finite_reading(
+    fake_client: FakeInfluxClient,
+    registered_handlers: dict[int, SignalHandler],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The transient case: good, two bad, good again.
+
+    The valid readings either side must still be written — a conversion
+    that fails at one voltage says nothing about the rest of the range.
+    """
+    with (
+        caplog.at_level(logging.WARNING, logger=sensor_loop.logger.name),
+        pytest.raises(_StopLoop),
+    ):
+        poll(
+            _stop_after([1.0, float("nan"), float("nan"), 2.0]),
+            sensor_id="c",
+            measurement="m",
+        )
+
+    with pytest.raises(SystemExit):
+        registered_handlers[signal.SIGTERM](signal.SIGTERM, None)
+
+    values = [
+        point.to_line_protocol().split("value=")[1].split()[0]
+        for point in fake_client.points
+    ]
+    assert values == ["1", "2"]
+    assert len([r for r in caplog.records if r.levelno == logging.WARNING]) == 1
+
+
 @pytest.mark.usefixtures("no_sleep")
 def test_poll_flushes_everything_it_read_on_shutdown(
     fake_client: FakeInfluxClient, registered_handlers: dict[int, SignalHandler]

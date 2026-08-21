@@ -14,6 +14,7 @@ was the same.
 """
 
 import logging
+import math
 import signal
 import sys
 import time
@@ -72,6 +73,8 @@ class SensorLoop:
         self.writer: PointWriter[Point] = writer or PointWriter[Point](get_client())
         self._summary_interval: float | None = summary_interval
         self._written: Counter[str] = Counter()
+        self._skipped: Counter[str] = Counter()
+        self._warned: set[str] = set()
         self._next_summary: float = time.monotonic() + (summary_interval or 0.0)
 
         def shutdown(_signum: int, _frame: FrameType | None) -> None:
@@ -82,6 +85,38 @@ class SensorLoop:
 
         _ = signal.signal(signal.SIGINT, shutdown)
         _ = signal.signal(signal.SIGTERM, shutdown)
+
+    def admits(self, value: float, *, sensor_id: str) -> bool:
+        """Whether a reading can be written, warning once if it cannot.
+
+        A conversion can produce `nan` or `inf` without raising — `log(v -
+        2.0)` below two volts, an affine factor large enough to overflow, a
+        spline through awkward points. `float()` accepts both, so the value
+        reaches InfluxDB looking like any other, and one of them poisons
+        every average, minimum and maximum over that series from then on.
+        `serial_source.parse_reading` already guards the input side for the
+        same reason; this is the output side.
+
+        Refusing is not enough on its own, because a gap in a trace looks
+        the same as a dead sensor. So the first refusal for a sensor says
+        so at WARNING, and every refusal is counted into the periodic
+        summary. One line establishes that it is happening; the count
+        establishes how much, which is what separates a transient from a
+        calibration that is wrong across half its range.
+
+        Warning once per sensor rather than once per reading is the shape
+        `serial_sensor` already uses for a channel with no calibration.
+        """
+        if math.isfinite(value):
+            return True
+        self._skipped[sensor_id] += 1
+        if sensor_id not in self._warned:
+            self._warned.add(sensor_id)
+            logger.warning(
+                "conversion produced a non-finite value; skipping those readings",
+                extra={"sensor_id": sensor_id, "value": repr(value)},
+            )
+        return False
 
     def record(self, point: Point, sensor_id: str) -> None:
         """Queue a point and count it towards the next summary."""
@@ -102,14 +137,19 @@ class SensorLoop:
         # One line per sensor rather than one line listing all of them:
         # each carries its own sensor_id field, so a collector can label
         # it and a query for one instrument returns only its own lines.
-        for sensor_id, count in sorted(self._written.items()):
+        # Sensors that only skipped are reported too, which is the case
+        # most worth seeing: the trace is flat, and this line is the only
+        # thing that can say the readings arrived and were unwritable.
+        for sensor_id in sorted(set(self._written) | set(self._skipped)):
             logger.info(
                 "wrote readings",
                 extra={
                     "sensor_id": sensor_id,
-                    "readings": count,
+                    "readings": self._written[sensor_id],
+                    "skipped": self._skipped[sensor_id],
                     "window_s": f"{self._summary_interval:.0f}",
                 },
             )
         self._written.clear()
+        self._skipped.clear()
         self._next_summary = now + self._summary_interval

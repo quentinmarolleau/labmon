@@ -72,7 +72,7 @@ still read the line.
 
 ```
 ts=2026-08-04T09:31:07.412+00:00 level=info logger=labmon.sensors.loop \
-  msg="wrote readings" readings=7 sensor_id=room-1 window_s=30
+  msg="wrote readings" readings=7 sensor_id=room-1 skipped=0 window_s=30
 ```
 
 Query on the fields in Grafana:
@@ -92,6 +92,22 @@ storing a second copy of what InfluxDB already holds far more compactly.
 summary every 30s, every warning and every error. Those are what you
 correlate against a flat trace — "why did this stop" is answered by a
 warning, not by the last normal reading.
+
+`skipped` counts readings that arrived and could not be written, which
+today means a conversion produced `nan` or `inf` — a formula undefined
+over part of its range, or a factor large enough to overflow. The first
+one on a channel also logs a warning naming the sensor; after that the
+count is the only report, so a channel producing nothing else stays
+visible without a line per reading:
+
+```logql
+{container=~".+"} | logfmt | skipped > 0
+```
+
+A sensor appears in the summary even when it wrote nothing at all, which
+is the case worth seeing: the trace is flat, and this line is the only
+thing that distinguishes readings arriving unwritable from a sensor that
+died.
 
 To see every reading while bringing a board up:
 

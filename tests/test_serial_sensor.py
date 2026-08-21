@@ -6,6 +6,7 @@ from collections.abc import Callable
 from pathlib import Path
 from types import FrameType
 
+import pint
 import pytest
 from influxdb_client_3 import Point
 
@@ -58,6 +59,23 @@ class FakeRawSource:
 
     def close(self) -> None:
         self.closed = True
+
+
+class _UndefinedBelowMidscale:
+    """A conversion with no value over part of its range.
+
+    Stands in for the reported case, `log(v - 2.0)`, without needing an
+    asteval interpreter — and makes the point that the guard is not
+    specific to expression conversions. A spline through awkward points or
+    an affine factor large enough to overflow arrives the same way.
+    """
+
+    def apply(self, voltage: pint.Quantity, /) -> pint.Quantity:
+        volts = voltage.to(ureg.volt).magnitude
+        return (float("nan") if volts < 1.65 else 42.5 * volts) * ureg.kelvin
+
+    def fingerprint(self) -> str:
+        return "test|undefined-below-midscale"
 
 
 def _temperature_calibration(store_input: bool = True) -> Calibration:
@@ -230,6 +248,44 @@ def test_run_skips_reads_that_produced_nothing(
         registered_handlers[signal.SIGINT](signal.SIGINT, None)
 
     assert fake_client.batches == []
+
+
+def test_run_skips_a_non_finite_conversion_and_keeps_the_rest(
+    fake_client: FakeInfluxClient,
+    registered_handlers: dict[int, SignalHandler],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The transient case: valid, two undefined, valid again.
+
+    A conversion undefined at one end of its range says nothing about the
+    rest, so the readings either side are still written. Only the two that
+    have no value are dropped, and one line says so.
+    """
+    calibration = Calibration(
+        sensor_id="cryo-diode",
+        measurement="temperature",
+        conversion=_UndefinedBelowMidscale(),
+    )
+    source = FakeRawSource(
+        [
+            RawReading(channel="A0", raw_count=4095),
+            RawReading(channel="A0", raw_count=0),
+            RawReading(channel="A0", raw_count=100),
+            RawReading(channel="A0", raw_count=4095),
+        ]
+    )
+
+    with caplog.at_level(logging.WARNING), pytest.raises(_StopLoop):
+        run(source=source, calibrations={"A0": calibration})
+
+    with pytest.raises(SystemExit):
+        registered_handlers[signal.SIGINT](signal.SIGINT, None)
+
+    written = [point for batch in fake_client.batches for point in batch]
+    assert len(written) == 2
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert _field(warnings[0], "sensor_id") == "cryo-diode"
 
 
 def test_run_warns_once_per_uncalibrated_channel(
