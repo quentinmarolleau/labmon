@@ -111,6 +111,10 @@ jobs:
           # --entrypoint, because the image's own is `mock-sensor`: without
           # it `timeout` and its arguments are appended to the sensor's
           # command line instead of wrapping it.
+          # --preserve-status reports the sensor's own fate rather than
+          # timeout's, so a crash on the TLS path reads differently in the
+          # log from the SIGTERM that ends a healthy run.
+          status=0
           docker run --rm --network "$network" \
             --entrypoint timeout \
             -v "$PWD/labmon-ca.crt:/ca.crt:ro" \
@@ -119,8 +123,14 @@ jobs:
             -e INFLUXDB_DATABASE=lab \
             -e INFLUXDB3_AUTH_TOKEN="$token" \
             labmon:latest \
-            12 mock-sensor --sensor-id tls-smoke --measurement temperature \
-              --interval 1 || true
+            --preserve-status 12 mock-sensor --sensor-id tls-smoke \
+              --measurement temperature --interval 1 || status=$?
+          # 0 if it handled the signal, 143 if it took SIGTERM as it was.
+          case "$status" in
+            0|143) echo "sensor ended on the timeout (status $status)" ;;
+            *) echo "sensor died on the TLS path (status $status)" >&2
+               exit 1 ;;
+          esac
           rows="$(docker compose exec -T influxdb influxdb3 query --database lab \
             --token "$token" \
             "SELECT count(*) AS n FROM temperature WHERE sensor_id = 'tls-smoke'" \
