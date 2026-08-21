@@ -21,6 +21,7 @@ import logging
 import random
 import sys
 
+from labmon import logs
 from labmon.sensors.polling import write_reading
 
 # --------------------------------------------------------------------------
@@ -39,22 +40,37 @@ def read_value() -> float | None:
 
 # --------------------------------------------------------------------------
 
+# The instrument this script speaks for. Named once, so the log line
+# below and the reading itself cannot drift apart.
+SENSOR_ID = "CHANGE-ME"
+
+
 if __name__ == "__main__":
-    logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
-    )
+    # labmon's own logfmt setup, not a hand-rolled format. Every query
+    # in docs/logging.md and every panel on the Logs dashboard parses
+    # `| logfmt` and filters on named fields; a sensor that emits prose
+    # is collected into Loki and then matches none of them, which reads
+    # as an instrument with nothing to say.
+    logs.configure()
 
     value = read_value()
     if value is None:
         # Nothing to record this time. Exit 0: a timer treats a non-zero
         # status as a failure and will report the unit as failed, which is
         # wrong for "the instrument had nothing to say".
-        logging.getLogger(__name__).info("No reading available; nothing written")
+        #
+        # A constant message with the data in `extra=`, the shape the rest
+        # of labmon uses: the message groups every occurrence together and
+        # the fields are what a query filters on.
+        logging.getLogger(__name__).info(
+            "no reading available; nothing written",
+            extra={"sensor_id": SENSOR_ID},
+        )
         sys.exit(0)
 
     write_reading(
         value,
-        sensor_id="CHANGE-ME",
+        sensor_id=SENSOR_ID,
         measurement="temperature",
         unit="degC",
     )

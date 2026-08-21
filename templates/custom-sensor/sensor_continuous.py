@@ -14,9 +14,9 @@ API is rate-limited, billed per call, or takes minutes to answer, use
 `sensor_triggered.py` instead.
 """
 
-import logging
 import random
 
+from labmon import logs
 from labmon.sensors.polling import poll
 
 # --------------------------------------------------------------------------
@@ -49,9 +49,12 @@ def read_value() -> float | None:
 if __name__ == "__main__":
     # INFO so the periodic "still writing" summary is visible; the
     # per-reading line is DEBUG.
-    logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
-    )
+    # labmon's own logfmt setup, not a hand-rolled format. Every query
+    # in docs/logging.md and every panel on the Logs dashboard parses
+    # `| logfmt` and filters on named fields; a sensor that emits prose
+    # is collected into Loki and then matches none of them, which reads
+    # as an instrument with nothing to say.
+    logs.configure()
 
     poll(
         read_value,
