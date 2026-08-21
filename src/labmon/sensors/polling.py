@@ -44,7 +44,7 @@ from datetime import UTC, datetime
 
 from influxdb_client_3 import Point
 
-from labmon.influx import INFLUXDB_DATABASE, get_client
+from labmon.influx import get_client, influx_database
 from labmon.sensors.loop import DEFAULT_SUMMARY_INTERVAL_SECONDS, SensorLoop
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -182,7 +182,7 @@ def poll(
         extra={
             "sensor_id": sensor_id,
             "measurement": measurement,
-            "database": INFLUXDB_DATABASE,
+            "database": influx_database(),
             "interval_s": interval,
         },
     )

@@ -23,8 +23,25 @@ def _setting(name: str, default: str) -> str:
     return os.environ.get(name) or default
 
 
-INFLUXDB_HOST = _setting("INFLUXDB_HOST", "http://localhost:8181")
-INFLUXDB_DATABASE = _setting("INFLUXDB_DATABASE", "lab")
+def influx_host() -> str:
+    """Where readings are written, from INFLUXDB_HOST.
+
+    A function rather than a module constant so the value is read when it
+    is asked for. Read at import, it pins whatever happened to be set the
+    first time anything imported this module — which is long before a
+    test, a library embedding labmon, or anyone following
+    `docs/custom-sensor.md` has configured anything. The symptom of that
+    is not an error but a client quietly pointed somewhere else.
+    """
+    return _setting("INFLUXDB_HOST", "http://localhost:8181")
+
+
+def influx_database() -> str:
+    """Database readings are written to, from INFLUXDB_DATABASE.
+
+    Read per call, for the reason given on `influx_host`.
+    """
+    return _setting("INFLUXDB_DATABASE", "lab")
 
 
 def get_client() -> InfluxDBClient3:
@@ -44,6 +61,7 @@ def get_client() -> InfluxDBClient3:
     Raises KeyError if INFLUXDB3_AUTH_TOKEN is not set, and
     FileNotFoundError if INFLUXDB_TLS_CA names a file that is not there.
     """
+    host = influx_host()
     options: dict[str, str] = {}
     ca = os.environ.get("INFLUXDB_TLS_CA")
     if ca:
@@ -63,17 +81,17 @@ def get_client() -> InfluxDBClient3:
         # raise, because pointing a sensor at a local plain stack while
         # the shared env file still names a CA is a legitimate thing to
         # do — it just should not look like it is protected.
-        if not INFLUXDB_HOST.lower().startswith("https://"):
+        if not host.lower().startswith("https://"):
             logger.warning(
                 "ignoring INFLUXDB_TLS_CA because the host is not https",
-                extra={"host": INFLUXDB_HOST, "ca": ca},
+                extra={"host": host, "ca": ca},
             )
 
         options["ssl_ca_cert"] = ca
 
     return InfluxDBClient3(
-        host=INFLUXDB_HOST,
+        host=host,
         token=os.environ["INFLUXDB3_AUTH_TOKEN"],
-        database=INFLUXDB_DATABASE,
+        database=influx_database(),
         **options,
     )

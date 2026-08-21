@@ -8,6 +8,8 @@ from labmon import influx
 from labmon.influx import (
     _setting,  # pyright: ignore[reportPrivateUsage]
     get_client,
+    influx_database,
+    influx_host,
 )
 
 _NAME = "LABMON_TEST_SETTING"
@@ -141,8 +143,7 @@ def test_a_ca_against_a_plain_http_host_warns(
     ca = tmp_path / "labmon-ca.crt"
     _ = ca.write_text("-- not parsed here --", encoding="utf-8")
     monkeypatch.setenv("INFLUXDB_TLS_CA", str(ca))
-    # The host is a module constant, resolved at import — see #119.
-    monkeypatch.setattr(influx, "INFLUXDB_HOST", "http://localhost:8181")
+    monkeypatch.setenv("INFLUXDB_HOST", "http://localhost:8181")
     monkeypatch.setattr(influx, "InfluxDBClient3", _unused_client)
 
     with caplog.at_level(logging.WARNING, logger=influx.__name__):
@@ -160,10 +161,73 @@ def test_a_ca_against_an_https_host_is_silent(
     ca = tmp_path / "labmon-ca.crt"
     _ = ca.write_text("-- not parsed here --", encoding="utf-8")
     monkeypatch.setenv("INFLUXDB_TLS_CA", str(ca))
-    monkeypatch.setattr(influx, "INFLUXDB_HOST", "HTTPS://server:8443")
+    monkeypatch.setenv("INFLUXDB_HOST", "HTTPS://server:8443")
     monkeypatch.setattr(influx, "InfluxDBClient3", _unused_client)
 
     with caplog.at_level(logging.WARNING, logger=influx.__name__):
         _ = get_client()
 
     assert caplog.records == []
+
+
+# --------------------------------------------------------------------------
+# Settings are read per call, not per import
+# --------------------------------------------------------------------------
+
+
+def test_the_host_is_read_on_every_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The point of #119.
+
+    `labmon.influx` is imported long before most callers configure
+    anything, so a value read at import is whatever happened to be set at
+    that moment rather than what the caller asked for.
+    """
+    monkeypatch.setenv("INFLUXDB_HOST", "http://first:8181")
+    assert influx_host() == "http://first:8181"
+
+    monkeypatch.setenv("INFLUXDB_HOST", "http://second:8181")
+    assert influx_host() == "http://second:8181"
+
+
+def test_the_database_is_read_on_every_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("INFLUXDB_DATABASE", "first")
+    assert influx_database() == "first"
+
+    monkeypatch.setenv("INFLUXDB_DATABASE", "second")
+    assert influx_database() == "second"
+
+
+def test_both_fall_back_when_unset_or_empty(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Empty counts as unset, the way Compose reads the same variables."""
+    monkeypatch.delenv("INFLUXDB_HOST", raising=False)
+    monkeypatch.setenv("INFLUXDB_DATABASE", "")
+
+    assert influx_host() == "http://localhost:8181"
+    assert influx_database() == "lab"
+
+
+def test_the_client_follows_the_environment_between_calls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two clients built either side of a change disagree, as they should."""
+    monkeypatch.setenv("INFLUXDB3_AUTH_TOKEN", "test-token")
+    captured: list[dict[str, object]] = []
+
+    def capture(**kwargs: object) -> object:
+        captured.append(kwargs)
+        return object()
+
+    monkeypatch.setattr(influx, "InfluxDBClient3", capture)
+
+    monkeypatch.setenv("INFLUXDB_HOST", "http://first:8181")
+    monkeypatch.setenv("INFLUXDB_DATABASE", "first")
+    _ = get_client()
+
+    monkeypatch.setenv("INFLUXDB_HOST", "http://second:8181")
+    monkeypatch.setenv("INFLUXDB_DATABASE", "second")
+    _ = get_client()
+
+    assert [(call["host"], call["database"]) for call in captured] == [
+        ("http://first:8181", "first"),
+        ("http://second:8181", "second"),
+    ]
