@@ -46,16 +46,26 @@ and needs no network when it boots — which is usually what you want on a
 server, at the cost of that one panel not rendering. See
 [`docs/demo-stack.md`](demo-stack.md#the-dashboard-needs-one-panel-plugin).
 
-## Two things in the logs that look wrong and are not
+## Why InfluxDB's healthcheck opens a socket
 
-**InfluxDB logs `the request was not authenticated` once a second.** That is
-its own healthcheck. The token is issued by InfluxDB, so during first-time
-setup there is no token to send, and a healthcheck that required one could
-never go healthy — it therefore calls `/health` unauthenticated and treats
-any response, including 401, as proof the server is up. Every endpoint
-returns 401 without a token, so there is no quieter alternative. Worth
-knowing mainly because it masks *real* auth failures: to see those, filter
-the line out rather than trusting a plain grep for "unauthenticated".
+It connects to port 8181 and closes again, rather than calling `/health`.
+
+Every influxdb3 endpoint answers 401 without a token, and the token is
+issued by InfluxDB itself, so during first-time setup there is none to
+send — a check that required one could never go healthy on a fresh install.
+An HTTP probe therefore had to accept 401 as proof of life, and influxdb3
+logged `the request was not authenticated` at ERROR for every one of them,
+once per interval, forever. A TCP connect sends no request, so there is
+nothing to reject and nothing to log.
+
+It proves the listener is bound rather than that HTTP answers, which is all
+the 401 probe established either.
+
+Worth knowing when reading logs: `the request was not authenticated` now
+indicates a *real* auth failure. It used to be healthcheck noise that had to
+be filtered out first, which masked genuine ones.
+
+## One thing in the logs that looks wrong and is not
 
 **A container called `labmon-init-state-dirs` exits immediately.** That is
 correct — it prepares `.influxdb3/data` and `.grafana/data` and stops. Docker
