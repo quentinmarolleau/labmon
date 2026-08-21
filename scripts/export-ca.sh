@@ -16,6 +16,20 @@ set -euo pipefail
 
 DESTINATION="${1:-labmon-ca.crt}"
 
+# Resolve the destination against the caller's directory *before* moving,
+# so `../labmon-ca.crt` means what the operator typed rather than
+# something relative to the repository.
+case "$DESTINATION" in
+    /*) ;;
+    *) DESTINATION="$PWD/$DESTINATION" ;;
+esac
+
+# `docker compose` finds the stack by looking for a compose file in the
+# current directory, so run from the repository root. Without this the
+# script works from there and nowhere else, failing with compose's own
+# "no configuration file" rather than with anything said below.
+cd "$(dirname "$0")/.."
+
 # Where Caddy's embedded CA keeps the root it signs leaves with. The
 # intermediate beside it is served during the handshake, so clients need
 # only this one.
