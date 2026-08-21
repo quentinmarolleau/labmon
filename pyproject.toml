@@ -71,7 +71,7 @@ extend-select = [
 # raw makes the accidental ones visible.
 
 [tool.basedpyright]
-include = ["src", "tests", "scripts"]
+include = ["src", "tests", "scripts", "demo", "templates"]
 stubPath = "typings"
 
 [tool.coverage.run]
