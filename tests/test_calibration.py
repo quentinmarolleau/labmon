@@ -270,7 +270,7 @@ def test_trial_apply_wraps_an_unexpected_failure() -> None:
             return "broken"
 
     where = Location(Path("calibration.toml"), "A0")
-    with pytest.raises(CalibrationError, match="cannot be applied.*sensor on fire"):
+    with pytest.raises(CalibrationError, match=r"cannot be applied.*sensor on fire"):
         _trial_apply(where, BrokenConversion())
 
 
@@ -605,7 +605,7 @@ def test_load_calibration_rejects_a_missing_key(tmp_path: Path) -> None:
         """,
     )
 
-    with pytest.raises(CalibrationError, match="A0.*missing.*measurement"):
+    with pytest.raises(CalibrationError, match=r"A0.*missing.*measurement"):
         _ = load_calibration(path)
 
 
@@ -620,7 +620,7 @@ def test_load_calibration_rejects_a_non_string_value(tmp_path: Path) -> None:
         """,
     )
 
-    with pytest.raises(CalibrationError, match="A0.*conversion_factor.*string"):
+    with pytest.raises(CalibrationError, match=r"A0.*conversion_factor.*string"):
         _ = load_calibration(path)
 
 
@@ -650,7 +650,7 @@ def test_load_calibration_rejects_an_unknown_unit(tmp_path: Path) -> None:
         """,
     )
 
-    with pytest.raises(CalibrationError, match="A0.*conversion_factor"):
+    with pytest.raises(CalibrationError, match=r"A0.*conversion_factor"):
         _ = load_calibration(path)
 
 
@@ -841,7 +841,7 @@ def test_load_calibration_rejects_points_that_are_not_an_array(tmp_path: Path) -
         """,
     )
 
-    with pytest.raises(CalibrationError, match="voltages.*array of numbers"):
+    with pytest.raises(CalibrationError, match=r"voltages.*array of numbers"):
         _ = load_calibration(path)
 
 
