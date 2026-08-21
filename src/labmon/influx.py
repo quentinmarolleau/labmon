@@ -19,8 +19,25 @@ def _setting(name: str, default: str) -> str:
     return os.environ.get(name) or default
 
 
-INFLUXDB_HOST = _setting("INFLUXDB_HOST", "http://localhost:8181")
-INFLUXDB_DATABASE = _setting("INFLUXDB_DATABASE", "lab")
+def influx_host() -> str:
+    """Where readings are written, from INFLUXDB_HOST.
+
+    A function rather than a module constant so the value is resolved when it
+    is asked for. Resolved at import time it would silently pin whatever was
+    set at that moment: a test, a library embedding labmon, or anyone
+    following docs/custom-sensor.md who imports before configuring gets a
+    stale value, and the symptom is "it connects to the wrong database and I
+    cannot see why" rather than an error.
+    """
+    return _setting("INFLUXDB_HOST", "http://localhost:8181")
+
+
+def influx_database() -> str:
+    """Database readings are written to, from INFLUXDB_DATABASE.
+
+    Resolved per call, for the reason given on `influx_host`.
+    """
+    return _setting("INFLUXDB_DATABASE", "lab")
 
 
 def get_client() -> InfluxDBClient3:
@@ -29,7 +46,7 @@ def get_client() -> InfluxDBClient3:
     Raises KeyError if INFLUXDB3_AUTH_TOKEN is not set.
     """
     return InfluxDBClient3(
-        host=INFLUXDB_HOST,
+        host=influx_host(),
         token=os.environ["INFLUXDB3_AUTH_TOKEN"],
-        database=INFLUXDB_DATABASE,
+        database=influx_database(),
     )
