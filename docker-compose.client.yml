@@ -30,6 +30,21 @@ x-labmon-sensor: &labmon-sensor
     - INFLUXDB_HOST=${INFLUXDB_HOST}
     - INFLUXDB_DATABASE=${INFLUXDB_DATABASE:-lab}
     - INFLUXDB3_AUTH_TOKEN=${INFLUXDB3_AUTH_TOKEN}
+    # Only when the server runs the `tls` profile — see
+    # docs/client-setup.md. Empty reads the same as unset here, so
+    # leaving it out of .env keeps the client on plain HTTP.
+    - INFLUXDB_TLS_CA=${INFLUXDB_TLS_CA:-}
+  # The certificate has to exist inside the container as well, at the
+  # path the variable names — mounting it there means one value serves a
+  # bare install and a container alike. Uncomment alongside the variable:
+  # left in place, a bind mount of a file that is not there would have
+  # Docker silently create a directory where the certificate should be.
+  #
+  # A service that declares its own `volumes:` replaces this list rather
+  # than adding to it, so `serial-sensor` below carries its own copy of
+  # the line.
+  # volumes:
+  #   - ${INFLUXDB_TLS_CA}:${INFLUXDB_TLS_CA}:ro
 
 services:
   sensor-1:
@@ -64,6 +79,8 @@ services:
   #     - /dev/labmon-due:/dev/labmon-due
   #   volumes:
   #     - ./calibration.toml:/app/calibration.toml:ro
+  #     # Only with the tls profile, as above.
+  #     - ${INFLUXDB_TLS_CA}:${INFLUXDB_TLS_CA}:ro
   #   command:
   #     - --port=/dev/labmon-due
   #     - --calibration=/app/calibration.toml
