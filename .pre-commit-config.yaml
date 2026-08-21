@@ -1,0 +1,112 @@
+# Local gates, split by what they cost.
+#
+# Install with `pre-commit install` (see CONTRIBUTING.md). Cloning does not
+# install anything, so a contributor who skips that step gets exactly the
+# experience they had before this file existed.
+#
+# Every tool this project already pins runs as a `repo: local` hook through
+# `uv run --locked`, rather than as an upstream hook with its own `rev`.
+# That is deliberate: an upstream `rev` pins a *second* version of ruff
+# alongside the one in uv.lock, and the two drift the moment either moves.
+# A hook that passes while CI fails is worse than no hook, so the hooks run
+# the same command as .github/workflows/ci.yml, at the same version.
+# `uv lock --upgrade` then moves both together.
+#
+# Nothing here can be relied on as a gate — `--no-verify` skips all of it,
+# and that is intentional. CI is the gate; this is the fast feedback.
+
+default_install_hook_types: [pre-commit, pre-push, commit-msg]
+
+repos:
+  # Not from uv.lock because it is not a Python package. This is the only
+  # version pinned in this file.
+  #
+  # Pinned by commit rather than by tag, matching how .github/workflows
+  # pins its actions. pre-commit clones this repo and runs it on every
+  # commit, so a tag is a mutable pointer to code that executes locally;
+  # a commit is not.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: 2ca41cc1372d1e939a6a879f18cdc19fc1cac1ce # v8.30.0
+    hooks:
+      - id: gitleaks
+        name: no secrets in the staged changes
+        # `.env` sits beside two tracked `.env.example` files, one
+        # tab-completion away from `git add`. GitHub's push protection
+        # catches provider-recognised token formats; it does not catch a
+        # hand-written password, and on a public repo neither is undoable
+        # after the fact.
+        stages: [pre-commit]
+
+  - repo: local
+    hooks:
+      # ---- on commit: the sub-second tier -----------------------------
+      #
+      # ~550ms together. Below the threshold where a hook starts to feel
+      # like an obstacle, which is the point: an annoying hook gets
+      # bypassed, and a bypassed hook is worse than none because it
+      # creates the belief that something is being checked.
+
+      - id: ruff-format
+        name: ruff format
+        entry: uv run --locked ruff format --check
+        language: system
+        types_or: [python, pyi]
+        stages: [pre-commit]
+
+      - id: ruff-check
+        name: ruff check
+        entry: uv run --locked ruff check --force-exclude
+        language: system
+        types_or: [python, pyi]
+        stages: [pre-commit]
+
+      - id: typos
+        name: typos
+        entry: uv run --locked typos
+        language: system
+        # Not restricted to Python: prose is where typos actually live, and
+        # the CI job checks the whole tree.
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: compose-config
+        name: docker compose config
+        # Only when a compose file is staged. Cheap, but pointless on a
+        # docs-only commit, and it is the one hook here that needs Docker
+        # running.
+        entry: scripts/hooks/compose-config.sh
+        language: script
+        files: ^docker-compose(\.client)?\.yml$
+        pass_filenames: false
+        stages: [pre-commit]
+
+      # ---- on the commit message --------------------------------------
+
+      - id: cog-verify
+        name: conventional commit message
+        # Catches the obvious cases. `cog verify` is more permissive than
+        # `cog commit` — it accepts some messages the real commit then
+        # rejects — so this is a fast check, not a guarantee.
+        entry: cog verify --file
+        language: system
+        stages: [commit-msg]
+
+      # ---- on push: the slow tier -------------------------------------
+      #
+      # ~14s together. Per commit that is a tax worth avoiding with
+      # --no-verify within a week. Per push it runs once for a batch and
+      # costs far less than the CI round trip it replaces.
+
+      - id: basedpyright
+        name: basedpyright
+        entry: uv run --locked basedpyright
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+
+      - id: pytest
+        name: pytest
+        entry: uv run --locked pytest --cov=src --cov-fail-under=100
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
