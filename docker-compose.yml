@@ -54,6 +54,11 @@ services:
   influxdb:
     image: influxdb:3-core
     container_name: influxdb
+    # Comes back after a reboot or a daemon restart, but stays down once
+    # deliberately stopped. This half of the deployment is the always-on
+    # one: without it a power cut leaves the stack down until somebody
+    # notices, while every client fills its queue and then blocks.
+    restart: unless-stopped
     depends_on:
       init-state-dirs:
         condition: service_completed_successfully
@@ -97,6 +102,11 @@ services:
   grafana:
     image: grafana/grafana:13.1.3
     container_name: grafana
+    # Comes back after a reboot or a daemon restart, but stays down once
+    # deliberately stopped. This half of the deployment is the always-on
+    # one: without it a power cut leaves the stack down until somebody
+    # notices, while every client fills its queue and then blocks.
+    restart: unless-stopped
     depends_on:
       init-state-dirs:
         condition: service_completed_successfully
@@ -143,6 +153,11 @@ services:
   loki:
     image: grafana/loki:3.7.6
     container_name: loki
+    # Comes back after a reboot or a daemon restart, but stays down once
+    # deliberately stopped. This half of the deployment is the always-on
+    # one: without it a power cut leaves the stack down until somebody
+    # notices, while every client fills its queue and then blocks.
+    restart: unless-stopped
     profiles: [logs]
     depends_on:
       init-state-dirs:
@@ -175,6 +190,11 @@ services:
   alloy:
     image: grafana/alloy:v1.18.1
     container_name: alloy
+    # Comes back after a reboot or a daemon restart, but stays down once
+    # deliberately stopped. This half of the deployment is the always-on
+    # one: without it a power cut leaves the stack down until somebody
+    # notices, while every client fills its queue and then blocks.
+    restart: unless-stopped
     profiles: [logs]
     depends_on:
       # service_started, not service_healthy: Loki has no healthcheck to
