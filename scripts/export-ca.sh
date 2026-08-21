@@ -43,6 +43,17 @@ fi
 
 docker compose cp "caddy:${ROOT_IN_CONTAINER}" "$DESTINATION"
 
+# Without openssl there is no way to tell a good export from a truncated
+# one. Say that, rather than reporting a file that is probably fine as
+# unreadable — the check is the optional part here, not the export.
+if ! command -v openssl >/dev/null 2>&1; then
+    echo "Wrote $DESTINATION"
+    echo
+    echo "openssl is not installed, so it could not be checked. Confirm it"
+    echo "looks like a certificate before handing it to a client."
+    exit 0
+fi
+
 # Fail loudly rather than hand over something unusable: a truncated or
 # wrong-format file would only surface later, on a client, as a confusing
 # verification error.
