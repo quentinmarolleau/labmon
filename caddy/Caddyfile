@@ -10,10 +10,11 @@
 # Docker bridge on one host, where encryption buys nothing and would mean
 # distributing trust to every service as well as to every client.
 #
-# The two site-address lists are separate variables rather than one list of
+# The site-address lists are separate variables rather than one list of
 # hosts because a Caddyfile cannot build an address from a host and a port:
-# the site address is written out whole. Both should name the same hosts.
-# Separate them with a comma AND a space — Caddy rejects a bare comma.
+# the site address is written out whole. All three should name the same
+# hosts. Separate them with a comma AND a space — Caddy rejects a bare
+# comma.
 {
 	# Nothing here should be redirected to port 443: the plain ports stay
 	# reachable during the transition, and a redirect to a port that is
@@ -46,4 +47,41 @@
 {$LABMON_TLS_GRAFANA_SITES} {
 	tls internal
 	reverse_proxy grafana:3000
+}
+
+# Loki's push endpoint, for sensors on other machines (see docs/logging.md).
+# Loki itself stays unpublished; this is the only way in from outside the
+# compose network.
+#
+# Unlike the two above, this one authenticates. InfluxDB and Grafana check
+# a credential of their own behind the proxy, so TLS there only has to
+# protect one in transit. Loki's push API checks nothing at all, so
+# proxying it without a credential would put a write-anything endpoint on
+# the LAN — a second unauthenticated service where the deployment
+# currently has one.
+{$LABMON_TLS_LOKI_SITES} {
+	tls internal
+
+	basic_auth {
+		# Deny by default. The shipped hash is bcrypt of 32 random bytes
+		# that were never written down, so no password matches it and the
+		# port is useless until an operator sets a real one:
+		#
+		#     docker compose exec caddy caddy hash-password
+		#
+		# See docs/deployment.md.
+		{$LABMON_LOKI_PUSH_USER} {$LABMON_LOKI_PUSH_HASH}
+	}
+
+	# Only the push path. A client credential is copied to every machine
+	# that ships logs, so it should buy as little as possible if one leaks
+	# — writing log lines, not reading back everything the stack has ever
+	# collected through the same host and port.
+	handle /loki/api/v1/push {
+		reverse_proxy loki:3100
+	}
+
+	handle {
+		respond "labmon: only Loki's push endpoint is proxied here" 404
+	}
 }
