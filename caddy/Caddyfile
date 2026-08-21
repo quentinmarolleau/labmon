@@ -1,0 +1,48 @@
+# TLS termination for the lab LAN, under the `tls` profile.
+#
+# The stack has no public DNS name, so ACME is not an option (see #66) and
+# certificates come from Caddy's own embedded CA instead. Clients trust one
+# long-lived root, copied out of band exactly once; the leaves it signs
+# rotate on their own and clients never see the change.
+#
+# Only the boundary is encrypted. Grafana still reaches InfluxDB, and Alloy
+# still reaches Loki, over plain HTTP inside the compose network — one
+# Docker bridge on one host, where encryption buys nothing and would mean
+# distributing trust to every service as well as to every client.
+
+{
+	# Nothing here should be redirected to port 443: the plain ports stay
+	# reachable during the transition, and a redirect to a port that is
+	# not published just looks like the server is broken.
+	auto_https disable_redirects
+
+	# A client that addresses the server by IP sends no SNI, so Caddy has
+	# no name to route the connection on. Without this it aborts the
+	# handshake with an internal-error alert — and addressing the server by
+	# LAN IP is the normal case here, since there is no DNS to rely on.
+	# Names the certificate to serve when SNI is absent.
+	default_sni {$LABMON_TLS_DEFAULT_SNI}
+}
+
+# The addresses clients and viewers use. Both are listed so one deployment
+# can be reached by IP and by a hosts-file name, and Caddy issues for each.
+# `LABMON_TLS_HOSTS` is a comma-separated list; see docs/deployment.md.
+{$LABMON_TLS_HOSTS}:8443 {
+	tls internal
+
+	# InfluxDB 3 serves the HTTP write API *and* Flight SQL on one port.
+	# Flight SQL is gRPC, which is HTTP/2 — and cleartext HTTP/2 (h2c) on
+	# the inside, since the backend has no TLS. Without this the proxy
+	# downgrades to HTTP/1.1 and every Flight call comes back 404, so
+	# writes would work while queries silently did not.
+	reverse_proxy influxdb:8181 {
+		transport http {
+			versions h2c 2
+		}
+	}
+}
+
+{$LABMON_TLS_HOSTS}:3443 {
+	tls internal
+	reverse_proxy grafana:3000
+}
