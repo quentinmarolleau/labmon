@@ -32,19 +32,63 @@ _STANDARD_FIELDS = frozenset(
     logging.LogRecord("", 0, "", 0, "", None, None).__dict__
 ) | {"message", "asctime", "taskName"}
 
-# Characters that force a value to be quoted. A bare `=` would look like
-# the start of another field, and whitespace would split one field in two.
-_NEEDS_QUOTING = frozenset(' \t\n"=')
+# Characters that force a value to be quoted because of what logfmt makes
+# of them: a bare `=` looks like the start of another field, and a space
+# splits one field in two.
+_STRUCTURAL = frozenset(' "=')
+
+# Escapes for the characters that have a conventional short spelling,
+# which is what Go's logfmt writer and Python's own repr both use.
+_SHORT_ESCAPES = {
+    "\\": "\\\\",
+    '"': '\\"',
+    "\n": "\\n",
+    "\r": "\\r",
+    "\t": "\\t",
+}
+
+
+def _escaped(character: str) -> str:
+    """One character, rendered so it cannot act on whatever reads it."""
+    short = _SHORT_ESCAPES.get(character)
+    if short is not None:
+        return short
+    if character.isprintable():
+        return character
+    # Anything else that draws rather than prints. `\r` is the obvious
+    # case and has a short form above, but it is not the strongest one:
+    # ESC introduces the ANSI sequences that repaint and reposition, BS
+    # overwrites like `\r` does, and the bidi overrides reorder a line
+    # without touching a single byte of its content.
+    codepoint = ord(character)
+    if codepoint < 0x100:
+        return f"\\x{codepoint:02x}"
+    if codepoint < 0x10000:
+        return f"\\u{codepoint:04x}"
+    return f"\\U{codepoint:08x}"
+
+
+def _must_quote(text: str) -> bool:
+    """Whether logfmt or a terminal would misread this value bare."""
+    return any(
+        character in _STRUCTURAL or not character.isprintable() for character in text
+    )
 
 
 def quote(value: object) -> str:
-    """Render a value as a logfmt token, quoting only when it must."""
+    """Render a value as a logfmt token, quoting only when it must.
+
+    Quoting is not only about logfmt's own syntax. These values are not
+    all ours — channel names arrive off the serial wire, and a malformed
+    line is logged verbatim — so a value that a terminal would *act on*
+    rather than print is quoted and escaped too, and one log line can no
+    longer be made to display as something other than what it says.
+    """
     text = str(value)
     if text == "":
         return '""'
-    if any(character in text for character in _NEEDS_QUOTING):
-        escaped = text.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
-        return f'"{escaped}"'
+    if _must_quote(text):
+        return '"' + "".join(_escaped(character) for character in text) + '"'
     return text
 
 

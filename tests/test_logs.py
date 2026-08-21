@@ -46,10 +46,75 @@ def _record(message: str = "hello", **extra: object) -> logging.LogRecord:
         ('say "hi"', '"say \\"hi\\""'),
         ("line\nbreak", '"line\\nbreak"'),
         ("back\\slash", "back\\slash"),
+        # A tab used to force quoting and then survive inside the quotes.
+        ("a\tb", '"a\\tb"'),
+        # CR returns a terminal's cursor to the start of the line, so the
+        # tail of a value overwrites what was already printed.
+        ("over\rwrite", '"over\\rwrite"'),
+        ("crlf\r\nline", '"crlf\\r\\nline"'),
+        # No short spelling, so these fall through to a hex escape. ESC is
+        # the one that matters: it introduces the ANSI sequences.
+        ("\x1b[31mred", '"\\x1b[31mred"'),
+        ("ring\x07ing", '"ring\\x07ing"'),
+        ("ab\x08\x08cd", '"ab\\x08\\x08cd"'),
+        ("a\x00b", '"a\\x00b"'),
+        # Reorders a line without altering a byte of its content.
+        ("start\u202eend", '"start\\u202eend"'),
+        # Printable is printable, whatever its codepoint.
+        ("20\u00b0C", "20\u00b0C"),
+        ("\u00b5m", "\u00b5m"),
+        ("\u03a9", "\u03a9"),
     ],
 )
 def test_quote_only_when_it_must(value: object, expected: str) -> None:
     assert quote(value) == expected
+
+
+@pytest.mark.parametrize(
+    "control",
+    [
+        "\n",
+        "\r",
+        "\r\n",
+        "\t",
+        "\x00",
+        "\x07",
+        "\x08",
+        "\x0b",
+        "\x0c",
+        "\x1b",
+        "\x7f",
+        "\u202e",
+        "\u0085",
+    ],
+)
+def test_no_control_character_survives_quoting(control: str) -> None:
+    """Whatever a device puts on the wire, the token stays one flat line.
+
+    Channel names come off the serial port and a malformed-line warning
+    carries the raw line, so these bytes are not always ours to choose.
+    """
+    rendered = quote(f"before{control}after")
+
+    assert control not in rendered
+    assert rendered.startswith('"') and rendered.endswith('"')
+    assert all(character.isprintable() for character in rendered)
+
+
+@pytest.mark.parametrize("control", ["\n", "\r", "\x1b", "\x08"])
+def test_a_control_character_cannot_forge_a_field(control: str) -> None:
+    """The attack the quoting exists to stop, in each of its spellings."""
+    rendered = quote(f"ok{control}level=error msg=fake")
+
+    assert control not in rendered
+    assert rendered.count("=") == 2
+    assert rendered.startswith('"') and rendered.endswith('"')
+
+
+def test_an_astral_non_printable_is_escaped_too() -> None:
+    """Above the BMP the escape widens rather than truncating."""
+    # A tag character: invisible, and above U+FFFF.
+    assert quote("a\U000e0041b") == '"a\\U000e0041b"'
 
 
 # --------------------------------------------------------------------------
