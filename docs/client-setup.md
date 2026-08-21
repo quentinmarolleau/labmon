@@ -114,6 +114,53 @@ There is no need to move in step with the server. Its 8181 and 3000 stay
 open until its operator closes them, so each client switches over
 whenever it suits.
 
+## Shipping this machine's logs
+
+Optional, and independent of everything above: a sensor writes readings
+whether or not its logs go anywhere. Turning this on means the machine's
+logs appear in the same Grafana as the server's, labelled by sensor, so
+"what was this instrument saying when the trace went flat" is one query
+rather than an ssh session.
+
+It requires the server to be running the `tls` profile with a push
+credential configured — see [Logs from other
+machines](logging.md#logs-from-other-machines) for that side.
+
+Four settings, alongside the `INFLUXDB_TLS_CA` you already have:
+
+```bash
+LABMON_LOKI_URL=https://192.168.1.50:3444/loki/api/v1/push
+LABMON_LOKI_PUSH_USER=labmon
+LABMON_LOKI_PUSH_PASSWORD=          # copied out of band, as the token was
+LABMON_CLIENT_NAME=pi-optics-bench  # names this machine in every line
+```
+
+`LABMON_LOKI_PUSH_PASSWORD` is a different secret from
+`INFLUXDB3_AUTH_TOKEN` and buys much less: writing log lines, to a port
+that answers 404 to anything else. `INFLUXDB_TLS_CA` is reused rather
+than duplicated — the collector verifies the server against the same root
+the sensor does.
+
+Then start the collector:
+
+```bash
+COMPOSE_PROFILES=logs docker compose -f docker-compose.client.yml up -d
+```
+
+It reads container output through this machine's Docker socket, and the
+journal for a bare install running under systemd, so both shapes are
+collected the same way. Access to the Docker socket is equivalent to root
+here, which is the price of collecting logs without modifying each
+container — [`docs/logging.md`](logging.md) covers that trade.
+
+### When lines do not arrive
+
+Alloy publishes its own UI on port 12345, which shows each component's
+health and what it last sent. A rejected credential shows there as a 401
+against `loki.write`, which is the difference between "the password is
+wrong" and "the server cannot be reached" — and worth checking before
+anything else.
+
 ## From mock sensor to real hardware
 
 `mock-sensor` only simulates a reading (a mean-reverting random walk) and

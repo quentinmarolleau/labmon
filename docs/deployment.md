@@ -162,7 +162,10 @@ each client is given one root certificate to trust.
    Grafana changes.
 
 5. **Move the firewall over.** Open 8443 and 3443; close 8181 and 3000 to
-   the LAN once the last client and viewer has switched.
+   the LAN once the last client and viewer has switched. Add 3444 if
+   clients will ship logs as well as readings — see [Logs from other
+   machines](logging.md#logs-from-other-machines), which also covers the
+   credential that port needs before it accepts anything.
 
 ### What is encrypted, and what is not
 
