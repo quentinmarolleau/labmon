@@ -1,16 +1,22 @@
-"""Structural checks on the provisioned Grafana dashboard.
+"""Structural checks on every provisioned Grafana dashboard.
 
-`grafana/dashboards/lab-overview.json` is a thousand lines of hand-edited
-JSON that Grafana loads at boot. Grafana is forgiving with it in the worst
-way: a panel whose query landed under the wrong key, or that points at a
-datasource uid nobody provisioned, renders "No data" and logs nothing. The
-dashboard looks fine until someone reads a number that isn't there.
+`grafana/dashboards/` holds hand-edited JSON that Grafana loads at boot.
+Grafana is forgiving with it in the worst way: a panel whose query landed
+under the wrong key, or that points at a datasource uid nobody provisioned,
+renders "No data" and logs nothing. The dashboard looks fine until someone
+reads a number that isn't there.
 
-None of this validates the dashboard against Grafana's schema — there is no
+Every check runs against every dashboard in that directory, so adding one
+needs no change here. That generality is the point: the suite was written
+around `lab-overview.json` by name, and a second dashboard on a different
+datasource could not be added without first teaching it that a dashboard is
+not necessarily an InfluxDB dashboard.
+
+None of this validates the dashboards against Grafana's schema — there is no
 published schema to validate against — and none of it runs the queries, so a
 `rawSql` naming a column that does not exist passes every check here;
 catching that needs a live stack. Each check below stands for a mistake that
-has actually been made in this file.
+has actually been made in one of these files.
 """
 
 import json
@@ -21,9 +27,17 @@ from typing import cast
 import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-_DASHBOARD = _REPO_ROOT / "grafana" / "dashboards" / "lab-overview.json"
-_DATASOURCE = _REPO_ROOT / "grafana" / "provisioning" / "datasources" / "influxdb3.yaml"
+_DASHBOARD_DIR = _REPO_ROOT / "grafana" / "dashboards"
+_DATASOURCE_DIR = _REPO_ROOT / "grafana" / "provisioning" / "datasources"
 _ENV_EXAMPLE = _REPO_ROOT / ".env.example"
+
+# The key each datasource type reads its query from. A query written under
+# any other name is accepted by the JSON, sent to the backend empty, and
+# comes back as an error the panel never shows — which is the single
+# mistake this file exists to catch, and it is spelled differently per
+# backend. A type missing from here fails the check rather than skipping
+# it, so adding a datasource cannot silently disable the check for it.
+_QUERY_FIELD = {"influxdb": "rawSql", "loki": "expr"}
 
 # `$channel`, `${channel}`, and Grafana's own `$__timeFrom()` macros, which
 # are built in rather than declared by the dashboard.
@@ -50,15 +64,69 @@ def _mappings(value: object) -> list[dict[str, object]]:
     return [_mapping(item) for item in cast(list[object], value)]
 
 
-@pytest.fixture(scope="module")
-def dashboard() -> dict[str, object]:
-    """The dashboard as Grafana will parse it.
+def _dashboard_paths() -> list[Path]:
+    """Every dashboard Grafana will provision, in a stable order."""
+    return sorted(_DASHBOARD_DIR.glob("*.json"))
+
+
+def _provisioned_datasources() -> dict[str, str]:
+    """uid to type, read from every datasource provisioning file.
+
+    Parsed with a regex rather than a YAML library. This is still the only
+    YAML the test suite reads, and the alternative is a dependency carried
+    solely to look up two keys per entry.
+
+    The regex pins `type:` to the indentation of its own entry's `uid:`,
+    so a `type` nested under `jsonData` cannot be mistaken for the
+    datasource's own — which a looser pattern would do the moment someone
+    provisions a datasource whose options happen to include one.
+    """
+    found: dict[str, str] = {}
+    for path in sorted(_DATASOURCE_DIR.glob("*.y*ml")):
+        text = path.read_text(encoding="utf-8")
+        # Split on the list marker so each uid pairs with the type from its
+        # own entry rather than a neighbour's.
+        entries = re.split(r"^\s*-\s+(?=name:)", text, flags=re.MULTILINE)[1:]
+        assert entries, f"no datasource entries found in {path.name}"
+        for entry in entries:
+            uid = re.search(
+                r"^(?P<indent>[ ]*)uid:\s*(?P<uid>\S+)\s*$", entry, re.MULTILINE
+            )
+            assert uid is not None, f"a datasource in {path.name} declares no `uid:`"
+            kind = re.search(
+                rf"^{uid.group('indent')}type:\s*(\S+)\s*$", entry, re.MULTILINE
+            )
+            assert kind is not None, (
+                f"datasource {uid.group('uid')!r} in {path.name} declares no `type:`"
+            )
+            found[uid.group("uid")] = kind.group(1)
+    return found
+
+
+def test_at_least_one_dashboard_is_provisioned() -> None:
+    """Guards the glob itself.
+
+    Every other check is parametrised over the dashboards it finds, so a
+    directory rename would turn this whole module green by collecting
+    nothing at all.
+    """
+    assert _dashboard_paths(), f"no dashboards found in {_DASHBOARD_DIR}"
+
+
+def _dashboard_id(path: Path) -> str:
+    """Names each parametrised run after its file, so a failure says which."""
+    return path.stem
+
+
+@pytest.fixture(scope="module", params=_dashboard_paths(), ids=_dashboard_id)
+def dashboard(request: pytest.FixtureRequest) -> dict[str, object]:
+    """One dashboard as Grafana will parse it, once per file.
 
     Doubles as the "it is still valid JSON" check: every test in this module
     depends on this fixture, so a syntax error fails all of them at once
     rather than surfacing as a confusing assertion elsewhere.
     """
-    return _mapping(_parse(_DASHBOARD))
+    return _mapping(_parse(cast(Path, request.param)))
 
 
 @pytest.fixture(scope="module")
@@ -93,18 +161,27 @@ def test_query_panels_declare_at_least_one_target(
         )
 
 
-def test_every_target_carries_a_non_empty_raw_sql(
+def test_every_target_carries_a_non_empty_query(
     targets: list[tuple[str, dict[str, object]]],
 ) -> None:
-    """The InfluxDB datasource in SQL mode reads `rawSql` and only `rawSql`.
+    """Each backend reads its query from one key and ignores the rest.
 
-    A query written under `query` instead is accepted by the JSON, sent to
-    the backend empty, and comes back as a 400 the panel never shows.
+    InfluxDB in SQL mode reads `rawSql`; Loki reads `expr`. A query written
+    under any other name is accepted by the JSON, sent to the backend
+    empty, and comes back as an error the panel never shows.
     """
     for title, target in targets:
-        raw_sql = target.get("rawSql")
-        assert isinstance(raw_sql, str) and raw_sql.strip(), (
-            f"{title!r} target {target.get('refId')!r} has no rawSql"
+        datasource = _mapping(target.get("datasource", {}))
+        kind = str(datasource.get("type"))
+        field = _QUERY_FIELD.get(kind)
+        assert field is not None, (
+            f"{title!r} targets a {kind!r} datasource, which this suite does "
+            f"not know the query field for; add it to _QUERY_FIELD "
+            f"(known: {sorted(_QUERY_FIELD)})"
+        )
+        query = target.get(field)
+        assert isinstance(query, str) and query.strip(), (
+            f"{title!r} target {target.get('refId')!r} has no {field}"
         )
 
 
@@ -124,30 +201,67 @@ def test_no_target_keeps_a_duplicate_query_field(
         )
 
 
-def test_targets_point_at_the_provisioned_datasource(
+def test_targets_point_at_a_provisioned_datasource(
     targets: list[tuple[str, dict[str, object]]],
 ) -> None:
-    """A uid nobody provisioned fails at render time, not at load time.
+    """A uid nobody provisions fails at render time, not at load time.
 
-    The uid is pulled out of the provisioning file with a regex rather than
-    a YAML parser: this is the only YAML the test suite reads, and one
-    `uid:` line does not justify a dependency.
+    Any provisioned datasource will do — a dashboard is not required to be
+    an InfluxDB one — but the reference has to resolve, and its declared
+    `type` has to be the type that uid actually provisions. A panel
+    claiming `influxdb` against Loki's uid renders empty just as reliably
+    as one naming a uid that does not exist.
     """
-    provisioned = re.search(
-        r"^\s*uid:\s*(\S+)\s*$", _DATASOURCE.read_text(encoding="utf-8"), re.MULTILINE
-    )
-    assert provisioned is not None, f"no `uid:` found in {_DATASOURCE.name}"
+    provisioned = _provisioned_datasources()
 
     for title, target in targets:
         # A target may legitimately omit `datasource` and inherit the panel's,
         # so report the absence as a mismatch rather than dying on a KeyError.
         datasource = _mapping(target.get("datasource", {}))
-        assert datasource.get("uid") == provisioned.group(1), (
-            f"{title!r} points at datasource uid {datasource.get('uid')!r}, "
-            f"but {_DATASOURCE.name} provisions {provisioned.group(1)!r}"
+        uid = datasource.get("uid")
+        assert uid in provisioned, (
+            f"{title!r} points at datasource uid {uid!r}, which nothing in "
+            f"{_DATASOURCE_DIR.name}/ provisions (it provisions "
+            f"{sorted(provisioned)})"
         )
-        assert datasource.get("type") == "influxdb", (
-            f"{title!r} points at a {datasource.get('type')!r} datasource"
+        assert datasource.get("type") == provisioned[str(uid)], (
+            f"{title!r} calls uid {uid!r} a {datasource.get('type')!r} "
+            f"datasource, but it is provisioned as {provisioned[str(uid)]!r}"
+        )
+
+
+def test_every_datasource_a_dashboard_names_has_a_provisioning_file(
+    dashboard: dict[str, object], panels: list[dict[str, object]]
+) -> None:
+    """Catches a dashboard that ships without the file that makes it render.
+
+    Broader than the target check above: panels and template variables
+    carry their own `datasource` blocks, and a variable pointing at a uid
+    nobody provisions yields an empty dropdown, which then interpolates
+    into every query on the dashboard.
+
+    This matters most for the optional parts of the stack. Loki is only
+    started under the `logs` profile, so a logs dashboard is exactly the
+    kind of thing that could be committed while the datasource file that
+    backs it is still sitting unstaged.
+    """
+    provisioned = _provisioned_datasources()
+    variables = _mappings(_mapping(dashboard["templating"])["list"])
+
+    named: list[tuple[str, object]] = []
+    for panel in panels:
+        if "datasource" in panel:
+            named.append((f"panel {panel.get('title')!r}", panel["datasource"]))
+    for variable in variables:
+        if "datasource" in variable:
+            named.append((f"variable {variable.get('name')!r}", variable["datasource"]))
+
+    for where, reference in named:
+        uid = _mapping(reference).get("uid")
+        assert uid in provisioned, (
+            f"{where} names datasource uid {uid!r}, which nothing in "
+            f"{_DATASOURCE_DIR.name}/ provisions (it provisions "
+            f"{sorted(provisioned)})"
         )
 
 
@@ -174,9 +288,15 @@ def test_every_referenced_variable_is_declared(
     for panel in panels:
         # `row` and `text` panels carry no targets at all, hence the default.
         panel_targets = _mappings(panel.get("targets", []))
+        # Every backend's query key, not just InfluxDB's: a `$sensor` that
+        # interpolates to nothing does so in LogQL exactly as it does in SQL.
         text = " ".join(
             [str(panel.get("title", ""))]
-            + [str(target.get("rawSql", "")) for target in panel_targets]
+            + [
+                str(target.get(field, ""))
+                for target in panel_targets
+                for field in _QUERY_FIELD.values()
+            ]
         )
         names = cast(list[str], _VARIABLE_REFERENCE.findall(text))
         referenced = {name for name in names if not name.startswith(_BUILTIN_PREFIX)}
