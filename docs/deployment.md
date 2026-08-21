@@ -107,11 +107,66 @@ network, not an oversight — TLS (e.g. via a reverse proxy, or InfluxDB's
 own TLS support) is a reasonable future upgrade if the network model ever
 changes, but isn't built here.
 
+## One token, and it is an admin token
+
+Every client holds the *same* `INFLUXDB3_AUTH_TOKEN`, and that token
+grants full control of the database: write, delete, reconfigure, mint
+further tokens.
+
+So the blast radius of one mislaid client is the whole historical record.
+A machine taped to an optical table, shared between students, or carried
+between buildings has the same authority over your data as the server
+does.
+
+This is a platform constraint rather than a choice. **InfluxDB 3 Core
+issues admin tokens only** — the per-client, write-only, least-privilege
+tokens a deployment like this would otherwise use are an Enterprise
+feature. There is no narrower credential to hand a sensor.
+
+What follows from that:
+
+- **Site clients accordingly.** Treat any machine holding the token as
+  trusted infrastructure, because it is.
+- **Keep port 8181 off network segments that do not need it.** This is
+  the strongest argument for the reverse proxy in
+  [#52](https://github.com/quentinmarolleau/labmon/issues/52): once
+  clients reach InfluxDB through it, the database's own port need not be
+  reachable at all.
+- **TLS does not solve this.** It protects the token in transit. Every
+  client still holds an admin credential at rest.
+- **Rotate on any suspicion**, using the drill below.
+
+### Rotating the token
+
+One command on the server, then every client. Expect writes to fail in
+between, which is why this is worth rehearsing before you need it:
+
+```bash
+# On the server — mint the replacement first, so there is no window
+# with no valid token at all.
+docker compose exec influxdb influxdb3 create token --admin
+```
+
+Put the new value in the server's `.env`, restart the stack, then update
+each client's env file and restart its sensor. Revoke the old token last,
+once every client is confirmed writing again:
+
+```bash
+# Both need a valid token themselves; the container already has the
+# server's in its environment.
+docker compose exec influxdb sh -c \
+  'influxdb3 show tokens --token "$INFLUXDB3_AUTH_TOKEN"'
+docker compose exec influxdb sh -c \
+  'influxdb3 delete token --token-name <name> --token "$INFLUXDB3_AUTH_TOKEN"'
+```
+
+Clients buffer while they cannot write (see
+[`docs/latency.md`](latency.md)), so a rotation completed within the
+queue's depth loses nothing.
+
 ## Distributing the auth token
 
-Every client needs the same `INFLUXDB3_AUTH_TOKEN` the server was set up
-with (see the root [`.env.example`](../.env.example)). Copy it out of
-band — e.g. `scp` the value directly into each client's own env file
-(see [`docs/client-setup.md`](client-setup.md)) — never commit it, and
-never send it over an unencrypted channel you don't already trust (email,
-chat, etc.).
+Copy it out of band — e.g. `scp` the value directly into each client's
+own env file (see [`docs/client-setup.md`](client-setup.md)) — never
+commit it, and never send it over an unencrypted channel you don't
+already trust (email, chat, etc.).
