@@ -37,7 +37,7 @@ from labmon.calibration import (
     ureg,
 )
 from labmon.gate import RecordingGate
-from labmon.influx import INFLUXDB_DATABASE
+from labmon.influx import influx_database
 from labmon.sensors.loop import DEFAULT_SUMMARY_INTERVAL_SECONDS, SensorLoop
 from labmon.sensors.serial_source import (
     DEFAULT_BAUDRATE,
@@ -118,7 +118,7 @@ def run(
         "writing calibrated readings",
         extra={
             "channels": ",".join(sorted(calibrations)) or "-",
-            "database": INFLUXDB_DATABASE,
+            "database": influx_database(),
         },
     )
     _log_calibrations(calibrations)
