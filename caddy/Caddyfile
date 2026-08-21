@@ -9,6 +9,11 @@
 # still reaches Loki, over plain HTTP inside the compose network — one
 # Docker bridge on one host, where encryption buys nothing and would mean
 # distributing trust to every service as well as to every client.
+#
+# The two site-address lists are separate variables rather than one list of
+# hosts because a Caddyfile cannot build an address from a host and a port:
+# the site address is written out whole. Both should name the same hosts.
+# Separate them with a comma AND a space — Caddy rejects a bare comma.
 
 {
 	# Nothing here should be redirected to port 443: the plain ports stay
@@ -24,10 +29,7 @@
 	default_sni {$LABMON_TLS_DEFAULT_SNI}
 }
 
-# The addresses clients and viewers use. Both are listed so one deployment
-# can be reached by IP and by a hosts-file name, and Caddy issues for each.
-# `LABMON_TLS_HOSTS` is a comma-separated list; see docs/deployment.md.
-{$LABMON_TLS_HOSTS}:8443 {
+{$LABMON_TLS_INFLUXDB_SITES} {
 	tls internal
 
 	# InfluxDB 3 serves the HTTP write API *and* Flight SQL on one port.
@@ -42,7 +44,7 @@
 	}
 }
 
-{$LABMON_TLS_HOSTS}:3443 {
+{$LABMON_TLS_GRAFANA_SITES} {
 	tls internal
 	reverse_proxy grafana:3000
 }

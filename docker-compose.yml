@@ -381,9 +381,11 @@ services:
       - "8443:8443"
       - "3443:3443"
     environment:
-      # The names and addresses the certificate is issued for. Comma
-      # separated, each one becoming a site address Caddy issues for.
-      - LABMON_TLS_HOSTS=${LABMON_TLS_HOSTS:-https://127.0.0.1}
+      # The addresses the proxy answers on, one list per port, each
+      # entry becoming a site address Caddy issues a certificate for.
+      # Separated by a comma AND a space; Caddy rejects a bare comma.
+      - LABMON_TLS_INFLUXDB_SITES=${LABMON_TLS_INFLUXDB_SITES:-https://127.0.0.1:8443}
+      - LABMON_TLS_GRAFANA_SITES=${LABMON_TLS_GRAFANA_SITES:-https://127.0.0.1:3443}
       # Which of them to serve when a client sends no SNI, which is what
       # addressing the server by IP does.
       - LABMON_TLS_DEFAULT_SNI=${LABMON_TLS_DEFAULT_SNI:-127.0.0.1}
