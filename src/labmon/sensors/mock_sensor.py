@@ -83,7 +83,7 @@ def run(
     # The summary is on now that per-reading lines are DEBUG. Without it a
     # sensor at the default level would say nothing at all after startup,
     # and silence is indistinguishable from a wedged process.
-    loop = SensorLoop(summary_interval=summary_interval)
+    loop = SensorLoop(summary_interval=summary_interval, sensors=(sensor_id,))
     walk = RandomWalk(setpoint=setpoint, noise=noise, log_scale=log_scale)
 
     logger.info(

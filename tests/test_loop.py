@@ -157,6 +157,31 @@ def test_the_summary_waits_for_its_interval(
 
 
 @pytest.mark.usefixtures("fake_client", "registered_handlers")
+def test_a_declared_sensor_is_reported_even_having_done_nothing(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The silent-instrument case, which the counters alone cannot see.
+
+    `_written` and `_skipped` only know about sensors that produced
+    something. A board that says nothing at all leaves both empty, so a
+    summary built from them is not merely zero — it is absent, and an
+    absent line reads as a dead process rather than a quiet one.
+    """
+    ticks = iter([0.0, sensor_loop.DEFAULT_SUMMARY_INTERVAL_SECONDS + 1.0])
+    monkeypatch.setattr(time, "monotonic", lambda: next(ticks))
+    loop = SensorLoop(sensors=("cryo-diode", "room-1"))
+
+    with caplog.at_level(logging.INFO, logger=sensor_loop.logger.name):
+        loop.summarise_if_due()
+
+    summaries = [r for r in caplog.records if r.getMessage() == "wrote readings"]
+    assert [
+        (_field(r, "sensor_id"), _field(r, "readings"), _field(r, "skipped"))
+        for r in summaries
+    ] == [("cryo-diode", 0, 0), ("room-1", 0, 0)]
+
+
+@pytest.mark.usefixtures("fake_client", "registered_handlers")
 def test_a_loop_without_a_summary_never_emits_one(
     caplog: pytest.LogCaptureFixture,
 ) -> None:

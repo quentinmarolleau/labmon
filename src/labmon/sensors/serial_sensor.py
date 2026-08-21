@@ -106,7 +106,13 @@ def run(
     """
     # The port is closed before the writer, so nothing new arrives while
     # the queue drains.
-    loop = SensorLoop(closes=source, summary_interval=summary_interval)
+    loop = SensorLoop(
+        closes=source,
+        summary_interval=summary_interval,
+        # Declared from the calibration file, so a channel that never
+        # reports still appears in the summary as zero.
+        sensors={calibration.sensor_id for calibration in calibrations.values()},
+    )
 
     logger.info(
         "writing calibrated readings",
@@ -132,61 +138,72 @@ def run(
     }
 
     while True:
-        reading = source.read()
-        if reading is None:
-            continue
+        # `finally`, so the summary runs whatever this iteration did. Every
+        # path below can `continue` — a read timeout, an uncalibrated
+        # channel, a non-finite conversion, a closed gate — and skipping
+        # the summary on those suppresses it exactly when it matters: a
+        # silent board, a fully gated channel set and an all-uncalibrated
+        # stream would each produce no output at all, leaving "working but
+        # quiet" indistinguishable from "wedged". Keeping it at the end of
+        # the iteration rather than the start means a summary still reports
+        # the readings it covers, instead of lagging one behind.
+        try:
+            reading = source.read()
+            if reading is None:
+                continue
 
-        calibration = calibrations.get(reading.channel)
-        if calibration is None:
-            if reading.channel not in warned_channels:
-                warned_channels.add(reading.channel)
-                logger.warning(
-                    "no calibration for channel; ignoring its readings",
-                    extra={"channel": reading.channel},
-                )
-            continue
+            calibration = calibrations.get(reading.channel)
+            if calibration is None:
+                if reading.channel not in warned_channels:
+                    warned_channels.add(reading.channel)
+                    logger.warning(
+                        "no calibration for channel; ignoring its readings",
+                        extra={"channel": reading.channel},
+                    )
+                continue
 
-        voltage = raw_to_voltage(reading.raw_count, resolution_bits, v_ref)
-        value = calibration.conversion.apply(voltage)
+            voltage = raw_to_voltage(reading.raw_count, resolution_bits, v_ref)
+            value = calibration.conversion.apply(voltage)
 
-        # Before the gate, which compares against bounds: every comparison
-        # with a NaN is False, so a gate would admit it and a gate-less
-        # channel would never look at it at all.
-        if not loop.admits(value.magnitude, sensor_id=calibration.sensor_id):
-            continue
+            # Before the gate, which compares against bounds: every comparison
+            # with a NaN is False, so a gate would admit it and a gate-less
+            # channel would never look at it at all.
+            if not loop.admits(value.magnitude, sensor_id=calibration.sensor_id):
+                continue
 
-        gate = gates.get(reading.channel)
-        if gate is not None and not gate.admits(value, voltage):
-            # Nothing is written at all, not even input_volts: a
-            # half-populated series is harder to read than a gap, and the
-            # transition the gate logged is the evidence for the gap.
-            continue
+            gate = gates.get(reading.channel)
+            if gate is not None and not gate.admits(value, voltage):
+                # Nothing is written at all, not even input_volts: a
+                # half-populated series is harder to read than a gap, and the
+                # transition the gate logged is the evidence for the gap.
+                continue
 
-        # The board has no clock, so the host stamps the reading on
-        # arrival; serial transit is negligible next to sample rates here.
-        point = (
-            Point(calibration.measurement)
-            .tag("sensor_id", calibration.sensor_id)
-            .tag("unit", calibration.unit)
-            .tag(CALIBRATION_ID_TAG, calibration.calibration_id)
-            .field(FIELD_NAME, value.magnitude)
-            .time(datetime.now(UTC), write_precision="ms")
-        )
-        if calibration.store_input:
-            # Keeping the conversion's input makes a wrong calibration
-            # correctable after the fact; without it, readings already
-            # written can't be recomputed.
-            point = point.field(INPUT_FIELD_NAME, voltage.to(ureg.volt).magnitude)
-        loop.record(point, calibration.sensor_id)
-        logger.debug(
-            "reading",
-            extra={
-                "sensor_id": calibration.sensor_id,
-                "value": f"{value.magnitude:.4g}",
-                "unit": calibration.unit,
-            },
-        )
-        loop.summarise_if_due()
+            # The board has no clock, so the host stamps the reading on
+            # arrival; serial transit is negligible next to sample rates here.
+            point = (
+                Point(calibration.measurement)
+                .tag("sensor_id", calibration.sensor_id)
+                .tag("unit", calibration.unit)
+                .tag(CALIBRATION_ID_TAG, calibration.calibration_id)
+                .field(FIELD_NAME, value.magnitude)
+                .time(datetime.now(UTC), write_precision="ms")
+            )
+            if calibration.store_input:
+                # Keeping the conversion's input makes a wrong calibration
+                # correctable after the fact; without it, readings already
+                # written can't be recomputed.
+                point = point.field(INPUT_FIELD_NAME, voltage.to(ureg.volt).magnitude)
+            loop.record(point, calibration.sensor_id)
+            logger.debug(
+                "reading",
+                extra={
+                    "sensor_id": calibration.sensor_id,
+                    "value": f"{value.magnitude:.4g}",
+                    "unit": calibration.unit,
+                },
+            )
+        finally:
+            loop.summarise_if_due()
 
 
 def main() -> None:

@@ -33,6 +33,22 @@ class _StopLoop(Exception):
     pass
 
 
+def _clock(*ticks: float) -> Callable[[], float]:
+    """A `time.monotonic` stand-in that holds its final value.
+
+    These tests care that the clock crosses the summary interval, not how
+    many times the loop happens to read it. A plain iterator pins the call
+    count, so an unrelated change to the loop body fails here with a
+    `StopIteration` that says nothing about what broke.
+    """
+    values = list(ticks)
+
+    def read() -> float:
+        return values.pop(0) if len(values) > 1 else values[0]
+
+    return read
+
+
 class FakeInfluxClient:
     def __init__(self) -> None:
         self.batches: list[list[Point]] = []
@@ -248,6 +264,42 @@ def test_run_skips_reads_that_produced_nothing(
         registered_handlers[signal.SIGINT](signal.SIGINT, None)
 
     assert fake_client.batches == []
+
+
+@pytest.mark.usefixtures("fake_client")
+def test_run_still_summarises_when_the_board_says_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+    registered_handlers: dict[int, SignalHandler],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A silent board is the case the summary exists to report on.
+
+    `None` is what a read timeout looks like. If the summary only runs on
+    an iteration that wrote something, a board that has stopped talking
+    produces no output at all — and "working but quiet" becomes
+    indistinguishable from "wedged", which is the one distinction this
+    line is for.
+    """
+    monkeypatch.setattr(
+        time,
+        "monotonic",
+        _clock(0.0, sensor_loop.DEFAULT_SUMMARY_INTERVAL_SECONDS + 1.0),
+    )
+    source = FakeRawSource([None, None])
+
+    with (
+        caplog.at_level(logging.INFO, logger=sensor_loop.logger.name),
+        pytest.raises(_StopLoop),
+    ):
+        run(source=source, calibrations={"A0": _temperature_calibration()})
+
+    with pytest.raises(SystemExit):
+        registered_handlers[signal.SIGINT](signal.SIGINT, None)
+
+    # Nothing was written, and the summary says exactly that rather than
+    # being absent.
+    summaries = [r for r in caplog.records if r.getMessage() == "wrote readings"]
+    assert summaries != [], "a silent source produced no summary at all"
 
 
 def test_run_skips_a_non_finite_conversion_and_keeps_the_rest(
@@ -468,8 +520,11 @@ def test_a_summary_is_logged_once_the_interval_elapses(
     # so exactly one summary covering both should be emitted. Patched on
     # the time module itself, which serial_sensor imports rather than
     # re-exports.
-    ticks = iter([0.0, 1.0, sensor_loop.DEFAULT_SUMMARY_INTERVAL_SECONDS + 1.0])
-    monkeypatch.setattr(time, "monotonic", lambda: next(ticks))
+    monkeypatch.setattr(
+        time,
+        "monotonic",
+        _clock(0.0, 1.0, sensor_loop.DEFAULT_SUMMARY_INTERVAL_SECONDS + 1.0),
+    )
     source = FakeRawSource(
         [
             RawReading(channel="A0", raw_count=4095),
