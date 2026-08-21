@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 
 import pytest
@@ -121,3 +122,48 @@ def test_a_missing_ca_file_fails_at_startup(
 
     with pytest.raises(FileNotFoundError, match="INFLUXDB_TLS_CA"):
         _ = get_client()
+
+
+def _unused_client(**_kwargs: object) -> object:
+    """Stand in for the real client, which these tests never talk to."""
+    return object()
+
+
+def test_a_ca_against_a_plain_http_host_warns(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The one way this setting fails quietly.
+
+    A CA is accepted and then ignored when the host is plain HTTP, so the
+    traffic stays in the clear while the operator believes otherwise.
+    """
+    monkeypatch.setenv("INFLUXDB3_AUTH_TOKEN", "test-token")
+    ca = tmp_path / "labmon-ca.crt"
+    _ = ca.write_text("-- not parsed here --", encoding="utf-8")
+    monkeypatch.setenv("INFLUXDB_TLS_CA", str(ca))
+    # The host is a module constant, resolved at import — see #119.
+    monkeypatch.setattr(influx, "INFLUXDB_HOST", "http://localhost:8181")
+    monkeypatch.setattr(influx, "InfluxDBClient3", _unused_client)
+
+    with caplog.at_level(logging.WARNING, logger=influx.__name__):
+        _ = get_client()
+
+    assert [record.getMessage() for record in caplog.records] == [
+        "ignoring INFLUXDB_TLS_CA because the host is not https"
+    ]
+
+
+def test_a_ca_against_an_https_host_is_silent(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setenv("INFLUXDB3_AUTH_TOKEN", "test-token")
+    ca = tmp_path / "labmon-ca.crt"
+    _ = ca.write_text("-- not parsed here --", encoding="utf-8")
+    monkeypatch.setenv("INFLUXDB_TLS_CA", str(ca))
+    monkeypatch.setattr(influx, "INFLUXDB_HOST", "HTTPS://server:8443")
+    monkeypatch.setattr(influx, "InfluxDBClient3", _unused_client)
+
+    with caplog.at_level(logging.WARNING, logger=influx.__name__):
+        _ = get_client()
+
+    assert caplog.records == []

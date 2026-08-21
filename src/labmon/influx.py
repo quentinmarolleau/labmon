@@ -1,9 +1,12 @@
 """Shared InfluxDB connection settings, read from the environment."""
 
+import logging
 import os
 from pathlib import Path
 
 from influxdb_client_3 import InfluxDBClient3
+
+logger: logging.Logger = logging.getLogger(__name__)
 
 
 def _setting(name: str, default: str) -> str:
@@ -34,7 +37,9 @@ def get_client() -> InfluxDBClient3:
     deployment still speaking plain HTTP is unaffected.
 
     One variable covers both directions of traffic: the same file is read
-    by the HTTP write client and by the Flight SQL query client.
+    by the HTTP write client and by the Flight SQL query client. It only
+    does anything when INFLUXDB_HOST is an https:// address, and says so
+    at WARNING when it is not.
 
     Raises KeyError if INFLUXDB3_AUTH_TOKEN is not set, and
     FileNotFoundError if INFLUXDB_TLS_CA names a file that is not there.
@@ -52,6 +57,18 @@ def get_client() -> InfluxDBClient3:
                 + " It should be the CA certificate exported from the server"
                 + " (see scripts/export-ca.sh)."
             )
+        # A CA against a plain-HTTP host is accepted and then ignored,
+        # which is the one way this setting fails quietly: the operator
+        # believes the link is encrypted and it is not. Warn rather than
+        # raise, because pointing a sensor at a local plain stack while
+        # the shared env file still names a CA is a legitimate thing to
+        # do — it just should not look like it is protected.
+        if not INFLUXDB_HOST.lower().startswith("https://"):
+            logger.warning(
+                "ignoring INFLUXDB_TLS_CA because the host is not https",
+                extra={"host": INFLUXDB_HOST, "ca": ca},
+            )
+
         options["ssl_ca_cert"] = ca
 
     return InfluxDBClient3(
