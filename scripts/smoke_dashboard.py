@@ -26,6 +26,7 @@ import base64
 import json
 import os
 import re
+import ssl
 import sys
 import time
 import urllib.error
@@ -36,8 +37,10 @@ from typing import cast
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _DASHBOARD = _REPO_ROOT / "grafana" / "dashboards" / "lab-overview.json"
 
-_GRAFANA_URL = "http://127.0.0.1:3000"
-_QUERY_ENDPOINT = f"{_GRAFANA_URL}/api/ds/query"
+# Where Grafana is by default. `--url` points this at the `tls` profile's
+# proxy instead (https://127.0.0.1:3443), which is the same Grafana reached
+# by the route a viewer actually uses once TLS is on.
+_DEFAULT_GRAFANA_URL = "http://127.0.0.1:3000"
 
 # Grafana blocks an account after five consecutive bad passwords, so retrying
 # one is worse than useless: three minutes of retries would lock the admin out
@@ -106,10 +109,29 @@ def _interpolate(sql: str, variables: dict[str, list[str]]) -> str:
     return _PLAIN_VARIABLE.sub(plain, _FORMATTED_VARIABLE.sub(formatted, sql))
 
 
-def _post(payload: dict[str, object], password: str) -> dict[str, object]:
+def _tls_context(cacert: str | None) -> ssl.SSLContext | None:
+    """A context trusting `cacert`, or None to use the system trust store.
+
+    The stack's own CA signs its certificates, and a private root is in no
+    system store — so without this the proxy is unreachable rather than
+    merely untrusted.
+    """
+    if cacert is None:
+        return None
+    if not Path(cacert).is_file():
+        raise SystemExit(f"--cacert points at {cacert!r}, which is not a file")
+    return ssl.create_default_context(cafile=cacert)
+
+
+def _post(
+    payload: dict[str, object],
+    password: str,
+    endpoint: str,
+    context: ssl.SSLContext | None,
+) -> dict[str, object]:
     credentials = base64.b64encode(f"admin:{password}".encode()).decode()
     request = urllib.request.Request(
-        _QUERY_ENDPOINT,
+        endpoint,
         data=json.dumps(payload).encode(),
         headers={
             "Content-Type": "application/json",
@@ -118,7 +140,8 @@ def _post(payload: dict[str, object], password: str) -> dict[str, object]:
     )
     # urlopen resolves to `Any` here, so both the handle and its read are
     # pinned explicitly rather than letting `Any` leak into the parsing below.
-    with urllib.request.urlopen(request, timeout=30) as response:  # pyright: ignore[reportAny]
+    opened = urllib.request.urlopen(request, timeout=30, context=context)  # pyright: ignore[reportAny]
+    with opened as response:  # pyright: ignore[reportAny]
         body = cast(bytes, response.read())  # pyright: ignore[reportAny]
     return cast(dict[str, object], json.loads(body.decode()))
 
@@ -185,6 +208,8 @@ def _attempt(
     queries: list[tuple[str, dict[str, object]]],
     window: dict[str, str],
     password: str,
+    endpoint: str,
+    context: ssl.SSLContext | None,
 ) -> list[tuple[str, str]]:
     """Run every query once, returning `(panel label, what went wrong)`.
 
@@ -194,7 +219,9 @@ def _attempt(
     failures: list[tuple[str, str]] = []
     for label, query in queries:
         try:
-            response = _post({"queries": [query], **window}, password)
+            response = _post(
+                {"queries": [query], **window}, password, endpoint, context
+            )
         except urllib.error.HTTPError as http_error:
             # The status line alone says nothing useful — a bad column name
             # and a bad token are both "400 Bad Request". The body carries
@@ -252,9 +279,21 @@ def main() -> int:
         default=os.environ.get("GRAFANA_ADMIN_PASSWORD") or "admin",
         help="Grafana admin password; defaults to $GRAFANA_ADMIN_PASSWORD",
     )
+    _ = parser.add_argument(
+        "--url",
+        default=_DEFAULT_GRAFANA_URL,
+        help="Grafana base URL; point at the tls proxy to check that route",
+    )
+    _ = parser.add_argument(
+        "--cacert",
+        default=None,
+        help="CA certificate to verify --url against, for the tls profile",
+    )
     args = parser.parse_args()
     timeout = cast(float, args.timeout)
     password = cast(str, args.password)
+    endpoint = f"{cast(str, args.url).rstrip('/')}/api/ds/query"
+    context = _tls_context(cast("str | None", args.cacert))
 
     # `json.loads` is typed as returning `Any`; nothing here wants that.
     parsed: object = json.loads(_DASHBOARD.read_text("utf-8"))  # pyright: ignore[reportAny]
@@ -269,7 +308,7 @@ def main() -> int:
     while True:
         attempts += 1
         try:
-            failures = _attempt(queries, window, password)
+            failures = _attempt(queries, window, password, endpoint, context)
         except _Rejected as rejected:
             print(f"Grafana rejected the credentials: {rejected}", file=sys.stderr)
             return 1
