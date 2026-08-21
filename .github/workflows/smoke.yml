@@ -131,6 +131,41 @@ jobs:
             exit 1
           fi
 
+      # The write and the query take different routes through the proxy:
+      # HTTP for one, Flight SQL over cleartext HTTP/2 for the other, and
+      # only the query depends on `versions h2c 2`. Reading the rows back
+      # with `docker compose exec influxdb` would not touch the proxy at
+      # all, so dropping that one line would leave CI green while every
+      # client query returned 404 — the exact half-working state the
+      # setting exists to prevent.
+      - name: A client queries back through the proxy
+        run: |
+          token="$(grep '^INFLUXDB3_AUTH_TOKEN=' .env | cut -d= -f2-)"
+          network="$(docker inspect influxdb \
+            --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{end}}')"
+          docker run --rm -i --network "$network" \
+            --entrypoint python \
+            -v "$PWD/labmon-ca.crt:/ca.crt:ro" \
+            -e INFLUXDB_HOST=https://caddy:8443 \
+            -e INFLUXDB_TLS_CA=/ca.crt \
+            -e INFLUXDB_DATABASE=lab \
+            -e INFLUXDB3_AUTH_TOKEN="$token" \
+            labmon:latest - <<'PY'
+          from labmon.influx import get_client
+
+          rows = (
+              get_client()
+              .query(
+                  "SELECT count(*) AS n FROM temperature"
+                  " WHERE sensor_id = \x27tls-smoke\x27"
+              )
+              .to_pylist()
+          )
+          print(f"Flight SQL through the proxy returned: {rows}")
+          if not rows or rows[0]["n"] < 1:
+              raise SystemExit("the query path through the proxy sees no rows")
+          PY
+
       # Grafana through the proxy is the viewer's route, so both suites run
       # again against it. Cheap — the stack is already up and warm.
       - name: Dashboards and logs work through the proxy
