@@ -45,11 +45,37 @@ def _record(message: str = "hello", **extra: object) -> logging.LogRecord:
         ("", '""'),
         ('say "hi"', '"say \\"hi\\""'),
         ("line\nbreak", '"line\\nbreak"'),
+        # A bare CR returns a terminal's cursor to the start of the line, so
+        # the tail of a value would overwrite what was already printed.
+        ("over\rwrite", '"over\\rwrite"'),
+        ("crlf\r\nline", '"crlf\\r\\nline"'),
+        ("\r", '"\\r"'),
         ("back\\slash", "back\\slash"),
     ],
 )
 def test_quote_only_when_it_must(value: object, expected: str) -> None:
     assert quote(value) == expected
+
+
+@pytest.mark.parametrize("control", ["\n", "\r", "\r\n"])
+def test_no_control_character_survives_quoting(control: str) -> None:
+    """Whatever a device puts on the wire, the rendered token stays one line.
+
+    Channel names come off the serial port and a malformed-line warning
+    carries the raw line, so these bytes are not always ours to choose.
+    """
+    rendered = quote(f"before{control}after")
+
+    assert control not in rendered
+    assert rendered.startswith('"') and rendered.endswith('"')
+
+
+def test_a_carriage_return_cannot_forge_a_field() -> None:
+    """The attack the quoting exists to stop, in its CR spelling."""
+    rendered = quote("ok\rlevel=error msg=fake")
+
+    assert "\r" not in rendered
+    assert rendered == '"ok\\rlevel=error msg=fake"'
 
 
 # --------------------------------------------------------------------------

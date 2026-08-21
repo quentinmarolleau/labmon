@@ -34,7 +34,12 @@ _STANDARD_FIELDS = frozenset(
 
 # Characters that force a value to be quoted. A bare `=` would look like
 # the start of another field, and whitespace would split one field in two.
-_NEEDS_QUOTING = frozenset(' \t\n"=')
+# `\r` is here for a different reason than the rest: a terminal treats it as
+# "return to the start of the line", so an unescaped one lets the tail of a
+# value overwrite what was already printed — and values are not all ours.
+# Channel names arrive off the serial wire, and a malformed-line warning
+# carries the raw line, so a noisy or hostile device picks those bytes.
+_NEEDS_QUOTING = frozenset(' \t\n\r"=')
 
 
 def quote(value: object) -> str:
@@ -43,7 +48,12 @@ def quote(value: object) -> str:
     if text == "":
         return '""'
     if any(character in text for character in _NEEDS_QUOTING):
-        escaped = text.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+        escaped = (
+            text.replace("\\", "\\\\")
+            .replace('"', '\\"')
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+        )
         return f'"{escaped}"'
     return text
 
