@@ -25,6 +25,17 @@ Every sensor needs these, wherever it runs.
 | `INFLUXDB3_AUTH_TOKEN` | *(required)* | InfluxDB API token. No default, and startup fails without it |
 | `INFLUXDB_HOST` | `http://localhost:8181` | Where to write. Containers on the server use `http://influxdb:8181`; a client machine uses the server's address |
 | `INFLUXDB_DATABASE` | `lab` | Database readings are written to |
+| `INFLUXDB_TLS_CA` | *(unset)* | Path to the server's CA certificate, when it runs behind the `tls` profile's proxy. Unset, the client behaves exactly as before |
+
+`INFLUXDB_TLS_CA` is needed only when `INFLUXDB_HOST` is an `https://`
+address served by the stack's own CA, since a private root is in no
+system trust store. One variable covers both directions of traffic — the
+same file is read by the write client and by the query client. A path
+that does not exist fails at startup rather than at the first write,
+because the TLS layer would otherwise report it as a verification failure
+against the *server*, which reads as a certificate problem rather than as
+a typo in this machine's env file. See
+[`docs/deployment.md`](deployment.md).
 
 `INFLUXDB_HOST` is set per service in the Compose files rather than in
 `.env`, because one value cannot serve both a container (which needs the
