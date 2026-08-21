@@ -42,7 +42,7 @@ together visually.*
 - [Project structure](#project-structure)
 - [Development](#development)
 - [Status](#status)
-- [Contributing](#contributing) · [License](#license)
+- [Contributing](#contributing) · [Security](#security) · [License](#license)
 
 ## What labmon gives you
 
@@ -312,6 +312,11 @@ is the set targeted for the first beta.
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the branch/PR workflow,
 commit conventions, and testing policy (`AGENTS.md` is the condensed,
 agent-oriented version of the same document).
+
+## Security
+
+[`SECURITY.md`](SECURITY.md) has the private disclosure route, the
+supported version, and the three assumptions the design is built on.
 
 ## License
 
