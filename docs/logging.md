@@ -127,6 +127,14 @@ is the case worth seeing: the trace is flat, and this line is the only
 thing that distinguishes readings arriving unwritable from a sensor that
 died.
 
+That holds for a sensor which produced *nothing* too, not only one whose
+readings were rejected. Each loop declares the sensors it is responsible
+for — from the calibration file, for `serial-sensor` — so a channel that
+has never said a word still reports `readings=0 skipped=0` every window.
+An instrument that is powered off, a board that has stopped talking and a
+process that has died are three different situations, and only the last
+one produces no line.
+
 To see every reading while bringing a board up:
 
 ```bash

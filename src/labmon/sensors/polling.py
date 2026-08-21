@@ -175,7 +175,7 @@ def poll(
     Runs until SIGINT (Ctrl+C) or SIGTERM (e.g. `docker stop`), at which
     point queued readings are flushed and the client closed.
     """
-    loop = SensorLoop(summary_interval=summary_interval)
+    loop = SensorLoop(summary_interval=summary_interval, sensors=(sensor_id,))
 
     logger.info(
         "writing readings",

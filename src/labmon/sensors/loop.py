@@ -19,6 +19,7 @@ import signal
 import sys
 import time
 from collections import Counter
+from collections.abc import Iterable
 from types import FrameType
 from typing import Protocol
 
@@ -69,9 +70,16 @@ class SensorLoop:
         closes: Closeable | None = None,
         summary_interval: float | None = DEFAULT_SUMMARY_INTERVAL_SECONDS,
         writer: PointWriter[Point] | None = None,
+        sensors: Iterable[str] = (),
     ) -> None:
         self.writer: PointWriter[Point] = writer or PointWriter[Point](get_client())
         self._summary_interval: float | None = summary_interval
+        # The sensors this loop is responsible for, whether or not they
+        # ever produce anything. Without them the summary can only report
+        # sensors that were seen, so a board that says nothing says nothing
+        # here either — and silence is the state the summary exists to
+        # distinguish from a dead process.
+        self._sensors: frozenset[str] = frozenset(sensors)
         self._written: Counter[str] = Counter()
         self._skipped: Counter[str] = Counter()
         self._warned: set[str] = set()
@@ -140,7 +148,9 @@ class SensorLoop:
         # Sensors that only skipped are reported too, which is the case
         # most worth seeing: the trace is flat, and this line is the only
         # thing that can say the readings arrived and were unwritable.
-        for sensor_id in sorted(set(self._written) | set(self._skipped)):
+        for sensor_id in sorted(
+            self._sensors | set(self._written) | set(self._skipped)
+        ):
             logger.info(
                 "wrote readings",
                 extra={
