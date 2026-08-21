@@ -153,6 +153,33 @@ still works exactly as before and is often quicker for a glance; Loki is
 for history, for correlating two containers, and for looking at a machine
 you are not sitting in front of.
 
+### The `sensor_id` label
+
+A reading in InfluxDB is tagged `sensor_id`. Its log lines carry the same
+label, so the two sides are queried by the same identifier:
+
+```logql
+{sensor_id="cryo-diode"}
+```
+
+Alloy reads it out of the line rather than off the container, with a
+`logfmt` stage feeding a `labels` stage. That distinction is the whole
+point. A container label would describe a *process*, while `sensor_id`
+describes a *reading*, and the two only coincide while one container runs
+one sensor. `serial-sensor` breaks that: one process reads a calibration
+file covering several channels and reports each under its own id, so the
+demo's `demo-serial-sensor` container produces six labelled streams, one
+per channel in `demo/calibration.demo.toml`.
+
+Because the label comes from the line, renaming a channel in a
+calibration file changes it with no other edit — there is no second copy
+in `docker-compose.yml` to drift out of sync.
+
+A line with no `sensor_id` field — InfluxDB's, Grafana's, Alloy's own —
+gets no such label at all, rather than an empty one. An empty value would
+be a stream of its own and would appear in every label browser in
+Grafana.
+
 ### If a container's output never appears
 
 Almost always buffering rather than collection. Python block-buffers stdout
