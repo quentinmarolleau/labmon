@@ -376,3 +376,35 @@ def test_third_party_panel_types_are_installed_by_the_demo(
             f"{panel.get('title')!r} uses panel plugin {panel_type!r}, which "
             f"GRAFANA_PLUGINS does not install (it installs {sorted(installed)})"
         )
+
+
+# --------------------------------------------------------------------------
+# provisioning tree
+# --------------------------------------------------------------------------
+
+# Every directory Grafana reads under /etc/grafana/provisioning. It reports a
+# missing one at ERROR, not DEBUG, so the two this deployment does not use
+# still have to exist — otherwise they are two permanent false positives on
+# the error dashboard, which is how a person learns to ignore it.
+_PROVISIONING_DIRS = ("alerting", "dashboards", "datasources", "plugins")
+
+
+@pytest.mark.parametrize("name", _PROVISIONING_DIRS)
+def test_grafana_provisioning_directory_exists(name: str) -> None:
+    directory = _REPO_ROOT / "grafana" / "provisioning" / name
+
+    assert directory.is_dir(), (
+        f"grafana/provisioning/{name} is missing; Grafana logs an ERROR on "
+        "every boot for a provisioning directory it cannot read"
+    )
+
+
+@pytest.mark.parametrize("name", _PROVISIONING_DIRS)
+def test_grafana_provisioning_directory_survives_a_fresh_clone(name: str) -> None:
+    """Git tracks files, not directories, so an empty one needs a placeholder."""
+    directory = _REPO_ROOT / "grafana" / "provisioning" / name
+
+    assert any(directory.iterdir()), (
+        f"grafana/provisioning/{name} is empty, so it will not exist on a "
+        "fresh clone; commit a .gitkeep in it"
+    )
