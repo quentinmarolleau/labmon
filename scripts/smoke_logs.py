@@ -33,19 +33,21 @@ import argparse
 import base64
 import json
 import os
+import ssl
 import subprocess
 import sys
 import time
 import urllib.error
 import urllib.request
+from pathlib import Path
 from typing import cast
 
-_GRAFANA_URL = "http://127.0.0.1:3000"
+# Where Grafana is by default. `--url` points this at the `tls` profile's
+# proxy instead, which is the route a viewer actually uses once TLS is on.
+_DEFAULT_GRAFANA_URL = "http://127.0.0.1:3000"
 # Grafana proxies to the datasource provisioned under this uid, so the
 # path after it is Loki's own API.
-_LABEL_VALUES = (
-    f"{_GRAFANA_URL}/api/datasources/proxy/uid/loki/loki/api/v1/label/container/values"
-)
+_LABEL_PATH = "/api/datasources/proxy/uid/loki/loki/api/v1/label/container/values"
 
 # Rejecting the credentials will never succeed by waiting, and Grafana
 # blocks an account after five consecutive failures — retrying one would
@@ -97,15 +99,32 @@ def _running_containers() -> set[str]:
     return {name for name in result.stdout.split("\n") if name.strip()}
 
 
-def _collected_containers(password: str) -> set[str]:
+def _tls_context(cacert: str | None) -> ssl.SSLContext | None:
+    """A context trusting `cacert`, or None to use the system trust store.
+
+    The stack's own CA signs its certificates, and a private root is in no
+    system store — so without this the proxy is unreachable rather than
+    merely untrusted.
+    """
+    if cacert is None:
+        return None
+    if not Path(cacert).is_file():
+        raise SystemExit(f"--cacert points at {cacert!r}, which is not a file")
+    return ssl.create_default_context(cafile=cacert)
+
+
+def _collected_containers(
+    password: str, endpoint: str, context: ssl.SSLContext | None
+) -> set[str]:
     """Container names Loki has at least one line for."""
     credentials = base64.b64encode(f"admin:{password}".encode()).decode()
     request = urllib.request.Request(
-        _LABEL_VALUES, headers={"Authorization": f"Basic {credentials}"}
+        endpoint, headers={"Authorization": f"Basic {credentials}"}
     )
     try:
         # urlopen resolves to `Any`; pin the handle and its read explicitly.
-        with urllib.request.urlopen(request, timeout=30) as response:  # pyright: ignore[reportAny]
+        opened = urllib.request.urlopen(request, timeout=30, context=context)  # pyright: ignore[reportAny]
+        with opened as response:  # pyright: ignore[reportAny]
             body = cast(bytes, response.read())  # pyright: ignore[reportAny]
     except urllib.error.HTTPError as error:
         detail = f"{error} — {error.read().decode()[:300]}"
@@ -132,9 +151,21 @@ def main() -> int:
         default=os.environ.get("GRAFANA_ADMIN_PASSWORD") or "admin",
         help="Grafana admin password; defaults to $GRAFANA_ADMIN_PASSWORD",
     )
+    _ = parser.add_argument(
+        "--url",
+        default=_DEFAULT_GRAFANA_URL,
+        help="Grafana base URL; point at the tls proxy to check that route",
+    )
+    _ = parser.add_argument(
+        "--cacert",
+        default=None,
+        help="CA certificate to verify --url against, for the tls profile",
+    )
     args = parser.parse_args()
     timeout = cast(float, args.timeout)
     password = cast(str, args.password)
+    endpoint = f"{cast(str, args.url).rstrip('/')}{_LABEL_PATH}"
+    context = _tls_context(cast("str | None", args.cacert))
 
     try:
         started = _running_containers()
@@ -149,7 +180,7 @@ def main() -> int:
     deadline = time.monotonic() + timeout
     while True:
         try:
-            collected = _collected_containers(password)
+            collected = _collected_containers(password, endpoint, context)
         except _Rejected as rejected:
             print(f"Grafana rejected the credentials: {rejected}", file=sys.stderr)
             return 1

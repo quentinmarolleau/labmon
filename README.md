@@ -224,10 +224,11 @@ A client can be a Docker container or a plain Python install — both are
 documented, and a board can equally well be plugged straight into the
 server, in which case there is no client machine at all.
 
-Traffic is plain HTTP today, deliberately: it assumes a trusted lab
-network, and the reasoning (plus what changes if that stops being true)
-is written down in
-[`docs/deployment.md`](docs/deployment.md#security-plain-http-by-design-for-now).
+Traffic is plain HTTP by default, deliberately: it assumes a trusted lab
+network. Where that assumption does not hold, the `tls` profile puts a
+reverse proxy with its own CA in front of InfluxDB and Grafana, without
+disturbing the clients that have not moved yet — see
+[`docs/deployment.md`](docs/deployment.md#encrypting-client-and-viewer-traffic).
 
 ## How it works
 

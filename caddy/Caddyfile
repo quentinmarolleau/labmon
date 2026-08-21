@@ -1,0 +1,49 @@
+# TLS termination for the lab LAN, under the `tls` profile.
+#
+# The stack has no public DNS name, so ACME is not an option (see #66) and
+# certificates come from Caddy's own embedded CA instead. Clients trust one
+# long-lived root, copied out of band exactly once; the leaves it signs
+# rotate on their own and clients never see the change.
+#
+# Only the boundary is encrypted. Grafana still reaches InfluxDB, and Alloy
+# still reaches Loki, over plain HTTP inside the compose network — one
+# Docker bridge on one host, where encryption buys nothing and would mean
+# distributing trust to every service as well as to every client.
+#
+# The two site-address lists are separate variables rather than one list of
+# hosts because a Caddyfile cannot build an address from a host and a port:
+# the site address is written out whole. Both should name the same hosts.
+# Separate them with a comma AND a space — Caddy rejects a bare comma.
+{
+	# Nothing here should be redirected to port 443: the plain ports stay
+	# reachable during the transition, and a redirect to a port that is
+	# not published just looks like the server is broken.
+	auto_https disable_redirects
+
+	# A client that addresses the server by IP sends no SNI, so Caddy has
+	# no name to route the connection on. Without this it aborts the
+	# handshake with an internal-error alert — and addressing the server by
+	# LAN IP is the normal case here, since there is no DNS to rely on.
+	# Names the certificate to serve when SNI is absent.
+	default_sni {$LABMON_TLS_DEFAULT_SNI}
+}
+
+{$LABMON_TLS_INFLUXDB_SITES} {
+	tls internal
+
+	# InfluxDB 3 serves the HTTP write API *and* Flight SQL on one port.
+	# Flight SQL is gRPC, which is HTTP/2 — and cleartext HTTP/2 (h2c) on
+	# the inside, since the backend has no TLS. Without this the proxy
+	# downgrades to HTTP/1.1 and every Flight call comes back 404, so
+	# writes would work while queries silently did not.
+	reverse_proxy influxdb:8181 {
+		transport http {
+			versions h2c 2
+		}
+	}
+}
+
+{$LABMON_TLS_GRAFANA_SITES} {
+	tls internal
+	reverse_proxy grafana:3000
+}

@@ -361,8 +361,64 @@ services:
       - --port=socket://demo-adc-feeder:5555
       - --calibration=/app/demo/calibration.demo.toml
 
+  # TLS termination for the LAN, off unless COMPOSE_PROFILES includes it.
+  # Additive by design: the plain 8181/3000 ports keep working exactly as
+  # before, so a deployment adopts TLS on its own schedule rather than at
+  # upgrade time. See docs/deployment.md.
+  caddy:
+    image: caddy:2.10-alpine
+    container_name: caddy
+    # Comes back after a reboot or a daemon restart, but stays down once
+    # deliberately stopped. This half of the deployment is the always-on
+    # one: without it a power cut leaves the stack down until somebody
+    # notices, while every client fills its queue and then blocks.
+    restart: unless-stopped
+    profiles: [tls]
+    depends_on:
+      influxdb:
+        condition: service_healthy
+    ports:
+      - "8443:8443"
+      - "3443:3443"
+    environment:
+      # The addresses the proxy answers on, one list per port, each
+      # entry becoming a site address Caddy issues a certificate for.
+      # Separated by a comma AND a space; Caddy rejects a bare comma.
+      - LABMON_TLS_INFLUXDB_SITES=${LABMON_TLS_INFLUXDB_SITES:-https://127.0.0.1:8443}
+      - LABMON_TLS_GRAFANA_SITES=${LABMON_TLS_GRAFANA_SITES:-https://127.0.0.1:3443}
+      # Which of them to serve when a client sends no SNI, which is what
+      # addressing the server by IP does.
+      - LABMON_TLS_DEFAULT_SNI=${LABMON_TLS_DEFAULT_SNI:-127.0.0.1}
+    volumes:
+      - type: bind
+        source: ./caddy/Caddyfile
+        target: /etc/caddy/Caddyfile
+        read_only: true
+      # The CA's private key and certificates. Named rather than bound so
+      # nothing root-owned lands in the repo — but unlike alloy-data this
+      # one must NOT be discarded: losing it means every client that
+      # trusts the old root has to be visited again. `docker compose down
+      # -v` destroys it. See docs/deployment.md.
+      - type: volume
+        source: caddy-data
+        target: /data
+    healthcheck:
+      # Caddy's admin API, on loopback inside the container only. Proves
+      # the process is up and its config loaded; the TLS ports themselves
+      # are proven by the smoke job.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
 volumes:
   # Alloy's read positions. Named rather than bound so nothing root-owned
   # lands in the repo; `docker compose down -v` resets it, at the cost of
   # re-reading each container's log from the start.
   alloy-data:
+  # Caddy's internal CA: its root key, the intermediate, and every leaf
+  # it has issued. Deliberately outlives container recreation — the root
+  # is what every client was told to trust, so losing it invalidates all
+  # of them at once.
+  caddy-data:

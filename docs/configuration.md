@@ -25,6 +25,20 @@ Every sensor needs these, wherever it runs.
 | `INFLUXDB3_AUTH_TOKEN` | *(required)* | InfluxDB API token. No default, and startup fails without it |
 | `INFLUXDB_HOST` | `http://localhost:8181` | Where to write. Containers on the server use `http://influxdb:8181`; a client machine uses the server's address |
 | `INFLUXDB_DATABASE` | `lab` | Database readings are written to |
+| `INFLUXDB_TLS_CA` | *(unset)* | Path to the server's CA certificate, when it runs behind the `tls` profile's proxy. Unset, the client behaves exactly as before |
+
+`INFLUXDB_TLS_CA` is needed only when `INFLUXDB_HOST` is an `https://`
+address served by the stack's own CA, since a private root is in no
+system trust store. One variable covers both directions of traffic — the
+same file is read by the write client and by the query client. A path
+that does not exist fails at startup rather than at the first write,
+because the TLS layer would otherwise report it as a verification failure
+against the *server*, which reads as a certificate problem rather than as
+a typo in this machine's env file. See
+[`docs/client-setup.md`](client-setup.md#connecting-over-tls) for the
+client side and
+[`docs/deployment.md`](deployment.md#encrypting-client-and-viewer-traffic)
+for the server side.
 
 `INFLUXDB_HOST` is set per service in the Compose files rather than in
 `.env`, because one value cannot serve both a container (which needs the
@@ -47,6 +61,9 @@ Only meaningful on the machine running `docker-compose.yml`.
 | `COMPOSE_PROFILES` | *(unset)* | Which optional services start — see below |
 | `GRAFANA_PLUGINS` | *(unset)* | Panel plugins to preinstall, as `id@version`, comma-separated. Unset means Grafana needs no network at boot |
 | `LOKI_RETENTION_PERIOD` | `720h` | How long a log line is kept, with the `logs` profile active. Never below `24h` — Loki accepts less and cannot honour it |
+| `LABMON_TLS_INFLUXDB_SITES` | `https://127.0.0.1:8443` | Addresses the proxy answers on for InfluxDB, with the `tls` profile active. Comma-*and-space* separated; each entry a whole `https://host:port` |
+| `LABMON_TLS_GRAFANA_SITES` | `https://127.0.0.1:3443` | The same for Grafana |
+| `LABMON_TLS_DEFAULT_SNI` | `127.0.0.1` | Which certificate to serve when a client sends no server name, which is what dialling a bare IP does |
 
 `COMPOSE_PROFILES` takes a comma-separated list:
 
@@ -55,6 +72,7 @@ Only meaningful on the machine running `docker-compose.yml`.
 | *(unset)* | Nothing — just InfluxDB and Grafana, which is the real-server shape |
 | `demo` | The mock sensors and the simulated board, for a stack with no hardware |
 | `logs` | Loki and Alloy, collecting every container's output |
+| `tls` | A Caddy reverse proxy terminating TLS on 8443 and 3443 — see [`docs/deployment.md`](deployment.md#encrypting-client-and-viewer-traffic) |
 
 The two are independent, so `demo,logs` is valid. A profile is needed to
 *stop* its services as well as start them: `docker compose down` without

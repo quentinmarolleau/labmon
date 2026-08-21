@@ -67,12 +67,130 @@ jobs:
       - name: Every container's logs reach Loki
         run: python3 scripts/smoke_logs.py --timeout 120
 
+      # Same trick again: the proxy joins the running stack rather than
+      # starting a second one. The site lists name `caddy` as well as
+      # loopback, so a container on the compose network can reach it under
+      # a name the certificate actually covers.
+      - name: Start the TLS proxy
+        run: |
+          {
+            printf 'LABMON_TLS_INFLUXDB_SITES="https://127.0.0.1:8443, https://caddy:8443"\n'
+            printf 'LABMON_TLS_GRAFANA_SITES="https://127.0.0.1:3443, https://caddy:3443"\n'
+          } >> .env
+          COMPOSE_PROFILES=demo,logs,tls docker compose up -d --wait caddy
+
+      - name: Export the CA the way an operator would
+        run: ./scripts/export-ca.sh labmon-ca.crt
+
+      # Both ports must reject a client that does not trust the CA, and
+      # accept one that does. The negative half matters most: without it a
+      # proxy serving no TLS at all would pass.
+      - name: Both TLS ports verify against the exported CA
+        run: |
+          for port in 8443 3443; do
+            if curl -sS -o /dev/null "https://127.0.0.1:$port/" 2>/dev/null; then
+              echo "port $port accepted a client with no CA — TLS is not enforced" >&2
+              exit 1
+            fi
+            code="$(curl -sS --cacert labmon-ca.crt -o /dev/null \
+              -w '%{http_code}' "https://127.0.0.1:$port/")"
+            echo "port $port with the CA: HTTP $code"
+            case "$code" in
+              000) echo "port $port unreachable even with the CA" >&2; exit 1 ;;
+            esac
+          done
+
+      # The whole point of the exercise: the exact path a real client
+      # takes. Runs the shipped image so the package under test does the
+      # writing, rather than a curl that only proves the proxy is up.
+      - name: A sensor writes through the proxy
+        run: |
+          token="$(grep '^INFLUXDB3_AUTH_TOKEN=' .env | cut -d= -f2-)"
+          network="$(docker inspect influxdb \
+            --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{end}}')"
+          # --entrypoint, because the image's own is `mock-sensor`: without
+          # it `timeout` and its arguments are appended to the sensor's
+          # command line instead of wrapping it.
+          # --preserve-status reports the sensor's own fate rather than
+          # timeout's, so a crash on the TLS path reads differently in the
+          # log from the SIGTERM that ends a healthy run.
+          status=0
+          docker run --rm --network "$network" \
+            --entrypoint timeout \
+            -v "$PWD/labmon-ca.crt:/ca.crt:ro" \
+            -e INFLUXDB_HOST=https://caddy:8443 \
+            -e INFLUXDB_TLS_CA=/ca.crt \
+            -e INFLUXDB_DATABASE=lab \
+            -e INFLUXDB3_AUTH_TOKEN="$token" \
+            labmon:latest \
+            --preserve-status 12 mock-sensor --sensor-id tls-smoke \
+              --measurement temperature --interval 1 || status=$?
+          # 0 if it handled the signal, 143 if it took SIGTERM as it was.
+          case "$status" in
+            0|143) echo "sensor ended on the timeout (status $status)" ;;
+            *) echo "sensor died on the TLS path (status $status)" >&2
+               exit 1 ;;
+          esac
+          rows="$(docker compose exec -T influxdb influxdb3 query --database lab \
+            --token "$token" \
+            "SELECT count(*) AS n FROM temperature WHERE sensor_id = 'tls-smoke'" \
+            | grep -oE '[0-9]+' | tail -1)"
+          echo "rows written through TLS: ${rows:-0}"
+          if [ "${rows:-0}" -lt 1 ]; then
+            echo "no rows arrived through the proxy" >&2
+            exit 1
+          fi
+
+      # The write and the query take different routes through the proxy:
+      # HTTP for one, Flight SQL over cleartext HTTP/2 for the other, and
+      # only the query depends on `versions h2c 2`. Reading the rows back
+      # with `docker compose exec influxdb` would not touch the proxy at
+      # all, so dropping that one line would leave CI green while every
+      # client query returned 404 — the exact half-working state the
+      # setting exists to prevent.
+      - name: A client queries back through the proxy
+        run: |
+          token="$(grep '^INFLUXDB3_AUTH_TOKEN=' .env | cut -d= -f2-)"
+          network="$(docker inspect influxdb \
+            --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{end}}')"
+          docker run --rm -i --network "$network" \
+            --entrypoint python \
+            -v "$PWD/labmon-ca.crt:/ca.crt:ro" \
+            -e INFLUXDB_HOST=https://caddy:8443 \
+            -e INFLUXDB_TLS_CA=/ca.crt \
+            -e INFLUXDB_DATABASE=lab \
+            -e INFLUXDB3_AUTH_TOKEN="$token" \
+            labmon:latest - <<'PY'
+          from labmon.influx import get_client
+
+          rows = (
+              get_client()
+              .query(
+                  "SELECT count(*) AS n FROM temperature"
+                  " WHERE sensor_id = \x27tls-smoke\x27"
+              )
+              .to_pylist()
+          )
+          print(f"Flight SQL through the proxy returned: {rows}")
+          if not rows or rows[0]["n"] < 1:
+              raise SystemExit("the query path through the proxy sees no rows")
+          PY
+
+      # Grafana through the proxy is the viewer's route, so both suites run
+      # again against it. Cheap — the stack is already up and warm.
+      - name: Dashboards and logs work through the proxy
+        run: |
+          python3 scripts/smoke_dashboard.py --timeout 120 \
+            --url https://127.0.0.1:3443 --cacert labmon-ca.crt
+          python3 scripts/smoke_logs.py --timeout 120 \
+            --url https://127.0.0.1:3443 --cacert labmon-ca.crt
+
       - name: Logs
         if: failure()
-        run: COMPOSE_PROFILES=demo,logs docker compose logs --no-color --tail 200
+        run: COMPOSE_PROFILES=demo,logs,tls docker compose logs --no-color --tail 200
 
       # The profile is needed to stop its services as well as to start
       # them; without it Loki and Alloy are left running.
       - name: Stop
         if: always()
-        run: COMPOSE_PROFILES=demo,logs docker compose down -v
+        run: COMPOSE_PROFILES=demo,logs,tls docker compose down -v

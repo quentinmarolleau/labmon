@@ -9,6 +9,8 @@ sensor on the client itself, two ways.
 Both need the same three values from the server: `INFLUXDB_HOST` (its LAN
 IP/hostname), `INFLUXDB_DATABASE`, and `INFLUXDB3_AUTH_TOKEN`, copied out
 of band — see [`docs/deployment.md`](deployment.md#distributing-the-auth-token).
+A server running the `tls` profile needs two more, which apply to either
+option below — see [Connecting over TLS](#connecting-over-tls).
 
 Docker or bare install is only a packaging choice; either can run either
 sensor script. The examples below start with `mock-sensor` because it
@@ -63,6 +65,54 @@ sudo systemctl enable --now labmon-sensor.service
 
 Running more than one sensor on this device: copy the unit file under a
 different name (e.g. `labmon-sensor-2.service`) with its own `ExecStart`.
+
+## Connecting over TLS
+
+Only when the server runs the `tls` profile — see
+[`docs/deployment.md`](deployment.md#encrypting-client-and-viewer-traffic)
+for turning it on there. Two things change on this machine, and neither
+depends on which of the two options above it uses.
+
+**Dial the proxy rather than the database**, with an `https://` scheme
+and the proxy's port:
+
+```bash
+INFLUXDB_HOST=https://192.168.1.50:8443
+```
+
+**Trust the server's root certificate.** Copy `labmon-ca.crt` off the
+server the same way the token travels — out of band, by a route that
+reliably delivers the right file — and name where it landed:
+
+```bash
+INFLUXDB_TLS_CA=/etc/labmon/labmon-ca.crt
+```
+
+The server signs its own certificates, and a private root is in no system
+trust store, so without this the sensor refuses to connect rather than
+merely warning. One variable is enough for both directions of traffic:
+the same file is read when writing points and when reading them back. A
+path that does not exist fails at startup with a message naming the
+variable, rather than surfacing later as an apparent problem with the
+server's certificate.
+
+Under Docker the file also has to exist *inside* the container.
+`docker-compose.client.yml` carries a commented-out mount that puts it at
+the same path the variable names, so one value works either way —
+uncomment it along with the variable:
+
+```yaml
+  volumes:
+    - ${INFLUXDB_TLS_CA}:${INFLUXDB_TLS_CA}:ro
+```
+
+A service that declares its own `volumes:` replaces that list rather than
+adding to it, which is why the commented-out `serial-sensor` service
+carries the same line again.
+
+There is no need to move in step with the server. Its 8181 and 3000 stay
+open until its operator closes them, so each client switches over
+whenever it suits.
 
 ## From mock sensor to real hardware
 

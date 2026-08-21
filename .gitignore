@@ -31,3 +31,8 @@ coverage.xml
 # Personal experimentation (marimo notebooks, not part of the package)
 __marimo__/
 /test.py
+
+# The CA certificate `scripts/export-ca.sh` copies out of the stack. It
+# is public, not secret, but it is per-deployment, so it does not belong
+# in the repository.
+labmon-ca.crt
