@@ -14,7 +14,6 @@
 # hosts because a Caddyfile cannot build an address from a host and a port:
 # the site address is written out whole. Both should name the same hosts.
 # Separate them with a comma AND a space — Caddy rejects a bare comma.
-
 {
 	# Nothing here should be redirected to port 443: the plain ports stay
 	# reachable during the transition, and a redirect to a port that is
