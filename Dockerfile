@@ -37,4 +37,9 @@ ENV PATH="/app/.venv/bin:$PATH"
 # like a dead sensor rather than a buffering artefact.
 ENV PYTHONUNBUFFERED=1
 
+# Sensor processes only need to read the application. Keep dialout membership
+# so a serial device mapped by Compose remains accessible without root.
+RUN useradd --create-home --groups dialout --shell /usr/sbin/nologin labmon
+USER labmon
+
 ENTRYPOINT ["mock-sensor"]
