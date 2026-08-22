@@ -47,6 +47,105 @@ x-labmon-sensor: &labmon-sensor
   #   - ${INFLUXDB_TLS_CA}:${INFLUXDB_TLS_CA}:ro
 
 services:
+  # Ships this machine's logs to the server's Loki, so a sensor running
+  # here appears in the same dashboards as one running on the server.
+  # Under a profile, because it is a considered step rather than the
+  # default: it needs a credential and the server's CA, and it sends log
+  # lines off this machine.
+  #
+  #     COMPOSE_PROFILES=logs docker compose -f docker-compose.client.yml up -d
+  #
+  # See docs/client-setup.md.
+  alloy:
+    image: grafana/alloy:v1.18.1
+    container_name: labmon-alloy
+    restart: unless-stopped
+    profiles: [logs]
+    command:
+      - run
+      - /etc/alloy/config.alloy
+      - --storage.path=/var/lib/alloy/data
+      # Without this the UI binds to localhost inside the container and
+      # the port below reaches nothing.
+      - --server.http.listen-addr=0.0.0.0:12345
+    ports:
+      # Alloy's own UI, showing each component's health and what it last
+      # sent. The first place to look when a client's logs are not
+      # arriving — it reports a rejected credential here.
+      #
+      # Loopback only. The UI has no authentication and lists component
+      # configuration, endpoints and recently sent data; a client is
+      # somebody's own lab machine, so this stays off the LAN. Reach it
+      # over SSH with `ssh -L 12345:127.0.0.1:12345 <host>`.
+      - "127.0.0.1:12345:12345"
+    environment:
+      # Where the server's proxy accepts pushes, and what to send with
+      # them. All four are required; there is no useful default for any.
+      - LABMON_LOKI_URL=${LABMON_LOKI_URL}
+      - LABMON_LOKI_PUSH_USER=${LABMON_LOKI_PUSH_USER:-labmon}
+      - LABMON_LOKI_PUSH_PASSWORD=${LABMON_LOKI_PUSH_PASSWORD}
+      # Names this machine in every line it sends. Two clients running the
+      # same container names are otherwise one indistinguishable stream.
+      #
+      # The default is deliberately conspicuous rather than empty. Loki
+      # treats an empty label value as absent, so an unset name would let
+      # a client's lines blend into the server's own — the exact
+      # ambiguity this label exists to remove. `unnamed-client` shows up
+      # in Grafana's label browser instead, where it reads as a machine
+      # somebody forgot to name.
+      - LABMON_CLIENT_NAME=${LABMON_CLIENT_NAME:-unnamed-client}
+      # The same CA the sensor verifies InfluxDB with, read inside the
+      # container from the mount below.
+      - INFLUXDB_TLS_CA=${INFLUXDB_TLS_CA}
+    volumes:
+      - type: bind
+        source: ./alloy/client.alloy
+        target: /etc/alloy/config.alloy
+        read_only: true
+      # Unlike the sensor services, this mount is not optional: reaching
+      # the server means TLS, and a private root is in no trust store.
+      #
+      # The default is a placeholder rather than a suggestion. An unset
+      # variable would expand to `::ro`, which fails to parse — so every
+      # client running `docker compose config` would see an error about
+      # this file whether or not it ships logs at all.
+      - ${INFLUXDB_TLS_CA:-/etc/labmon/labmon-ca.crt}:${INFLUXDB_TLS_CA:-/etc/labmon/labmon-ca.crt}:ro
+      # Reading container logs means talking to the Docker API, and access
+      # to this socket is equivalent to root on this machine. read_only
+      # does not meaningfully restrict it — the socket is still a full
+      # API. See docs/logging.md for what to do if that trade is wrong
+      # here.
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+        read_only: true
+      # The journal, for a bare install running under systemd rather than
+      # in a container. Both paths are mounted so a host keeping logs in
+      # memory only works too, and a missing one is an empty directory
+      # rather than an error.
+      - type: bind
+        source: /var/log/journal
+        target: /var/log/journal
+        read_only: true
+        bind:
+          create_host_path: true
+      - type: bind
+        source: /run/log/journal
+        target: /run/log/journal
+        read_only: true
+        bind:
+          create_host_path: true
+      # Journal entries are keyed by machine id; without this the reader
+      # cannot resolve which machine's journal it is looking at.
+      - type: bind
+        source: /etc/machine-id
+        target: /etc/machine-id
+        read_only: true
+      # Alloy's own bookkeeping — how far it has read in each log. A named
+      # volume rather than a bind, since Alloy runs as root and a bind
+      # would leave a root-owned directory in the checkout.
+      - alloy-data:/var/lib/alloy/data
+
   sensor-1:
     <<: *labmon-sensor
     container_name: labmon-sensor-1
@@ -84,3 +183,6 @@ services:
   #   command:
   #     - --port=/dev/labmon-due
   #     - --calibration=/app/calibration.toml
+
+volumes:
+  alloy-data:

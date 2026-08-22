@@ -73,9 +73,24 @@ jobs:
       # a name the certificate actually covers.
       - name: Start the TLS proxy
         run: |
+          # A real push credential, generated here and used by the step
+          # below. The shipped default is bcrypt of random bytes nobody
+          # kept, so without this every push is refused — which is the
+          # point of it, but leaves nothing to test the open path with.
+          password="$(head -c 18 /dev/urandom | base64)"
+          hash="$(docker run --rm caddy:2.10-alpine \
+            caddy hash-password --plaintext "$password")"
+          echo "LOKI_PUSH_PASSWORD=$password" >> "$GITHUB_ENV"
           {
             printf 'LABMON_TLS_INFLUXDB_SITES="https://127.0.0.1:8443, https://caddy:8443"\n'
             printf 'LABMON_TLS_GRAFANA_SITES="https://127.0.0.1:3443, https://caddy:3443"\n'
+            printf 'LABMON_TLS_LOKI_SITES="https://127.0.0.1:3444, https://caddy:3444"\n'
+            printf 'LABMON_LOKI_PUSH_USER=labmon\n'
+            # Single-quoted: a bcrypt hash is full of `$`, and compose
+            # expands an unquoted `$name` in .env as a variable, cutting
+            # that span out of the hash. Every push would then 401, with
+            # the config looking correct.
+            printf "LABMON_LOKI_PUSH_HASH='%s'\n" "$hash"
           } >> .env
           COMPOSE_PROFILES=demo,logs,tls docker compose up -d --wait caddy
 
@@ -175,6 +190,49 @@ jobs:
           if not rows or rows[0]["n"] < 1:
               raise SystemExit("the query path through the proxy sees no rows")
           PY
+
+      # Loki's push endpoint is the one the proxy authenticates, because
+      # Loki itself authenticates nothing — so the credential and the path
+      # restriction are the whole of its protection. Both are one line of
+      # Caddyfile, and removing either leaves a working endpoint that is
+      # simply open, which no other check here would notice.
+      - name: The Loki push endpoint is shut without a credential
+        run: |
+          line="$(printf '{"streams":[{"stream":{"container":"smoke"},')"
+          line="$line$(printf '"values":[["%s000000000","level=info msg=smoke"]]}]}' "$(date +%s)")"
+          probe() {
+            curl -s -o /dev/null -w '%{http_code}' --cacert labmon-ca.crt "$@"
+          }
+          push="https://127.0.0.1:3444/loki/api/v1/push"
+
+          no_credential="$(probe -X POST -H 'Content-Type: application/json' \
+            --data "$line" "$push")"
+          # Built from the real one rather than written out, so the line
+          # carries no literal user:password pair for a secret scanner to
+          # object to.
+          wrong_credential="labmon:not-$LOKI_PUSH_PASSWORD"
+          wrong="$(probe -u "$wrong_credential" -X POST \
+            -H 'Content-Type: application/json' --data "$line" "$push")"
+          accepted="$(probe -u "labmon:$LOKI_PUSH_PASSWORD" -X POST \
+            -H 'Content-Type: application/json' --data "$line" "$push")"
+          # The same credential on a read path: the endpoint is for writing
+          # log lines, not for reading back everything ever collected.
+          read_back="$(probe -u "labmon:$LOKI_PUSH_PASSWORD" \
+            'https://127.0.0.1:3444/loki/api/v1/label/container/values')"
+
+          echo "no credential=$no_credential wrong=$wrong ok=$accepted read=$read_back"
+          if [ "$no_credential" != "401" ] || [ "$wrong" != "401" ]; then
+            echo "the push endpoint accepted an unauthenticated client" >&2
+            exit 1
+          fi
+          if [ "$accepted" != "204" ]; then
+            echo "the push endpoint refused a valid credential" >&2
+            exit 1
+          fi
+          if [ "$read_back" != "404" ]; then
+            echo "the push credential also reads: got $read_back, wanted 404" >&2
+            exit 1
+          fi
 
       # Grafana through the proxy is the viewer's route, so both suites run
       # again against it. Cheap — the stack is already up and warm.

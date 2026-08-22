@@ -1,0 +1,128 @@
+// Collects this machine's logs and ships them to a labmon server.
+//
+// The server's own Alloy (alloy/config.alloy) collects the containers on
+// the server. A sensor on a different machine is invisible to it, so a
+// client that should appear in the same dashboards runs this instead —
+// same sources, same labelling, a remote destination.
+//
+// Reaching the server needs three things in the environment, all set in
+// the client's .env: LABMON_LOKI_URL, LABMON_LOKI_PUSH_PASSWORD, and
+// INFLUXDB_TLS_CA. See docs/client-setup.md.
+
+// Discovers containers, and re-reads the list so a sensor started later is
+// picked up without restarting Alloy.
+discovery.docker "containers" {
+	host             = "unix:///var/run/docker.sock"
+	refresh_interval = "15s"
+}
+
+discovery.relabel "containers" {
+	targets = discovery.docker.containers.targets
+
+	// Docker reports names with a leading slash ("/labmon-sensor-1"), which
+	// would otherwise appear in every query.
+	rule {
+		source_labels = ["__meta_docker_container_name"]
+		regex         = "/(.*)"
+		target_label  = "container"
+	}
+}
+
+loki.source.docker "containers" {
+	host       = "unix:///var/run/docker.sock"
+	targets    = discovery.relabel.containers.output
+	forward_to = [loki.process.sensors.receiver]
+}
+
+// A client running a bare install puts its sensor under systemd rather
+// than in a container (see deploy/), so both shapes are collected here for
+// the same reason they are on the server.
+discovery.relabel "journal" {
+	targets = []
+
+	rule {
+		source_labels = ["__journal__systemd_unit"]
+		target_label  = "unit"
+	}
+
+	// A user unit reports the manager rather than itself in _SYSTEMD_UNIT,
+	// naming user@1000.service for every one of them. Its own name is in
+	// _SYSTEMD_USER_UNIT, so that wins when it is there.
+	rule {
+		source_labels = ["__journal__systemd_user_unit"]
+		regex         = "(.+)"
+		target_label  = "unit"
+	}
+
+	// Only labmon's own units. A client is somebody's Raspberry Pi or lab
+	// PC, and collecting its whole journal would centralise every login
+	// session and system service on it — far more than was asked for, and
+	// far more than the sensor lines it is being collected for.
+	rule {
+		source_labels = ["unit"]
+		regex         = "labmon-.*"
+		action        = "keep"
+	}
+
+	rule {
+		source_labels = ["__journal_priority_keyword"]
+		target_label  = "level"
+	}
+}
+
+loki.source.journal "units" {
+	// No `path`, which is what makes both journal layouts work: left
+	// empty, Alloy reads /var/log/journal and /run/log/journal. A client
+	// keeping logs in memory only (Storage=volatile, common on an SD-card
+	// host) has them in the second, and pinning the first would collect
+	// nothing from it while container logs kept arriving normally.
+	relabel_rules = discovery.relabel.journal.rules
+	labels        = {job = "systemd-journal"}
+	forward_to    = [loki.process.sensors.receiver]
+}
+
+// The same per-line labelling the server does, so a client's lines are
+// queried exactly like a server's: `{sensor_id="cryo-diode"}` finds the
+// reading's own logs wherever the sensor happens to run.
+loki.process "sensors" {
+	stage.logfmt {
+		mapping = {"sensor_id" = ""}
+	}
+
+	stage.labels {
+		values = {"sensor_id" = ""}
+	}
+
+	// Which machine the line came from. Without it two clients both running
+	// a container called `labmon-sensor-1` are one indistinguishable
+	// stream, and the server's own lines are told apart from a client's
+	// only by guesswork.
+	stage.static_labels {
+		values = {"host" = sys.env("LABMON_CLIENT_NAME")}
+	}
+
+	forward_to = [loki.write.server.receiver]
+}
+
+loki.write "server" {
+	endpoint {
+		// The proxy's push endpoint on the server, not Loki itself: Loki
+		// stays unpublished and unauthenticated behind it.
+		url = sys.env("LABMON_LOKI_URL")
+
+		// Loki's push API checks nothing on its own, so the credential is
+		// the proxy's. It buys writing log lines and nothing else — the
+		// same host and port answers 404 to every other path.
+		basic_auth {
+			username = sys.env("LABMON_LOKI_PUSH_USER")
+			password = sys.env("LABMON_LOKI_PUSH_PASSWORD")
+		}
+
+		// The stack signs its own certificates, so the root exported from
+		// the server is what verifies this connection — the same file the
+		// sensor already uses to reach InfluxDB.
+		tls_config {
+			ca_file = sys.env("INFLUXDB_TLS_CA")
+		}
+	}
+}

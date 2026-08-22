@@ -192,6 +192,83 @@ labmon's own image sets `PYTHONUNBUFFERED=1` for this reason. A container
 built from something else may need the same, or to log through `logging`
 rather than `print`.
 
+## Logs from other machines
+
+Alloy collects from the host it runs on, so a sensor on a client machine
+is invisible to the server's collector. Such a client runs its own Alloy,
+which ships to the server rather than to a Loki of its own — one place to
+look, with the same labels either way.
+
+That needs a way into Loki from outside the compose network, and Loki is
+deliberately not published. The route is the `tls` profile's proxy, on a
+third port:
+
+```
+client Alloy ──https──► caddy:3444 ──http──► loki:3100
+                        (basic auth)          (never published)
+```
+
+Two things are true of that endpoint and not of the other two the proxy
+serves. It **authenticates**, and it **only accepts pushes**.
+
+Authentication is not symmetry for its own sake. InfluxDB and Grafana
+check a credential of their own behind the proxy, so TLS there only has
+to keep one from being read in transit. Loki's push API checks nothing,
+so proxying it bare would put a write-anything endpoint on the LAN —
+anything that could reach it could fill the log store, or bury a real
+line under invented ones.
+
+Restricting the path limits what a leaked credential is worth. It is
+copied to every machine that ships logs, so it should buy writing log
+lines and nothing more; the same host and port answers 404 to every
+other request, including the query API that would otherwise read back
+everything the stack has collected.
+
+### On the server
+
+Generate a credential and put the hash in `.env`:
+
+```bash
+docker compose exec caddy caddy hash-password
+```
+
+That prompts for a password and prints a bcrypt hash. The hash goes in
+`LABMON_LOKI_PUSH_HASH`, the password goes to each client, and
+`LABMON_TLS_LOKI_SITES` lists the addresses clients dial — the same form
+as the other two lists in `.env.example`.
+
+Quote the hash, exactly as `.env.example` has it:
+
+```dotenv
+LABMON_LOKI_PUSH_HASH='$2a$14$...'
+```
+
+Bcrypt hashes are full of `$`, and compose expands an unquoted `$name`
+in `.env` as a variable — an unset one, so that span of the hash is
+replaced by nothing and every push is refused with no indication why.
+Single quotes are what suppresses it; double quotes do not.
+
+Until that is set the endpoint refuses every credential. The hash shipped
+in `docker-compose.yml` is bcrypt of random bytes nobody kept, so no
+password matches it: publishing the port does not open anything.
+
+### On the client
+
+See [`docs/client-setup.md`](client-setup.md#shipping-this-machines-logs).
+
+### What arrives
+
+The same labels a local container gets, plus `host`, which names the
+machine the line came from:
+
+```logql
+{host="pi-optics-bench"}
+{sensor_id="cryo-diode"}
+```
+
+The second finds that sensor's lines wherever it runs — which is the
+point of labelling by reading rather than by container.
+
 ## Sensors that run under systemd
 
 A sensor that cannot run in a container runs under systemd instead (see
@@ -261,9 +338,6 @@ the few seconds before Loki is ready cost nothing.
 
 ## What is not here yet
 
-- **Logs from other machines.** Alloy collects from the host it runs on. A
-  sensor on a *different* machine needs its own Alloy forwarding here, which
-  also means exposing Loki's push endpoint beyond this network.
 - **Devices that speak syslog.** Instruments, switches and UPS units that
   can be pointed at a syslog collector — Alloy has a listener for it,
   unconfigured for want of a device to test against.

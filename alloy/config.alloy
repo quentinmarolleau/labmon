@@ -84,10 +84,10 @@ discovery.relabel "journal" {
 }
 
 loki.source.journal "units" {
-	// The persistent journal. A host with volatile-only logging keeps it at
-	// /run/log/journal instead, in which case nothing is collected here and
-	// the mount in docker-compose.yml needs changing to match.
-	path          = "/var/log/journal"
+	// No `path`, which is what makes both journal layouts work: left
+	// empty, Alloy reads /var/log/journal and /run/log/journal. A host
+	// with volatile-only logging keeps its journal in the second, and
+	// both are mounted in docker-compose.yml so either is found.
 	relabel_rules = discovery.relabel.journal.rules
 	labels        = {job = "systemd-journal"}
 	forward_to    = [loki.process.sensors.receiver]

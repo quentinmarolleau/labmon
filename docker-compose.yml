@@ -380,12 +380,22 @@ services:
     ports:
       - "8443:8443"
       - "3443:3443"
+      # Loki's push endpoint, for sensors on other machines. Answers with
+      # 404 to anything but the push path, and denies every credential
+      # until one is configured — see the Caddyfile.
+      - "3444:3444"
     environment:
       # The addresses the proxy answers on, one list per port, each
       # entry becoming a site address Caddy issues a certificate for.
       # Separated by a comma AND a space; Caddy rejects a bare comma.
       - LABMON_TLS_INFLUXDB_SITES=${LABMON_TLS_INFLUXDB_SITES:-https://127.0.0.1:8443}
       - LABMON_TLS_GRAFANA_SITES=${LABMON_TLS_GRAFANA_SITES:-https://127.0.0.1:3443}
+      - LABMON_TLS_LOKI_SITES=${LABMON_TLS_LOKI_SITES:-https://127.0.0.1:3444}
+      # The credential a remote Alloy sends with every push. The default
+      # hash is bcrypt of random bytes nobody kept, so the endpoint refuses
+      # everything until this is set — see docs/deployment.md.
+      - LABMON_LOKI_PUSH_USER=${LABMON_LOKI_PUSH_USER:-labmon}
+      - LABMON_LOKI_PUSH_HASH=${LABMON_LOKI_PUSH_HASH:-$$2a$$14$$lGM8y2sOFhWF4TvWFA8kD.WH8nCwgejJLWuHR4fOkD/xIZg33kdV2}
       # Which of them to serve when a client sends no SNI, which is what
       # addressing the server by IP does.
       - LABMON_TLS_DEFAULT_SNI=${LABMON_TLS_DEFAULT_SNI:-127.0.0.1}
