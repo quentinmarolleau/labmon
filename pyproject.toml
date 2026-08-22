@@ -50,9 +50,18 @@ target-version = "py312"
 # nobody touched; the answer to that is to pin ruff in the dev
 # dependencies when it happens, not to freeze the rule set in advance.
 extend-select = [
-    "G",   # flake8-logging-format
-    "LOG", # flake8-logging
-    "RUF", # ruff's own rules
+    "G",    # flake8-logging-format
+    "LOG",  # flake8-logging
+    "RUF",  # ruff's own rules
+    "DTZ",  # timezone-aware datetimes
+    "PTH",  # pathlib over os.path
+    "C4",   # comprehension style
+    "PIE",  # dead syntax
+    "RET",  # return-statement hygiene
+    "PERF", # avoidable slow patterns
+    "A",    # builtin shadowing
+    "ARG",  # unused function arguments
+    "S",    # bandit security checks
 ]
 
 # `G` is the reason this section exists. Every logging call in the package
@@ -70,6 +79,28 @@ extend-select = [
 # regex whether or not it was meant as one, so `match="a (b)"` silently
 # asserts something other than it appears to. Marking the deliberate ones
 # raw makes the accidental ones visible.
+#
+# `DTZ` guards naive `datetime` construction. Every reading is stamped before
+# it is written, and the demo feeder carries its own UTC formatter so its
+# lines sort against sensors' by the same clock. The rule is free here —
+# zero violations today — and keeps it that way.
+#
+# `PTH`, `C4`, `PIE`, `RET`, `PERF`, `A` are all clean today; they guard
+# patterns that appear naturally as the codebase grows.
+#
+# `ARG` is clean today. Test doubles and protocol implementations legitimately
+# accept arguments they ignore; the convention is an underscore prefix, which
+# the rule enforces going forward.
+#
+# `S` (bandit) has 333 findings, all `S101` ("use of assert") inside tests/,
+# which is what tests are for. The per-file-ignores below removes them, leaving
+# six false positives across the rest of the repo — each suppressed inline with
+# a reason rather than a blanket file-level ignore, so the next real hit is
+# still visible.
+
+[tool.ruff.lint.per-file-ignores]
+# Every `assert` in the suite trips S101 — all 333 are here, none elsewhere.
+"tests/*" = ["S101"]
 
 [tool.basedpyright]
 include = ["src", "tests", "scripts", "demo", "templates"]

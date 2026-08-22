@@ -130,7 +130,7 @@ def _post(
     context: ssl.SSLContext | None,
 ) -> dict[str, object]:
     credentials = base64.b64encode(f"admin:{password}".encode()).decode()
-    request = urllib.request.Request(
+    request = urllib.request.Request(  # noqa: S310 — URL is a module constant pointing at 127.0.0.1, not attacker-supplied
         endpoint,
         data=json.dumps(payload).encode(),
         headers={
@@ -140,7 +140,7 @@ def _post(
     )
     # urlopen resolves to `Any` here, so both the handle and its read are
     # pinned explicitly rather than letting `Any` leak into the parsing below.
-    opened = urllib.request.urlopen(request, timeout=30, context=context)  # pyright: ignore[reportAny]
+    opened = urllib.request.urlopen(request, timeout=30, context=context)  # noqa: S310  # pyright: ignore[reportAny]
     with opened as response:  # pyright: ignore[reportAny]
         body = cast(bytes, response.read())  # pyright: ignore[reportAny]
     return cast(dict[str, object], json.loads(body.decode()))

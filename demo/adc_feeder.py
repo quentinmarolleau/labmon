@@ -71,7 +71,7 @@ class Channel:
         self._period: float = period_seconds
         self._noise: float = noise
         # Stagger the channels so they don't all peak together.
-        self._phase: float = random.uniform(0, 2 * math.pi)
+        self._phase: float = random.uniform(0, 2 * math.pi)  # noqa: S311 — simulated sensor phase, not cryptographic
 
     def volts_at(self, elapsed: float) -> float:
         drift = self._swing * math.sin(

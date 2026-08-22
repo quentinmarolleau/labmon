@@ -248,13 +248,16 @@ def test_every_datasource_a_dashboard_names_has_a_provisioning_file(
     provisioned = _provisioned_datasources()
     variables = _mappings(_mapping(dashboard["templating"])["list"])
 
-    named: list[tuple[str, object]] = []
-    for panel in panels:
-        if "datasource" in panel:
-            named.append((f"panel {panel.get('title')!r}", panel["datasource"]))
-    for variable in variables:
-        if "datasource" in variable:
-            named.append((f"variable {variable.get('name')!r}", variable["datasource"]))
+    named: list[tuple[str, object]] = [
+        (f"panel {panel.get('title')!r}", panel["datasource"])
+        for panel in panels
+        if "datasource" in panel
+    ]
+    named.extend(
+        (f"variable {variable.get('name')!r}", variable["datasource"])
+        for variable in variables
+        if "datasource" in variable
+    )
 
     for where, reference in named:
         uid = _mapping(reference).get("uid")
