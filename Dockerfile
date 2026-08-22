@@ -12,7 +12,10 @@
 # templates/custom-sensor/Dockerfile, which starts FROM this image.
 
 FROM python:3.14-slim-trixie
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+# Pinned like every other executable this build pulls in. `latest` has
+# broken builds before, and a build that breaks with no change in the
+# repository is expensive to diagnose precisely because the diff is empty.
+COPY --from=ghcr.io/astral-sh/uv:0.12.5 /uv /uvx /bin/
 
 WORKDIR /app
 
