@@ -76,18 +76,30 @@ other services wait for it via `service_completed_successfully`.
 
 ## Exposing the server to the LAN
 
-`docker-compose.yml`'s port bindings (`8181:8181` for InfluxDB, `3000:3000`
-for Grafana) already bind to `0.0.0.0` by default — Compose's short port
-syntax doesn't restrict to `127.0.0.1`. So making the server reachable
-from the rest of the LAN needs no compose changes, just:
+InfluxDB and Grafana bind to `127.0.0.1` by default, so a fresh install
+is reachable only from the machine running it. Making the server
+reachable from the rest of the LAN takes three things:
 
-1. **A stable address for the server.** Either set a DHCP reservation for
+1. **Set `LABMON_BIND_ADDRESS=0.0.0.0` in `.env`**, which publishes both
+   ports on every interface.
+
+   The default is loopback because the quickstart is run on laptops as
+   well as servers, and Grafana answers a login prompt whose default
+   password is `admin`. Publishing that to a café or campus network by
+   default is the wrong trade; a server is a deliberate deployment and
+   can say so in one line.
+
+   **Set a real `GRAFANA_ADMIN_PASSWORD` at the same time.** Opening the
+   port is the moment the default password stops being a local
+   convenience.
+
+2. **A stable address for the server.** Either set a DHCP reservation for
    its LAN IP on your router, or give it a fixed hostname (e.g. via
    `/etc/hosts` on each client, or your router's local DNS if it has one).
    Clients point at this address directly (see
    [`docs/client-setup.md`](client-setup.md)) — there's no service
    discovery (mDNS/Avahi) here, by design, to keep the setup simple.
-2. **Open the two ports on the server's firewall**, if one is active.
+3. **Open the two ports on the server's firewall**, if one is active.
    e.g. on a `ufw`-managed host:
    ```bash
    sudo ufw allow 8181/tcp   # InfluxDB
