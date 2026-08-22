@@ -70,6 +70,17 @@ services:
       - --node-id=${INFLUXDB_NODE_ID}
       - --object-store=file
       - --data-dir=/var/lib/influxdb3/data
+      # Everything influxdb3 emits at steady state is one line per WAL
+      # flush — 86,400 a day, ~2.6M over the default retention window,
+      # and with the `logs` profile on that is the entire stored log.
+      # The line is genuinely diagnostic, so it is lowered rather than
+      # dropped: it reappears at `warn` and above, and `debug` brings it
+      # back in full.
+      #
+      # The two directives before it are influxdb3's own default, which
+      # passing this flag would otherwise replace — dropping them would
+      # re-enable the query-log noise they exist to suppress.
+      - --log-filter=info,iox_query::query_log=warn,influxdb3_query_executor::query_planner=warn,influxdb3_wal::object_store=warn
     volumes:
       - type: bind
         # Path to store data on host system

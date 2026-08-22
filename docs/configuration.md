@@ -61,6 +61,7 @@ Only meaningful on the machine running `docker-compose.yml`.
 | `COMPOSE_PROFILES` | *(unset)* | Which optional services start — see below |
 | `GRAFANA_PLUGINS` | *(unset)* | Panel plugins to preinstall, as `id@version`, comma-separated. Unset means Grafana needs no network at boot |
 | `LOKI_RETENTION_PERIOD` | `720h` | How long a log line is kept, with the `logs` profile active. Never below `24h` — Loki accepts less and cannot honour it |
+| *(not a variable)* `--log-filter` | see `docker-compose.yml` | InfluxDB's log level per module. Lowers the once-a-second WAL flush line, which is otherwise its entire output — see docs/logging.md |
 | `LABMON_TLS_INFLUXDB_SITES` | `https://127.0.0.1:8443` | Addresses the proxy answers on for InfluxDB, with the `tls` profile active. Comma-*and-space* separated; each entry a whole `https://host:port` |
 | `LABMON_TLS_GRAFANA_SITES` | `https://127.0.0.1:3443` | The same for Grafana |
 | `LABMON_TLS_DEFAULT_SNI` | `127.0.0.1` | Which certificate to serve when a client sends no server name, which is what dialling a bare IP does |

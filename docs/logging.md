@@ -180,6 +180,23 @@ gets no such label at all, rather than an empty one. An empty value would
 be a stream of its own and would appear in every label browser in
 Grafana.
 
+### InfluxDB's WAL flush line
+
+InfluxDB emits one line per WAL flush, once a second. At steady state
+that was *everything* it emitted — 86,400 lines a day, around 2.6
+million over the default 30-day retention, and with the `logs` profile
+on it was the entire stored log.
+
+It is lowered rather than dropped, with a `--log-filter` directive in
+`docker-compose.yml`. The line is genuinely diagnostic — it carries
+`n_ops` and `wal_file_number` — so it comes back by raising InfluxDB's
+level for that module, and `debug` restores it in full.
+
+Lowering one module's level is a blunt instrument: what is worth
+keeping for a day and worthless after thirty is a general problem, and
+suppression is the wrong shape for it. A retention tier for
+noisy-but-useful signals is tracked separately.
+
 ### If a container's output never appears
 
 Almost always buffering rather than collection. Python block-buffers stdout
