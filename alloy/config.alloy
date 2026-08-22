@@ -30,7 +30,7 @@ discovery.relabel "containers" {
 loki.source.docker "containers" {
 	host       = "unix:///var/run/docker.sock"
 	targets    = discovery.relabel.containers.output
-	forward_to = [loki.write.local.receiver]
+	forward_to = [loki.process.sensors.receiver]
 }
 
 // A sensor that cannot run in a container runs under systemd instead (see
@@ -90,7 +90,41 @@ loki.source.journal "units" {
 	path          = "/var/log/journal"
 	relabel_rules = discovery.relabel.journal.rules
 	labels        = {job = "systemd-journal"}
-	forward_to    = [loki.write.local.receiver]
+	forward_to    = [loki.process.sensors.receiver]
+}
+
+// Labels a line with the sensor it is about, rather than the container it
+// came from. A reading in InfluxDB is tagged `sensor_id`; without this its
+// log lines are findable only by `container`, so answering "what was this
+// instrument saying while its trace went flat" means knowing which
+// container ran which sensor and translating by hand.
+//
+// Per line rather than per container, because `sensor_id` describes a
+// *reading* and a container label would describe a *process*. Those two
+// coincide only while one container is one sensor — true of the mock
+// sensors, false of `serial-sensor`, where one process reads a calibration
+// file covering several channels and reports each under its own id.
+//
+// So there is one source of truth, the sensor that emitted the line, and
+// renaming a channel in calibration.toml changes the Loki label with no
+// other edit.
+loki.process "sensors" {
+	// Every emitter writes logfmt (see docs/logging.md), so the field is
+	// simply read out. A line without it — InfluxDB's, Grafana's, Alloy's
+	// own — extracts nothing and passes through untouched.
+	stage.logfmt {
+		mapping = {"sensor_id" = ""}
+	}
+
+	// Promotes the extracted value to a label. A line that extracted
+	// nothing gets no label at all rather than an empty one, which matters:
+	// `sensor_id=""` would be a stream of its own and would show up in
+	// every label browser in Grafana.
+	stage.labels {
+		values = {"sensor_id" = ""}
+	}
+
+	forward_to = [loki.write.local.receiver]
 }
 
 loki.write "local" {
