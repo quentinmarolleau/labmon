@@ -120,6 +120,23 @@ def test_only_labmon_units_are_collected_from_the_journal(config: Path) -> None:
     )
 
 
+@_EITHER
+def test_the_journal_source_finds_both_journal_layouts(config: Path) -> None:
+    """Pinning `path` collects nothing on a volatile-journal host.
+
+    Left empty, Alloy reads `/var/log/journal` and `/run/log/journal`
+    both. Setting it to the persistent one alone still works on most
+    machines, so the failure only appears on a host with
+    `Storage=volatile` — where container logs keep arriving and the
+    systemd sensor's silently do not.
+    """
+    body = _block(config, 'loki.source.journal "units"')
+
+    assert not re.search(r"^\s*path\s*=", body, re.MULTILINE), (
+        "the journal source pins a path, so only that directory is read"
+    )
+
+
 def test_a_client_stamps_its_own_name_on_every_line() -> None:
     """Without `host`, two clients are one stream and cannot be separated.
 

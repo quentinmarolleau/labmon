@@ -71,7 +71,11 @@ discovery.relabel "journal" {
 }
 
 loki.source.journal "units" {
-	path          = "/var/log/journal"
+	// No `path`, which is what makes both journal layouts work: left
+	// empty, Alloy reads /var/log/journal and /run/log/journal. A client
+	// keeping logs in memory only (Storage=volatile, common on an SD-card
+	// host) has them in the second, and pinning the first would collect
+	// nothing from it while container logs kept arriving normally.
 	relabel_rules = discovery.relabel.journal.rules
 	labels        = {job = "systemd-journal"}
 	forward_to    = [loki.process.sensors.receiver]
