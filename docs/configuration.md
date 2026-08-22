@@ -58,6 +58,7 @@ Only meaningful on the machine running `docker-compose.yml`.
 |---|---|---|
 | `INFLUXDB_NODE_ID` | *(required)* | Node identifier for the InfluxDB instance |
 | `GRAFANA_ADMIN_PASSWORD` | `admin` | Grafana admin login |
+| `LABMON_BIND_ADDRESS` | `127.0.0.1` | Which address InfluxDB's and Grafana's ports bind to. Loopback by default; a server clients push to sets `0.0.0.0`. Does not affect the `tls` profile's proxy |
 | `COMPOSE_PROFILES` | *(unset)* | Which optional services start — see below |
 | `GRAFANA_PLUGINS` | *(unset)* | Panel plugins to preinstall, as `id@version`, comma-separated. Unset means Grafana needs no network at boot |
 | `LOKI_RETENTION_PERIOD` | `720h` | How long a log line is kept, with the `logs` profile active. Never below `24h` — Loki accepts less and cannot honour it |

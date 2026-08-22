@@ -63,7 +63,11 @@ services:
       init-state-dirs:
         condition: service_completed_successfully
     ports:
-      - "8181:8181"
+      # Loopback by default. Short syntax (`"8181:8181"`) binds every
+      # interface, which on a laptop following the quickstart publishes
+      # this to whatever network it is attached to. A server that clients
+      # push to sets LABMON_BIND_ADDRESS=0.0.0.0 — see docs/deployment.md.
+      - "${LABMON_BIND_ADDRESS:-127.0.0.1}:8181:8181"
     command:
       - influxdb3
       - serve
@@ -113,7 +117,10 @@ services:
       influxdb:
         condition: service_healthy
     ports:
-      - "3000:3000"
+      # Loopback by default, for the reason given on InfluxDB's port
+      # above — more sharply here, since this one answers a login prompt
+      # whose default password is `admin`.
+      - "${LABMON_BIND_ADDRESS:-127.0.0.1}:3000:3000"
     environment:
       - INFLUXDB3_AUTH_TOKEN=${INFLUXDB3_AUTH_TOKEN}
       - INFLUXDB_DATABASE=${INFLUXDB_DATABASE:-lab}
