@@ -268,6 +268,7 @@ def test_the_summary_counts_what_was_skipped(
     ]
 
 
+@pytest.mark.usefixtures("fake_client", "registered_handlers")
 def test_the_summary_reports_points_dropped_by_a_full_queue(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -304,6 +305,7 @@ def test_the_summary_reports_points_dropped_by_a_full_queue(
     assert dropped.levelno == logging.WARNING
 
 
+@pytest.mark.usefixtures("fake_client", "registered_handlers")
 def test_the_summary_is_silent_about_drops_when_there_are_none(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
