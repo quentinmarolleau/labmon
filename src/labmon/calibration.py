@@ -405,7 +405,7 @@ def probe(conversion: Conversion) -> pint.Quantity:
             return conversion.apply(voltage)
         except Exception as error:  # noqa: BLE001 — re-raised below if all fail
             first = first or error
-    assert first is not None
+    assert first is not None  # noqa: S101 — guaranteed non-None after at least one iteration; this is a type-narrowing guard, not a test assertion
     raise first
 
 

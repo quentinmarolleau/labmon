@@ -84,7 +84,7 @@ def _running_containers() -> set[str]:
     """
     try:
         result = subprocess.run(
-            ["docker", "compose", "ps", "--format", "{{.Name}}"],
+            ["docker", "compose", "ps", "--format", "{{.Name}}"],  # noqa: S607 — resolves via PATH on purpose; absolute path breaks cross-machine installs including CI
             capture_output=True,
             text=True,
             check=True,
@@ -118,12 +118,12 @@ def _collected_containers(
 ) -> set[str]:
     """Container names Loki has at least one line for."""
     credentials = base64.b64encode(f"admin:{password}".encode()).decode()
-    request = urllib.request.Request(
+    request = urllib.request.Request(  # noqa: S310 — URL is a module constant pointing at 127.0.0.1, not attacker-supplied
         endpoint, headers={"Authorization": f"Basic {credentials}"}
     )
     try:
         # urlopen resolves to `Any`; pin the handle and its read explicitly.
-        opened = urllib.request.urlopen(request, timeout=30, context=context)  # pyright: ignore[reportAny]
+        opened = urllib.request.urlopen(request, timeout=30, context=context)  # noqa: S310  # pyright: ignore[reportAny]
         with opened as response:  # pyright: ignore[reportAny]
             body = cast(bytes, response.read())  # pyright: ignore[reportAny]
     except urllib.error.HTTPError as error:
