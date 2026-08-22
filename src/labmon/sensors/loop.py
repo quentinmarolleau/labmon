@@ -82,6 +82,7 @@ class SensorLoop:
         self._sensors: frozenset[str] = frozenset(sensors)
         self._written: Counter[str] = Counter()
         self._skipped: Counter[str] = Counter()
+        self._reported_dropped: int = 0
         self._warned: set[str] = set()
         self._next_summary: float = time.monotonic() + (summary_interval or 0.0)
 
@@ -157,6 +158,22 @@ class SensorLoop:
                     "sensor_id": sensor_id,
                     "readings": self._written[sensor_id],
                     "skipped": self._skipped[sensor_id],
+                    "window_s": f"{self._summary_interval:.0f}",
+                },
+            )
+        # Reported apart from `skipped`, and only when it happens.
+        # `skipped` means a reading arrived and could not be converted;
+        # a drop means the reading was fine and storage could not keep
+        # up, which points somewhere else entirely. It is also
+        # writer-wide — one PointWriter carries every channel — so it
+        # cannot honestly be attributed to a single sensor_id.
+        dropped = self.writer.dropped - self._reported_dropped
+        if dropped:
+            self._reported_dropped = self.writer.dropped
+            logger.warning(
+                "dropped readings to keep acquiring",
+                extra={
+                    "dropped": dropped,
                     "window_s": f"{self._summary_interval:.0f}",
                 },
             )

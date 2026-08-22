@@ -269,6 +269,63 @@ def test_the_summary_counts_what_was_skipped(
 
 
 @pytest.mark.usefixtures("fake_client", "registered_handlers")
+def test_the_summary_reports_points_dropped_by_a_full_queue(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Reported apart from `skipped`, because it is a different failure.
+
+    `skipped` counts readings that arrived and could not be converted —
+    a problem with the reading. A drop means the reading was fine and
+    storage could not keep up, which points somewhere else entirely.
+
+    It is also writer-wide rather than per-sensor: one PointWriter
+    carries every channel, so the count cannot honestly be attributed to
+    one of them.
+    """
+    ticks = iter([0.0, sensor_loop.DEFAULT_SUMMARY_INTERVAL_SECONDS + 1.0])
+    monkeypatch.setattr(time, "monotonic", lambda: next(ticks))
+    loop = SensorLoop()
+    loop.record(_point(1.0), "cryo-diode")
+
+    # Stand in for a writer that has been shedding load.
+    def _seven(_self: object) -> int:
+        return 7
+
+    monkeypatch.setattr(type(loop.writer), "dropped", property(_seven))
+
+    with caplog.at_level(logging.INFO, logger=sensor_loop.logger.name):
+        loop.summarise_if_due()
+
+    [dropped] = [
+        r
+        for r in caplog.records
+        if r.getMessage() == "dropped readings to keep acquiring"
+    ]
+    assert _field(dropped, "dropped") == 7
+    assert dropped.levelno == logging.WARNING
+
+
+@pytest.mark.usefixtures("fake_client", "registered_handlers")
+def test_the_summary_is_silent_about_drops_when_there_are_none(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A line every window saying `dropped=0` is noise, not reassurance."""
+    ticks = iter([0.0, sensor_loop.DEFAULT_SUMMARY_INTERVAL_SECONDS + 1.0])
+    monkeypatch.setattr(time, "monotonic", lambda: next(ticks))
+    loop = SensorLoop()
+    loop.record(_point(1.0), "cryo-diode")
+
+    with caplog.at_level(logging.INFO, logger=sensor_loop.logger.name):
+        loop.summarise_if_due()
+
+    assert not [
+        r
+        for r in caplog.records
+        if r.getMessage() == "dropped readings to keep acquiring"
+    ]
+
+
+@pytest.mark.usefixtures("fake_client", "registered_handlers")
 def test_a_sensor_that_only_skipped_is_still_reported(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:

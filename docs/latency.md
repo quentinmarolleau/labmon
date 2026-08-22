@@ -129,18 +129,25 @@ the queue grows at whatever rate the board is streaming.
 | 10 readings/s | ~17 min |
 | 50 readings/s | ~3 min |
 
-Past that, `queue.put()` blocks, and with it the read loop. Backpressure
-then propagates back down the serial link: a measurement against a
-virtual serial port showed roughly 20 KB buffering in the tty layer
-(~2,560 short lines) before the *sender* blocked in turn. Nothing is
-corrupted or silently dropped, but a board whose firmware blocks in
-`SerialUSB.print()` stops sampling on its own schedule until the host
-catches up.
+Past that, the oldest queued point is discarded to make room for the
+newest, and acquisition carries on. For a live instrument the most
+recent reading is the valuable one, and the alternative is worse than
+losing the oldest: blocking there turns a storage outage into an
+acquisition outage. The recording gates stop being evaluated, the
+serial buffer overflows anyway, and the periodic summary that would
+report any of it stops being emitted — so the failure hides precisely
+because the code that reports failures is part of what stopped.
 
-The difference from `mock-sensor` is worth stating plainly: a mock sensor
-paces itself, so a stalled loop simply samples less often. A real board
-sets its own pace and cannot be told to wait, so the consequence lands on
-the firmware instead of on the script.
+Discards are counted and reported. The first one logs a warning
+immediately, and each summary window that lost points reports how many
+as `dropped readings to keep acquiring`. That count is writer-wide
+rather than per-sensor, because one `PointWriter` carries every
+channel.
+
+Note what this policy does **not** preserve: the queue holds a fixed
+number of points, so a long outage is recorded as its final stretch
+rather than its whole span. Keeping the entire window at reduced
+resolution is a better answer and is tracked separately.
 
 At the rates this project actually runs, the queue is oversized by orders
 of magnitude and none of this is reachable. It matters only for a

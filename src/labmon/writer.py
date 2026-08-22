@@ -70,12 +70,53 @@ class PointWriter[T]:
         self._initial_backoff: float = initial_backoff
         self._max_backoff: float = max_backoff
         self._stop: threading.Event = threading.Event()
+        self._dropped: int = 0
+        self._warned_full: bool = False
         self._thread: threading.Thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
+    @property
+    def dropped(self) -> int:
+        """How many points have been discarded to keep acquisition running."""
+        return self._dropped
+
     def write(self, point: T) -> None:
-        """Queue a point to be written; never blocks on network I/O."""
-        self._queue.put(point)
+        """Queue a point to be written; never blocks, on I/O or on space.
+
+        When the queue is full the oldest point is discarded to make room
+        for this one. The newest reading is worth more than the oldest
+        for a live instrument, and the alternative — blocking until the
+        writer catches up — turns a storage outage into an acquisition
+        outage: the serial buffer then overflows anyway, the recording
+        gates stop being evaluated, and the periodic summary that would
+        report any of it stops being emitted. The failure is invisible
+        precisely because the code that reports failures is part of what
+        stops running.
+
+        Drops are counted, and `dropped` is what the caller reports.
+        """
+        while True:
+            try:
+                self._queue.put_nowait(point)
+                return
+            except queue.Full:
+                self._discard_oldest()
+
+    def _discard_oldest(self) -> None:
+        """Make room for one point, counting what that cost."""
+        try:
+            _ = self._queue.get_nowait()
+        except queue.Empty:
+            # The drain thread emptied it between the failed put and
+            # here, which is the outcome we wanted anyway.
+            return
+        self._dropped += 1
+        if not self._warned_full:
+            self._warned_full = True
+            logger.warning(
+                "queue full; dropping oldest readings",
+                extra={"maxsize": self._queue.maxsize},
+            )
 
     def close(self) -> None:
         """Flush any remaining queued points, then stop the writer thread."""
