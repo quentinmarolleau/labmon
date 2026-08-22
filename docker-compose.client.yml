@@ -81,7 +81,14 @@ services:
       - LABMON_LOKI_PUSH_PASSWORD=${LABMON_LOKI_PUSH_PASSWORD}
       # Names this machine in every line it sends. Two clients running the
       # same container names are otherwise one indistinguishable stream.
-      - LABMON_CLIENT_NAME=${LABMON_CLIENT_NAME}
+      #
+      # The default is deliberately conspicuous rather than empty. Loki
+      # treats an empty label value as absent, so an unset name would let
+      # a client's lines blend into the server's own — the exact
+      # ambiguity this label exists to remove. `unnamed-client` shows up
+      # in Grafana's label browser instead, where it reads as a machine
+      # somebody forgot to name.
+      - LABMON_CLIENT_NAME=${LABMON_CLIENT_NAME:-unnamed-client}
       # The same CA the sensor verifies InfluxDB with, read inside the
       # container from the mount below.
       - INFLUXDB_TLS_CA=${INFLUXDB_TLS_CA}

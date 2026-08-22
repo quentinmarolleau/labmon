@@ -133,6 +133,7 @@ LABMON_LOKI_URL=https://192.168.1.50:3444/loki/api/v1/push
 LABMON_LOKI_PUSH_USER=labmon
 LABMON_LOKI_PUSH_PASSWORD=          # copied out of band, as the token was
 LABMON_CLIENT_NAME=pi-optics-bench  # names this machine in every line
+                                    # (default: unnamed-client)
 ```
 
 `LABMON_LOKI_PUSH_PASSWORD` is a different secret from
