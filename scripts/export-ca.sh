@@ -43,6 +43,10 @@ fi
 
 docker compose cp "caddy:${ROOT_IN_CONTAINER}" "$DESTINATION"
 
+# The exported root is public by design. Make it readable to the non-root
+# sensor user when it is bind-mounted into a client container.
+chmod 644 "$DESTINATION"
+
 # Without openssl there is no way to tell a good export from a truncated
 # one. Say that, rather than reporting a file that is probably fine as
 # unreadable — the check is the optional part here, not the export.
