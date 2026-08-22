@@ -180,6 +180,35 @@ gets no such label at all, rather than an empty one. An empty value would
 be a stream of its own and would appear in every label browser in
 Grafana.
 
+### InfluxDB's WAL flush line
+
+A write does not go straight into InfluxDB's long-term storage. It is
+validated in memory and appended to a **write-ahead log** — a WAL, an
+append-only file that makes the write durable before the slower work of
+organising it into queryable form happens. Once a second by default,
+InfluxDB flushes that buffer to the object store and logs a line saying
+so ([InfluxDB 3 Core
+internals](https://docs.influxdata.com/influxdb3/core/reference/internals/durability/)).
+
+That once-a-second interval is the same one that makes a single
+unbatched write cost about a second, which is why `PointWriter` batches
+at all — [`docs/latency.md`](latency.md#why-the-influxdb-write-costs-a-second)
+has the measurements.
+
+One line per second is 86,400 a day and around 2.6 million over the
+default 30-day retention. At steady state it was *everything* InfluxDB
+emitted, so with the `logs` profile on it was the entire stored log.
+
+It is lowered rather than dropped, with a `--log-filter` directive in
+`docker-compose.yml`. The line is genuinely diagnostic — it carries
+`n_ops` and `wal_file_number` — so it comes back by raising InfluxDB's
+level for that module, and `debug` restores it in full.
+
+Lowering one module's level is a blunt instrument: what is worth
+keeping for a day and worthless after thirty is a general problem, and
+suppression is the wrong shape for it. A retention tier for
+noisy-but-useful signals is tracked separately.
+
 ### If a container's output never appears
 
 Almost always buffering rather than collection. Python block-buffers stdout
