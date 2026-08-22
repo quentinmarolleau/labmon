@@ -72,7 +72,12 @@ services:
       # Alloy's own UI, showing each component's health and what it last
       # sent. The first place to look when a client's logs are not
       # arriving — it reports a rejected credential here.
-      - "12345:12345"
+      #
+      # Loopback only. The UI has no authentication and lists component
+      # configuration, endpoints and recently sent data; a client is
+      # somebody's own lab machine, so this stays off the LAN. Reach it
+      # over SSH with `ssh -L 12345:127.0.0.1:12345 <host>`.
+      - "127.0.0.1:12345:12345"
     environment:
       # Where the server's proxy accepts pushes, and what to send with
       # them. All four are required; there is no useful default for any.

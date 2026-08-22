@@ -162,6 +162,15 @@ against `loki.write`, which is the difference between "the password is
 wrong" and "the server cannot be reached" — and worth checking before
 anything else.
 
+It is bound to loopback, since it has no authentication and lists
+component configuration and recently sent data. On the machine itself
+that is [http://localhost:12345](http://localhost:12345); from anywhere
+else, forward it over SSH:
+
+```bash
+ssh -L 12345:127.0.0.1:12345 <client-host>
+```
+
 ## From mock sensor to real hardware
 
 `mock-sensor` only simulates a reading (a mean-reverting random walk) and
