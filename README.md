@@ -12,7 +12,7 @@
   <a href="https://codecov.io/gh/quentinmarolleau/labmon"><img alt="codecov" src="https://codecov.io/gh/quentinmarolleau/labmon/branch/main/graph/badge.svg"></a>
   <a href="https://github.com/DetachHead/basedpyright"><img alt="basedpyright" src="https://img.shields.io/github/actions/workflow/status/quentinmarolleau/labmon/ci.yml?branch=main&amp;label=basedpyright&amp;job=typecheck"></a>
   <a href="https://github.com/astral-sh/ruff"><img alt="Ruff" src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json"></a>
-  <a href="https://github.com/quentinmarolleau/labmon"><img alt="Maturity: alpha" src="https://img.shields.io/badge/maturity-alpha-orange"></a>
+  <a href="https://github.com/quentinmarolleau/labmon"><img alt="Maturity: beta" src="https://img.shields.io/badge/maturity-beta-yellow"></a>
 </p>
 
 <p align="center">
@@ -36,6 +36,7 @@ together visually.*
 - [Quickstart](#quickstart) — running in two minutes, no hardware needed
 - [The dashboard](#the-dashboard) — what Grafana brings along
 - [Connecting a real instrument](#connecting-a-real-instrument)
+- [Logs, next to the measurements](#logs-next-to-the-measurements)
 - [Running it across the lab](#running-it-across-the-lab)
 - [Configuration](docs/configuration.md) — every setting, and where it lives
 - [How it works](#how-it-works)
@@ -63,6 +64,10 @@ together visually.*
 - **Nothing to babysit.** Sensors keep sampling through a network hiccup
   or a server restart and catch up afterwards, rather than losing
   readings or dying.
+- **The logs, in the same place.** Measurements say a reading stopped;
+  they never say why. Every container's output is collected and
+  queryable next to the traces, labelled by the sensor it reports on —
+  from any machine in the lab, not just the server.
 
 Under the hood it is [InfluxDB 3](https://docs.influxdata.com/influxdb3/core/)
 for storage and [Grafana](https://grafana.com/docs/grafana/latest/) for
@@ -209,6 +214,41 @@ having a bad night does not stop the process. The template runs against a
 simulated value before you write any instrument code, so the plumbing can
 be proved first. See [`docs/custom-sensor.md`](docs/custom-sensor.md).
 
+## Logs, next to the measurements
+
+A trace tells you a reading stopped. It never tells you why — that lives
+in some container's output, and by default it is reachable only by
+running `docker compose logs` on the right machine, with no history
+beyond whatever Docker still holds.
+
+The `logs` profile fixes that with two more containers, both Grafana's
+own: **Loki** stores log lines and **Alloy** collects them, from every
+container and from systemd units on the host. They land in the same
+Grafana as the measurements, with a **Logs** dashboard provisioned
+alongside the overview.
+
+```bash
+COMPOSE_PROFILES=demo,logs docker compose up -d --wait
+```
+
+The detail worth knowing is what a line is labelled with. Not the
+container that emitted it, but the **reading it describes**:
+
+```logql
+{sensor_id="cryo-77k"}
+```
+
+That distinction matters because one process can report several
+channels — `serial-sensor` reads a calibration file covering six of
+them, and produces six labelled streams. Since the label is read out of
+the line, renaming a channel in a calibration file changes it with no
+second copy to keep in step.
+
+Client machines ship their logs to the same store, so one query answers
+"why did this stop" for the whole lab rather than for one machine.
+[`docs/logging.md`](docs/logging.md) covers retention, what is logged at
+which level, and the setup.
+
 ## Running it across the lab
 
 Everything above runs on one machine. A real lab is usually three roles
@@ -216,7 +256,7 @@ on a small network:
 
 | Role | Runs | Setup |
 |---|---|---|
-| **Server** | InfluxDB + Grafana, on one always-on machine | [`docs/deployment.md`](docs/deployment.md) |
+| **Server** | InfluxDB + Grafana, plus Loki and Alloy with the `logs` profile, on one always-on machine | [`docs/deployment.md`](docs/deployment.md) |
 | **Clients** | A sensor script, on whatever machine the instrument is wired to (a Raspberry Pi, a lab PC) | [`docs/client-setup.md`](docs/client-setup.md) |
 | **Viewers** | Just a browser | nothing to install |
 
@@ -224,10 +264,24 @@ A client can be a Docker container or a plain Python install — both are
 documented, and a board can equally well be plugged straight into the
 server, in which case there is no client machine at all.
 
-Traffic is plain HTTP by default, deliberately: it assumes a trusted lab
+**A fresh install listens on loopback only**, so trying the quickstart on
+a laptop publishes nothing to the network around it. A server that
+clients push to opens up with one setting:
+
+```bash
+LABMON_BIND_ADDRESS=0.0.0.0
+```
+
+Set a real `GRAFANA_ADMIN_PASSWORD` at the same moment — opening the port
+is when the default stops being a local convenience.
+
+Traffic is then plain HTTP, deliberately: it assumes a trusted lab
 network. Where that assumption does not hold, the `tls` profile puts a
-reverse proxy with its own CA in front of InfluxDB and Grafana, without
-disturbing the clients that have not moved yet — see
+reverse proxy with its own CA in front of InfluxDB, Grafana and Loki's
+log-push endpoint, without disturbing the clients that have not moved
+yet. With it on, the plaintext ports stay closed, so the proxy is the
+only way in rather than an alternative to a door still open beside it —
+see
 [`docs/deployment.md`](docs/deployment.md#encrypting-client-and-viewer-traffic).
 
 ## How it works
@@ -295,17 +349,32 @@ Optional, and skippable with `--no-verify`.
 
 ## Status
 
-Alpha, and honest about it: the software is tested and running, but the
-serial acquisition path has never met a real Arduino Due. Everything
-else — storage, dashboards, networking between machines, resilience — is
-exercised daily against live services.
+**Beta.** The feature set is settled and everything described here runs;
+interfaces may still move between minor versions, and when one does the
+release notes say what to change.
+
+Honest about the one gap: the serial acquisition path has never met a
+real Arduino Due. It is tested end to end against a virtual serial port
+and against a feeder speaking the firmware's wire format, but the last
+centimetre is unproven — check readings against a known voltage before
+trusting them. Everything else — storage, dashboards, networking between
+machines, log collection, resilience — is exercised daily against live
+services, and by a cold-start job that builds the whole stack from
+nothing on every push.
+
+**1.0 means verified against real hardware, and running in at least two
+different labs for at least six months.** That is deliberately slow.
+Monitoring software is trusted by default once installed — nobody
+re-derives whether the number on the dashboard is right — so the version
+number should stay honest about how much has been proven outside one
+bench.
 
 What is planned next lives in
-[issues](https://github.com/quentinmarolleau/labmon/issues). Anything
-agreed to be built carries the `validated` label; ideas still being
-weighed carry `needs-decision`. The
-[v0.2.0-beta milestone](https://github.com/quentinmarolleau/labmon/milestone/1)
-is the set targeted for the first beta.
+[issues](https://github.com/quentinmarolleau/labmon/issues), grouped into
+[milestones](https://github.com/quentinmarolleau/labmon/milestones). Every
+open issue carries a decision: `validated` is agreed and scheduled, and
+`waiting-for-need` is understood and wanted *if* a concrete case appears
+— each of those says in its own thread what would bring it back.
 
 ## Contributing
 
