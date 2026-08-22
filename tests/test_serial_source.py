@@ -72,6 +72,9 @@ def test_parse_reading_ignores_an_empty_read() -> None:
     assert parse_reading(b"") is None
 
 
+_DISALLOWED_CHANNEL = "channel name has a disallowed character or length"
+
+
 def test_parse_reading_ignores_a_blank_line() -> None:
     assert parse_reading(b"\r\n") is None
 
@@ -89,6 +92,19 @@ def test_parse_reading_ignores_a_blank_line() -> None:
         pytest.param(b"A0,-inf\n", "count is not finite", id="negative-inf-count"),
         pytest.param(b",2048\n", "empty channel", id="empty-channel"),
         pytest.param(b"\xff\xfe\n", "not valid UTF-8", id="undecodable-bytes"),
+        # A channel name becomes a permanent, indexed InfluxDB tag and
+        # reaches every log line, so line noise that happens to parse
+        # must not be able to put arbitrary text in either.
+        pytest.param(
+            b"A0\x1b[31m,2048\n", _DISALLOWED_CHANNEL, id="ansi-escape-in-channel"
+        ),
+        pytest.param(b"A 0,2048\n", _DISALLOWED_CHANNEL, id="space-in-channel"),
+        pytest.param(
+            "\u00b5m,2048\n".encode(), _DISALLOWED_CHANNEL, id="non-ascii-channel"
+        ),
+        pytest.param(
+            b"A" * 33 + b",2048\n", _DISALLOWED_CHANNEL, id="over-long-channel"
+        ),
     ],
 )
 def test_parse_reading_skips_a_malformed_line(
@@ -104,6 +120,24 @@ def test_parse_reading_skips_a_malformed_line(
     assert record.getMessage() == "skipping malformed line"
     assert _field(record, "reason") == reason
     assert _field(record, "line") == line
+
+
+@pytest.mark.parametrize(
+    "channel",
+    ["A0", "A15", "temp_1", "ch.2", "x-3", "a" * 32],
+    ids=["board-style", "two-digit", "underscore", "dot", "hyphen", "max-length"],
+)
+def test_parse_reading_accepts_a_reasonable_channel_name(channel: str) -> None:
+    """The constraint has to admit every name a real board would send.
+
+    Guarding the tag namespace is worthless if it also rejects the
+    firmware's own channels, so the accepted set is pinned alongside the
+    rejected one.
+    """
+    reading = parse_reading(f"{channel},2048\n".encode())
+
+    assert reading is not None
+    assert reading.channel == channel
 
 
 def test_read_returns_successive_readings() -> None:

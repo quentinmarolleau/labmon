@@ -14,7 +14,7 @@ from labmon.calibration import Calibration, LinearConversion, ureg
 from labmon.gate import StopRecordingRule
 from labmon.sensors import loop as sensor_loop
 from labmon.sensors import serial_sensor
-from labmon.sensors.serial_sensor import main, run
+from labmon.sensors.serial_sensor import MAX_WARNED_CHANNELS, main, run
 from labmon.sensors.serial_source import RawReading
 
 SignalHandler = Callable[[int, FrameType | None], None]
@@ -369,6 +369,51 @@ def test_run_warns_once_per_uncalibrated_channel(
     assert _field(warnings[0], "channel") == "A7"
     [batch] = fake_client.batches
     assert len(batch) == 1
+
+
+def test_run_stops_tracking_uncalibrated_channels_past_the_cap(
+    fake_client: FakeInfluxClient,
+    registered_handlers: dict[int, SignalHandler],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The warned-channel set must not grow with the input forever.
+
+    Warning once per channel means remembering every channel seen. A
+    board — or line noise that parses — producing endlessly novel names
+    would otherwise grow that set for as long as the process runs, which
+    on a sensor left up for months is a leak.
+    """
+    novel: list[RawReading | None] = [
+        RawReading(channel=f"ch{index}", raw_count=1)
+        for index in range(MAX_WARNED_CHANNELS + 5)
+    ]
+    source = FakeRawSource(novel)
+
+    with caplog.at_level(logging.WARNING), pytest.raises(_StopLoop):
+        run(source=source, calibrations={"A0": _temperature_calibration()})
+
+    with pytest.raises(SystemExit):
+        registered_handlers[signal.SIGINT](signal.SIGINT, None)
+
+    per_channel = [
+        r
+        for r in caplog.records
+        if r.getMessage() == "no calibration for channel; ignoring its readings"
+    ]
+    assert len(per_channel) == MAX_WARNED_CHANNELS
+
+    # And it says so once, rather than going quiet and leaving the
+    # operator to wonder why the warnings stopped.
+    [capped] = [
+        r
+        for r in caplog.records
+        if r.getMessage() == "too many uncalibrated channels; not naming any more"
+    ]
+    assert _field(capped, "limit") == MAX_WARNED_CHANNELS
+
+    # None of it was recorded: an uncalibrated channel has no conversion,
+    # so there is nothing to write whether or not it was warned about.
+    assert fake_client.batches == []
 
 
 def test_run_honours_a_custom_adc_resolution_and_reference(

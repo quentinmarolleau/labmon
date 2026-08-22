@@ -57,6 +57,13 @@ measurement = "temperature"
 conversion_factor = "42.5 kelvin / volt"
 ```
 
+A channel name is what the board sends before the comma, and it may use
+letters, digits, `_`, `.` and `-`, up to 32 characters. A reading whose
+channel falls outside that is discarded with a warning rather than
+recorded: the name becomes an indexed InfluxDB tag and appears in every
+log line for that channel, so line noise that happens to split on a
+comma must not be able to write into either.
+
 Where the unit can be **derived** it is, rather than declared: volts
 times a factor in `kelvin / volt` gives kelvin, so `linear` and `affine`
 have no unit to state (or get wrong). The interpolation and expression

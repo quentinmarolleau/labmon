@@ -222,6 +222,8 @@ the source, so grepping for that finds them all.
 | `CALIBRATION_ID_LENGTH`, `FINGERPRINT_SIGNIFICANT_DIGITS` | Re-tags every calibration, so a new id never matches one in the database |
 | `VOLTAGE_SYMBOL` | Invalidates every `expression` conversion in every calibration file at once |
 | `_FIELD_SEPARATOR`, `_FIELDS_PER_LINE` | Breaks the wire contract: readings stop parsing until the board is reflashed to match |
+| `_CHANNEL_PATTERN` | Widening it lets arbitrary text become a permanent InfluxDB tag; narrowing it stops a board's existing channels parsing |
+| `MAX_WARNED_CHANNELS` | Only how many uncalibrated channels are named in the log before the warnings stop naming them |
 
 Everything else with a `DEFAULT_` prefix is the default of a parameter
 next to it, and can be changed by passing a value — which survives an

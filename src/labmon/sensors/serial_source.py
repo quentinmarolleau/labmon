@@ -20,6 +20,7 @@ physical quantity is `labmon.calibration`'s job.
 
 import logging
 import math
+import re
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -33,6 +34,19 @@ logger: logging.Logger = logging.getLogger(__name__)
 # to match.
 _FIELD_SEPARATOR = ","
 _FIELDS_PER_LINE = 2
+
+# What a channel name is allowed to be. A name that survives parsing
+# becomes an InfluxDB tag — indexed, and effectively permanent — and
+# reaches every log line reporting that channel, so line noise that
+# happens to split on a comma must not be able to put arbitrary text in
+# either place.
+#
+# Derived from the names that actually occur rather than guessed: the
+# reference firmware and every calibration file in the repository use
+# `A0`-`A5`. This admits those with room to spare, and rejects the two
+# things that motivated it — terminal escape sequences, and names long
+# or novel enough to grow `warned_channels` without bound.
+_CHANNEL_PATTERN = re.compile(r"[A-Za-z0-9_.-]{1,32}\Z")
 
 # Long enough not to spin, short enough that a stop request is noticed
 # promptly: read() returns None on timeout, so the caller's loop keeps
@@ -99,6 +113,16 @@ def parse_reading(line: bytes) -> RawReading | None:
         logger.warning(
             "skipping malformed line",
             extra={"reason": "empty channel", "line": line},
+        )
+        return None
+
+    if not _CHANNEL_PATTERN.match(channel):
+        logger.warning(
+            "skipping malformed line",
+            extra={
+                "reason": "channel name has a disallowed character or length",
+                "line": line,
+            },
         )
         return None
 

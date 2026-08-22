@@ -48,6 +48,12 @@ from labmon.sensors.serial_source import (
 
 logger: logging.Logger = logging.getLogger(__name__)
 
+# How many uncalibrated channels are named individually before the
+# warnings give up. Comfortably above any real board — the reference
+# sketch has six analog inputs — and low enough that the set cannot
+# become a memory problem on a process left running for months.
+MAX_WARNED_CHANNELS = 64
+
 # INVARIANT (see docs/configuration.md): the three names below are the
 # schema every stored reading was written under. Changing one splits the
 # history in two — rows already in InfluxDB keep the old name, and no
@@ -125,7 +131,15 @@ def run(
 
     # A board may stream channels this host has no calibration for;
     # warn once each rather than on every reading forever.
+    #
+    # Bounded, because remembering every channel seen is a leak if the
+    # names never stop being novel. Parsing constrains a channel to 32
+    # characters from a small alphabet, which rules out most line noise
+    # but still leaves far more names than a board could legitimately
+    # have. Past the cap the warnings stop naming channels; the readings
+    # were already being discarded either way.
     warned_channels: set[str] = set()
+    warned_channel_cap_reported = False
 
     # One gate per channel, since each carries its own deadband state:
     # sharing one would let an instrument being off silence a channel
@@ -155,11 +169,18 @@ def run(
             calibration = calibrations.get(reading.channel)
             if calibration is None:
                 if reading.channel not in warned_channels:
-                    warned_channels.add(reading.channel)
-                    logger.warning(
-                        "no calibration for channel; ignoring its readings",
-                        extra={"channel": reading.channel},
-                    )
+                    if len(warned_channels) < MAX_WARNED_CHANNELS:
+                        warned_channels.add(reading.channel)
+                        logger.warning(
+                            "no calibration for channel; ignoring its readings",
+                            extra={"channel": reading.channel},
+                        )
+                    elif not warned_channel_cap_reported:
+                        warned_channel_cap_reported = True
+                        logger.warning(
+                            "too many uncalibrated channels; not naming any more",
+                            extra={"limit": MAX_WARNED_CHANNELS},
+                        )
                 continue
 
             voltage = raw_to_voltage(reading.raw_count, resolution_bits, v_ref)
