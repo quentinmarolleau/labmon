@@ -70,9 +70,14 @@ services:
       - --node-id=${INFLUXDB_NODE_ID}
       - --object-store=file
       - --data-dir=/var/lib/influxdb3/data
-      # Everything influxdb3 emits at steady state is one line per WAL
-      # flush — 86,400 a day, ~2.6M over the default retention window,
-      # and with the `logs` profile on that is the entire stored log.
+      # Everything influxdb3 emits at steady state is one line per
+      # write-ahead-log flush: a write is appended to the WAL for
+      # durability, and once a second that buffer is flushed to the
+      # object store and the flush is logged. That is 86,400 lines a
+      # day, ~2.6M over the default retention window, and with the
+      # `logs` profile on it is the entire stored log. See
+      # docs/logging.md, and docs/latency.md for why the same interval
+      # sets the cost of a single write.
       # The line is genuinely diagnostic, so it is lowered rather than
       # dropped: it reappears at `warn` and above, and `debug` brings it
       # back in full.

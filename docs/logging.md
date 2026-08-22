@@ -182,10 +182,22 @@ Grafana.
 
 ### InfluxDB's WAL flush line
 
-InfluxDB emits one line per WAL flush, once a second. At steady state
-that was *everything* it emitted — 86,400 lines a day, around 2.6
-million over the default 30-day retention, and with the `logs` profile
-on it was the entire stored log.
+A write does not go straight into InfluxDB's long-term storage. It is
+validated in memory and appended to a **write-ahead log** — a WAL, an
+append-only file that makes the write durable before the slower work of
+organising it into queryable form happens. Once a second by default,
+InfluxDB flushes that buffer to the object store and logs a line saying
+so ([InfluxDB 3 Core
+internals](https://docs.influxdata.com/influxdb3/core/reference/internals/durability/)).
+
+That once-a-second interval is the same one that makes a single
+unbatched write cost about a second, which is why `PointWriter` batches
+at all — [`docs/latency.md`](latency.md#why-the-influxdb-write-costs-a-second)
+has the measurements.
+
+One line per second is 86,400 a day and around 2.6 million over the
+default 30-day retention. At steady state it was *everything* InfluxDB
+emitted, so with the `logs` profile on it was the entire stored log.
 
 It is lowered rather than dropped, with a `--log-filter` directive in
 `docker-compose.yml`. The line is genuinely diagnostic — it carries
