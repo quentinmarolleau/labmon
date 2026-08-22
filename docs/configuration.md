@@ -201,6 +201,12 @@ ten thousand points is about a hundred seconds at 100 Hz, or most of a
 day at one reading every five seconds. [`docs/latency.md`](latency.md)
 has the measurements.
 
+Once it is full, the oldest point is dropped to make room for the newest
+and acquisition continues — a monitoring system is better served by
+current data than by a stalled sampling loop. Drops are counted, warned
+about once, and reported per summary window, so shedding load is never
+silent.
+
 A sensor built on `SensorLoop` takes a writer rather than forwarding each
 of these:
 

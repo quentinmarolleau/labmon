@@ -1,4 +1,5 @@
 import logging
+import queue
 import threading
 import time
 
@@ -61,6 +62,139 @@ class AlwaysFailingClient[T]:
 
     def close(self) -> None:
         self.closed.set()
+
+
+class StalledClient[T]:
+    """Blocks inside write() until released, so the queue can be filled.
+
+    Parking the drain thread *inside* the client makes the queue's
+    contents deterministic: nothing is being taken off it while the test
+    puts points on.
+    """
+
+    def __init__(self) -> None:
+        self.entered: threading.Event = threading.Event()
+        self.release: threading.Event = threading.Event()
+        self.batches: list[list[T]] = []
+        self.closed: threading.Event = threading.Event()
+
+    def write(self, batch: list[T]) -> None:
+        self.batches.append(list(batch))
+        self.entered.set()
+        _ = self.release.wait(timeout=5)
+
+    def close(self) -> None:
+        self.closed.set()
+
+
+def _stalled_writer(maxsize: int) -> tuple[PointWriter[int], StalledClient[int]]:
+    """A writer whose drain thread is parked inside the client."""
+    client = StalledClient[int]()
+    writer = PointWriter[int](client, maxsize=maxsize)
+    writer.write(0)
+    assert client.entered.wait(timeout=5), "drain thread never reached the client"
+    return writer, client
+
+
+def test_a_full_queue_drops_the_oldest_and_keeps_acquiring() -> None:
+    """The point of the policy: an outage must not stop acquisition.
+
+    Blocking here would convert a storage outage into an acquisition
+    outage, and silently — the summary that would report it is emitted
+    by the loop that would have stopped.
+    """
+    writer, client = _stalled_writer(maxsize=3)
+
+    for point in (1, 2, 3, 4, 5):
+        writer.write(point)
+
+    assert writer.dropped == 2
+
+    client.release.set()
+    writer.close()
+
+    written = [point for batch in client.batches for point in batch]
+    assert written == [0, 3, 4, 5], "the newest points should survive, not the oldest"
+
+
+def test_dropping_warns_once_rather_than_per_point(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A full queue is a per-point event; one line is enough to say so."""
+    writer, client = _stalled_writer(maxsize=2)
+
+    with caplog.at_level(logging.WARNING):
+        for point in range(1, 8):
+            writer.write(point)
+
+    client.release.set()
+    writer.close()
+
+    dropped = [
+        r
+        for r in caplog.records
+        if r.getMessage() == "queue full; dropping oldest readings"
+    ]
+    assert len(dropped) == 1
+    assert dropped[0].__dict__["maxsize"] == 2
+
+
+def test_dropped_is_zero_while_the_queue_has_room() -> None:
+    client = FakeClient[int]()
+    writer = PointWriter[int](client, maxsize=100)
+
+    for point in range(10):
+        writer.write(point)
+    writer.close()
+
+    assert writer.dropped == 0
+
+
+def test_a_queue_drained_mid_discard_costs_no_point() -> None:
+    """The narrow race between a failed put and the discard that follows.
+
+    `put_nowait` can fail on a full queue, and the drain thread can then
+    empty it before `_discard_oldest` reaches for a point. Nothing should
+    be counted as dropped: the space it was trying to make appeared on
+    its own, which is the outcome that was wanted.
+
+    Modelled by failing the *first* get only, which is what the real race
+    looks like — a genuinely empty queue accepts the retried put, so the
+    loop terminates rather than spinning.
+    """
+    client = StalledClient[int]()
+    writer = PointWriter[int](client, maxsize=1)
+    writer.write(0)
+    assert client.entered.wait(timeout=5)
+
+    queue_ = writer._queue  # pyright: ignore[reportPrivateUsage]
+    real_get = queue_.get_nowait
+    calls = 0
+
+    def _empty_once() -> int:
+        """Stand in for the drain thread winning the race.
+
+        It takes the point *and* reports the queue as empty, which is
+        exactly what `_discard_oldest` observes when the drain thread
+        gets there first.
+        """
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            _ = real_get()
+            raise queue.Empty
+        return real_get()
+
+    queue_.put_nowait(1)
+    queue_.get_nowait = _empty_once
+    writer.write(2)
+    queue_.get_nowait = real_get
+
+    assert calls == 1, "the discard should have reached for a point exactly once"
+    assert writer.dropped == 0, "no point was actually discarded"
+
+    client.release.set()
+    writer.close()
 
 
 def test_write_does_not_block_the_caller() -> None:
