@@ -86,7 +86,11 @@ jobs:
             printf 'LABMON_TLS_GRAFANA_SITES="https://127.0.0.1:3443, https://caddy:3443"\n'
             printf 'LABMON_TLS_LOKI_SITES="https://127.0.0.1:3444, https://caddy:3444"\n'
             printf 'LABMON_LOKI_PUSH_USER=labmon\n'
-            printf 'LABMON_LOKI_PUSH_HASH=%s\n' "$hash"
+            # Single-quoted: a bcrypt hash is full of `$`, and compose
+            # expands an unquoted `$name` in .env as a variable, cutting
+            # that span out of the hash. Every push would then 401, with
+            # the config looking correct.
+            printf "LABMON_LOKI_PUSH_HASH='%s'\n" "$hash"
           } >> .env
           COMPOSE_PROFILES=demo,logs,tls docker compose up -d --wait caddy
 

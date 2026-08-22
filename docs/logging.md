@@ -237,6 +237,17 @@ That prompts for a password and prints a bcrypt hash. The hash goes in
 `LABMON_TLS_LOKI_SITES` lists the addresses clients dial — the same form
 as the other two lists in `.env.example`.
 
+Quote the hash, exactly as `.env.example` has it:
+
+```dotenv
+LABMON_LOKI_PUSH_HASH='$2a$14$...'
+```
+
+Bcrypt hashes are full of `$`, and compose expands an unquoted `$name`
+in `.env` as a variable — an unset one, so that span of the hash is
+replaced by nothing and every push is refused with no indication why.
+Single quotes are what suppresses it; double quotes do not.
+
 Until that is set the endpoint refuses every credential. The hash shipped
 in `docker-compose.yml` is bcrypt of random bytes nobody kept, so no
 password matches it: publishing the port does not open anything.
