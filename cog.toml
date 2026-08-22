@@ -1,0 +1,52 @@
+# Release configuration for cocogitto (https://docs.cocogitto.io).
+#
+# The commit history already follows Conventional Commits, so the
+# changelog and the version number are both derived from it rather than
+# maintained by hand. `cog bump` writes CHANGELOG.md, updates the version
+# in pyproject.toml through the hook below, commits, and tags.
+
+# Merge commits carry no type and would appear as noise in every entry.
+# Every change reaches main through a squashed or merged PR whose own
+# commits are conventional, and those are what the changelog is built
+# from.
+ignore_merge_commits = true
+
+# Releases are cut from main only.
+branch_whitelist = ["main"]
+
+# Tags are `v0.2.0`, matching the milestone names and the repository's
+# existing references to them.
+tag_prefix = "v"
+
+# `cog bump --auto --pre` produces beta.1, beta.2, ... rather than the
+# alpha default: the project is past alpha as of the first tagged
+# release.
+pre = "beta.*"
+
+# The version in pyproject.toml is the one users see in `pip show` and
+# in the built image, so it has to move with the tag rather than drift
+# behind it. `uv version` rewrites it in place; adding the file to the
+# bump commit is what keeps the two in step.
+#
+# The two are spelled differently on purpose. Tags are SemVer, which is
+# what cog speaks and what the milestones are named after; pyproject is
+# PEP 440, which is what Python packaging requires. `uv version`
+# normalises between them, so `v0.2.0-beta.1` becomes `0.2.0b1` in the
+# package. Same version, two conventions — not a drift to correct.
+pre_bump_hooks = [
+    "uv version {{version}}",
+    "uv lock",
+    "git add pyproject.toml uv.lock",
+]
+
+[changelog]
+path = "CHANGELOG.md"
+# Links commit hashes, issues and authors back to GitHub, which is where
+# the changelog is read.
+template = "remote"
+remote = "github.com"
+repository = "labmon"
+owner = "quentinmarolleau"
+authors = [
+    { signature = "Quentin Marolleau", username = "quentinmarolleau" },
+]

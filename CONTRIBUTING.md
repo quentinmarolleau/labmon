@@ -109,6 +109,43 @@ for when you've been using `--no-verify`.
   testing it would only prove Python's own import mechanism works, not
   our code). Don't reach for it to avoid writing a real test.
 
+## Releasing
+
+Versions and the changelog are both derived from the commit history by
+[cocogitto](https://docs.cocogitto.io), configured in `cog.toml`. Nothing
+here is written by hand, which is the reason the commit conventions above
+are enforced rather than encouraged.
+
+One GitHub milestone is one minor version. A release is cut when its
+milestone closes:
+
+```bash
+git switch main && git pull
+cog bump --dry-run --auto      # inspect the version it derives
+cog bump --auto                # or --version 0.2.0-beta.1 to pin it
+git push --follow-tags
+```
+
+That writes `CHANGELOG.md`, updates the version in `pyproject.toml` and
+`uv.lock`, commits, and tags. Then publish a GitHub release against the
+tag, with prose that says what the version *does* — the generated
+changelog says what changed, which is not the same thing.
+
+Two things that will stop a bump, both deliberately:
+
+- **A dirty or untracked tree.** Releases are cut from exactly what is
+  committed. Working files belong in `.gitignore`.
+- **Being on the wrong branch.** `branch_whitelist` is `main`.
+
+Tags are SemVer (`v0.2.0-beta.1`) because that is what cog and the
+milestones use. `pyproject.toml` is PEP 440 (`0.2.0b1`) because that is
+what Python packaging requires. `uv version` converts between them; the
+two spellings are the same version, not a drift.
+
+Before 1.0, a minor version may change behaviour a deployment has to act
+on. Say so in the release notes, under its own heading, with the change
+required — see `v0.2.0-beta.1` and the port binding.
+
 ## Conduct
 
 Participation is covered by the
