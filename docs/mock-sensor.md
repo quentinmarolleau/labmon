@@ -15,22 +15,22 @@ For reading an actual board rather than simulating one, see
 ```bash
 # Defaults: sensor-id "mock-sensor-1", measurement "temperature", setpoint
 # 21, one reading every 5s
-uv run mock-sensor
+uv run labmon mock-sensor
 
 # A second room temperature sensor, sampled every second
-uv run mock-sensor --sensor-id room-2 --setpoint 22 --interval 1 --unit "°C"
+uv run labmon mock-sensor --sensor-id room-2 --setpoint 22 --interval 1 --unit "°C"
 
 # A cryogenic zone sensor
-uv run mock-sensor --sensor-id cryo-77k --setpoint 77 --noise 0.3 --unit K
+uv run labmon mock-sensor --sensor-id cryo-77k --setpoint 77 --noise 0.3 --unit K
 
 # A vacuum gauge: values spanning orders of magnitude need --log-scale
 # (see below) so noise/mean-reversion scale multiplicatively, not by a
 # fixed absolute amount
-uv run mock-sensor --sensor-id chamber-1 --measurement pressure \
+uv run labmon mock-sensor --sensor-id chamber-1 --measurement pressure \
   --setpoint 1e-7 --noise 0.05 --log-scale --unit mbar
 
 # Full option list
-uv run mock-sensor --help
+uv run labmon mock-sensor --help
 ```
 
 Stop with Ctrl+C (or `docker stop`/`kill` if run as a service) — the
@@ -127,7 +127,7 @@ containerized mock sensors need the Docker network hostname
 host-side run like this one needs `http://localhost:8181` (the default
 above) — one `.env` value can't satisfy both, so set it inline for an
 ad hoc host-side run only, e.g. `INFLUXDB_HOST=http://elsewhere:8181
-uv run mock-sensor ...`.
+uv run labmon mock-sensor ...`.
 
 ## Inspecting written data
 

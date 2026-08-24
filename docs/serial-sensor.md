@@ -5,7 +5,7 @@ InfluxDB. This is the non-mock counterpart to
 [`docs/mock-sensor.md`](mock-sensor.md), which simulates readings instead.
 
 ```bash
-uv run serial-sensor --port /dev/labmon-due --calibration calibration.toml
+uv run labmon serial-sensor --port /dev/labmon-due --calibration calibration.toml
 ```
 
 ## How a reading becomes a data point
@@ -456,7 +456,7 @@ exercises the tty layer:
 socat -d -d pty,raw,echo=0 pty,raw,echo=0
 
 # Terminal 2 — read one end
-uv run serial-sensor --port /dev/pts/N --calibration calibration.toml
+uv run labmon serial-sensor --port /dev/pts/N --calibration calibration.toml
 
 # Terminal 3 — feed the other end
 printf 'A0,2048\r\n' > /dev/pts/M
