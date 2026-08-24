@@ -18,6 +18,7 @@ from decimal import ROUND_HALF_EVEN, Decimal
 from influxdb_client_3 import Point
 
 from labmon.influx import influx_database
+from labmon.sensors import constants
 from labmon.sensors.loop import DEFAULT_SUMMARY_INTERVAL_SECONDS, SensorLoop
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -26,7 +27,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 # Significant digits rather than decimal places because a mock sensor may
 # sit anywhere on the scale: the demo alone spans 4 K and 1.5e-7 mbar, and
 # a fixed number of decimals reports one of those as zero.
-DEFAULT_SIGNIFICANT_DIGITS = 6
+DEFAULT_SIGNIFICANT_DIGITS = constants.DEFAULT_SIGNIFICANT_DIGITS
 
 
 def quantise(

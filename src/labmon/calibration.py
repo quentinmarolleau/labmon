@@ -42,6 +42,7 @@ from typing import Protocol, cast, override
 import pint
 from asteval import Interpreter
 
+from labmon import adc
 from labmon.gate import StopRecordingRule
 
 ureg: pint.UnitRegistry = pint.UnitRegistry()
@@ -49,8 +50,12 @@ ureg: pint.UnitRegistry = pint.UnitRegistry()
 # Defaults describing a common 3.3V, 12-bit ADC. Nothing here is tied to
 # a particular board: a 10-bit part running at 5V just passes its own
 # values instead.
-ADC_RESOLUTION_BITS = 12
-ADC_VREF_VOLTS = 3.3
+#
+# Defined in `labmon.adc` and re-exported here, so that the command line
+# can use them as option defaults — evaluated at import — without paying
+# for this module's `pint` import on every --help and every completion.
+ADC_RESOLUTION_BITS = adc.ADC_RESOLUTION_BITS
+ADC_VREF_VOLTS = adc.ADC_VREF_VOLTS
 
 # The name an `expression` conversion uses for the measured voltage.
 # INVARIANT (see docs/configuration.md): every `expression` in every

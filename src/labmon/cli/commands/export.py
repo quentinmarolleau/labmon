@@ -3,10 +3,8 @@
 import logging
 import sys
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
-import pyarrow as pa
-import pyarrow.compute as pc
 import typer
 
 from labmon.cli import selection
@@ -20,15 +18,12 @@ from labmon.cli.options import (
     format_help,
 )
 from labmon.cli.runtime import configure
-from labmon.export.table import attach_metadata
-from labmon.export.window import Window
-from labmon.export.writers import (
-    SUFFIXES,
-    ExportError,
-    safe_filename_part,
-    write,
-    write_stdout,
-)
+from labmon.export.formats import SUFFIXES, ExportError
+
+if TYPE_CHECKING:
+    import pyarrow as pa
+
+    from labmon.export.window import Window
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -116,8 +111,11 @@ def with_suffix(output: str, fmt: str) -> Path:
     return path.with_name(path.name + SUFFIXES[fmt])
 
 
-def split_tables(table: pa.Table) -> list[tuple[str, pa.Table]]:
+def split_tables(table: "pa.Table") -> "list[tuple[str, pa.Table]]":
     """One (sensor_id, rows) pair per sensor, in a stable order."""
+    import pyarrow as pa
+    import pyarrow.compute as pc
+
     column = table.column("sensor_id")
     values = column.to_pylist()
     sensors = sorted({"unnamed" if value is None else str(value) for value in values})
@@ -131,7 +129,10 @@ def split_tables(table: pa.Table) -> list[tuple[str, pa.Table]]:
     return parts
 
 
-def _write_split(table: pa.Table, target: Path, fmt: str, window: Window) -> None:
+def _write_split(table: "pa.Table", target: Path, fmt: str, window: "Window") -> None:
+    from labmon.export.table import attach_metadata
+    from labmon.export.writers import safe_filename_part, write
+
     suffix = target.suffix or SUFFIXES[fmt]
     stem = target.stem if target.suffix else target.name
     for sensor, rows in split_tables(table):
@@ -151,6 +152,9 @@ def export(
     log_level: LogLevelOption = "INFO",  # pyright: ignore[reportArgumentType]
 ) -> None:
     """Export recorded readings to a file a notebook can open."""
+    from labmon.export.table import attach_metadata
+    from labmon.export.writers import write, write_stdout
+
     configure(log_level)
     fmt = infer_format(output, format)
 

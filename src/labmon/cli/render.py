@@ -5,7 +5,10 @@ every column and full precision so nothing is lost, while a terminal
 wants the few columns that carry meaning, aligned, in a width that fits.
 """
 
-import pyarrow as pa
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import pyarrow as pa
 
 # Columns worth a terminal's width, in reading order. `calibration_id` and
 # `input_volts` are deliberately absent: they are provenance, they are in
@@ -23,11 +26,11 @@ PREFERRED_COLUMNS: tuple[str, ...] = (
 DEFAULT_LIMIT = 20
 
 
-def _is_all_null(column: pa.ChunkedArray) -> bool:
+def _is_all_null(column: "pa.ChunkedArray") -> bool:
     return all(value is None for value in column.to_pylist())
 
 
-def visible_columns(table: pa.Table) -> list[str]:
+def visible_columns(table: "pa.Table") -> list[str]:
     """Which of the preferred columns this result actually has content in.
 
     A measurement written by something other than labmon may carry no
@@ -57,7 +60,7 @@ def _cell(name: str, value: object) -> str:
     return str(value)
 
 
-def render(table: pa.Table, limit: int = DEFAULT_LIMIT) -> str:
+def render(table: "pa.Table", limit: int = DEFAULT_LIMIT) -> str:
     """Format `table` as an aligned table, most recent rows last.
 
     A limit of 0 means every row. When rows are dropped, the footer says

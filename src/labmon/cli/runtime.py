@@ -10,13 +10,7 @@ import functools
 import logging
 from collections.abc import Callable
 
-from influxdb_client_3.exceptions.exceptions import InfluxDB3ClientError
-
 from labmon import logs
-from labmon.export.query import QueryError
-from labmon.export.window import WindowError
-from labmon.export.writers import ExportError
-from labmon.influx import influx_host
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -61,6 +55,18 @@ def reporting[**P](command: Callable[P, None]) -> Callable[P, None]:
 
 
 def _report(action: Callable[[], None]) -> None:
+    # Imported here rather than at module scope. Between them the
+    # InfluxDB client and the export package cost about 0.3s to load,
+    # and this module is imported by every command including the ones
+    # that never touch a database — and by tab completion, which never
+    # reaches this function at all.
+    from influxdb_client_3.exceptions.exceptions import InfluxDB3ClientError
+
+    from labmon.export.query import QueryError
+    from labmon.export.window import WindowError
+    from labmon.export.writers import ExportError
+    from labmon.influx import influx_host
+
     try:
         action()
     except (ExportError, QueryError, WindowError) as error:

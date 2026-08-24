@@ -6,9 +6,10 @@ import typer
 
 from labmon.cli.options import LogLevelOption, SummaryInterval
 from labmon.cli.runtime import configure
-from labmon.sensors import mock_sensor as sensor
-from labmon.sensors.loop import DEFAULT_SUMMARY_INTERVAL_SECONDS
-from labmon.sensors.mock_sensor import DEFAULT_SIGNIFICANT_DIGITS
+from labmon.sensors.constants import (
+    DEFAULT_SIGNIFICANT_DIGITS,
+    DEFAULT_SUMMARY_INTERVAL_SECONDS,
+)
 
 HELP = (
     "Write simulated readings to InfluxDB, for trying the stack without"
@@ -93,6 +94,8 @@ def mock_sensor(
     log_level: LogLevelOption = "INFO",  # pyright: ignore[reportArgumentType]
 ) -> None:
     """Write simulated readings, for trying the stack without hardware."""
+    from labmon.sensors import mock_sensor as sensor
+
     configure(log_level)
     # Called through the module rather than a bound name so a test
     # can replace it, and so a reload sees the new function.

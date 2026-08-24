@@ -9,7 +9,6 @@ import pyarrow.parquet as pq
 import pytest
 from typer.testing import CliRunner, Result
 
-from labmon.cli import selection
 from labmon.cli.commands import export as export_cmd
 from labmon.cli.main import build_app
 from labmon.cli.options import Format
@@ -70,7 +69,7 @@ class FakeClient:
 @pytest.fixture
 def fake_client(monkeypatch: pytest.MonkeyPatch) -> FakeClient:
     client = FakeClient()
-    monkeypatch.setattr(selection, "get_client", lambda: client)
+    monkeypatch.setattr("labmon.influx.get_client", lambda: client)
     return client
 
 
@@ -238,7 +237,7 @@ def test_an_empty_result_still_writes_a_file(
 ) -> None:
     # A window that matched nothing is an answer, and a script checking
     # for the file should find one rather than an absence.
-    monkeypatch.setattr(selection, "get_client", Empty)
+    monkeypatch.setattr("labmon.influx.get_client", Empty)
     target = tmp_path / "run.csv"
 
     _ = _run("-o", str(target))
@@ -253,7 +252,7 @@ def test_an_empty_result_warns(
     # Read the runner's stderr rather than caplog: the command calls
     # logs.configure(), which passes force=True and therefore removes the
     # handler caplog installs. stderr is also where an operator sees it.
-    monkeypatch.setattr(selection, "get_client", Empty)
+    monkeypatch.setattr("labmon.influx.get_client", Empty)
 
     result = _run("-o", str(tmp_path / "run.csv"))
 

@@ -178,10 +178,8 @@ def test_the_serial_sensor_passes_its_settings_through(
     def fake_run(**kwargs: object) -> None:
         captured.append(kwargs)
 
-    monkeypatch.setattr("labmon.cli.commands.serial_sensor.open_serial_port", fake_open)
-    monkeypatch.setattr(
-        "labmon.cli.commands.serial_sensor.SerialRawSource", fake_source
-    )
+    monkeypatch.setattr("labmon.sensors.serial_source.open_serial_port", fake_open)
+    monkeypatch.setattr("labmon.sensors.serial_source.SerialRawSource", fake_source)
     monkeypatch.setattr(serial_sensor, "run", fake_run)
 
     result = _run(

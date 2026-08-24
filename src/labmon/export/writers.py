@@ -19,6 +19,12 @@ import pyarrow.csv as pacsv
 import pyarrow.parquet as pq
 from pyarrow import ipc as pa_ipc
 
+from labmon.export.formats import (
+    FORMATS,
+    STREAMABLE,
+    SUFFIXES,
+    ExportError,
+)
 from labmon.export.table import read_metadata, units_by_sensor
 
 if TYPE_CHECKING:
@@ -29,28 +35,21 @@ if TYPE_CHECKING:
 
 logger: logging.Logger = logging.getLogger(__name__)
 
-# Extension each format gets when the CLI has to invent a filename.
-SUFFIXES: dict[str, str] = {
-    "csv": ".csv",
-    "parquet": ".parquet",
-    "feather": ".feather",
-    "netcdf": ".nc",
-}
+__all__ = [
+    "FORMATS",
+    "STREAMABLE",
+    "SUFFIXES",
+    "ExportError",
+    "safe_filename_part",
+    "write",
+    "write_stdout",
+]
 
-FORMATS: tuple[str, ...] = tuple(SUFFIXES)
-
-# Formats that can be written to a pipe. netCDF cannot: both engines seek
-# while writing, which a stream does not support.
-STREAMABLE: frozenset[str] = frozenset({"csv", "parquet", "feather"})
 
 # What a sensor id may contain before it is allowed to become part of a
 # filename. Deliberately narrow: a sensor id is operator-supplied, and a
 # `/` or a `..` in one would place the output somewhere nobody asked for.
 _SAFE_NAME = re.compile(r"[A-Za-z0-9._-]{1,64}\Z")
-
-
-class ExportError(RuntimeError):
-    """A format that cannot do what was asked of it."""
 
 
 def safe_filename_part(sensor_id: str) -> str:

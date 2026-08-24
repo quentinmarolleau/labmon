@@ -12,7 +12,7 @@ from typing import Annotated
 
 import typer
 
-from labmon.export.writers import SUFFIXES
+from labmon.export.formats import SUFFIXES
 
 
 class Format(str, enum.Enum):

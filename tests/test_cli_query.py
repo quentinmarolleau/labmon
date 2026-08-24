@@ -148,7 +148,7 @@ class FakeClient:
 
 
 def test_query_prints_to_stdout(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(selection, "get_client", FakeClient)
+    monkeypatch.setattr("labmon.influx.get_client", FakeClient)
 
     result = _run("query", "--since", "1h")
 
@@ -188,7 +188,7 @@ def test_selection_closes_the_client_when_the_query_fails(
         def close(self) -> None:
             closed.append(True)
 
-    monkeypatch.setattr(selection, "get_client", Failing)
+    monkeypatch.setattr("labmon.influx.get_client", Failing)
     with pytest.raises(Exception):  # noqa: B017
         _ = selection.read(["nope"], [], "1h", None)
 
@@ -267,7 +267,7 @@ def test_an_unreachable_server_is_reported_without_a_traceback(
             + " UNKNOWN:Error received from peer {grpc_status:14}"
         )
 
-    monkeypatch.setattr(selection, "get_client", unreachable)
+    monkeypatch.setattr("labmon.influx.get_client", unreachable)
     monkeypatch.setattr("sys.argv", ["labmon", "query", "--since", "1h"])
 
     with pytest.raises(SystemExit) as exit_info:
@@ -292,7 +292,7 @@ def test_an_unreachable_server_names_the_host_that_was_tried(
         raise InfluxDB3ClientQueryError("nope")
 
     monkeypatch.setenv("INFLUXDB_HOST", "http://elsewhere:8181")
-    monkeypatch.setattr(selection, "get_client", unreachable)
+    monkeypatch.setattr("labmon.influx.get_client", unreachable)
     monkeypatch.setattr("sys.argv", ["labmon", "query"])
 
     with pytest.raises(SystemExit):
@@ -328,8 +328,35 @@ def test_an_unrelated_key_error_is_not_swallowed(
     def explode() -> object:
         raise KeyError("something else entirely")
 
-    monkeypatch.setattr(selection, "get_client", explode)
+    monkeypatch.setattr("labmon.influx.get_client", explode)
     monkeypatch.setattr("sys.argv", ["labmon", "query"])
 
     with pytest.raises(KeyError, match="something else entirely"):
         cli_main.main()
+
+
+def test_the_command_line_loads_without_the_heavy_libraries() -> None:
+    """Importing the CLI must not drag in pyarrow, pint or the client.
+
+    Every `labmon --help` and every tab completion pays for whatever this
+    import costs, twice per Tab press, and none of those three is needed
+    to print help or list flags. Deferring them took startup from 979ms
+    to about 110ms; without a test the next module-level import puts it
+    back and nobody notices until the CLI feels slow again.
+    """
+    import subprocess
+    import sys
+
+    probe = (
+        "import sys, labmon.cli.main;"
+        "heavy = {'pyarrow', 'pint', 'influxdb_client_3', 'numpy', 'serial'};"
+        "print(','.join(sorted(heavy & {m.split('.')[0] for m in sys.modules})))"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", probe], capture_output=True, text=True, check=True
+    )
+
+    assert result.stdout.strip() == "", (
+        f"labmon.cli.main now imports {result.stdout.strip()} at module scope."
+        + " Move it inside the function that needs it."
+    )

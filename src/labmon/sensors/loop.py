@@ -26,6 +26,7 @@ from typing import Protocol
 from influxdb_client_3 import Point
 
 from labmon.influx import get_client
+from labmon.sensors import constants
 from labmon.writer import PointWriter
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -34,7 +35,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 # reading is unreadable at any real rate, but silence gives an operator no
 # way to tell "working" from "wedged". A default rather than a fixed
 # constant: both sensor entry points expose it as --summary-interval.
-DEFAULT_SUMMARY_INTERVAL_SECONDS = 30.0
+DEFAULT_SUMMARY_INTERVAL_SECONDS = constants.DEFAULT_SUMMARY_INTERVAL_SECONDS
 
 
 class Closeable(Protocol):

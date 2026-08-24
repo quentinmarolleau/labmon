@@ -5,15 +5,12 @@ from typing import Annotated
 
 import typer
 
-from labmon.calibration import ADC_RESOLUTION_BITS, ADC_VREF_VOLTS, load_calibration
+from labmon.adc import ADC_RESOLUTION_BITS, ADC_VREF_VOLTS
 from labmon.cli.options import LogLevelOption, SummaryInterval
 from labmon.cli.runtime import configure
-from labmon.sensors import serial_sensor as sensor
-from labmon.sensors.loop import DEFAULT_SUMMARY_INTERVAL_SECONDS
-from labmon.sensors.serial_source import (
+from labmon.sensors.constants import (
     DEFAULT_BAUDRATE,
-    SerialRawSource,
-    open_serial_port,
+    DEFAULT_SUMMARY_INTERVAL_SECONDS,
 )
 
 HELP = (
@@ -71,6 +68,10 @@ def serial_sensor(
     log_level: LogLevelOption = "INFO",  # pyright: ignore[reportArgumentType]
 ) -> None:
     """Read calibrated readings from a board on a serial port."""
+    from labmon.calibration import load_calibration
+    from labmon.sensors import serial_sensor as sensor
+    from labmon.sensors.serial_source import SerialRawSource, open_serial_port
+
     configure(log_level)
     # Loaded before the port is opened: a bad config should fail
     # immediately rather than after touching the hardware.
