@@ -1,38 +1,19 @@
-"""Read a board over serial and write calibrated readings to InfluxDB.
+"""Reading a board over serial and converting counts to physical units.
 
-Ties together the two halves of real sensor acquisition: raw counts
-arriving on a serial port (`labmon.sensors.serial_source`) and the
-per-channel conversions that give them physical meaning
-(`labmon.calibration`). Points reach InfluxDB through the same
-queue-backed writer the mock sensor uses, so a network hiccup is
-absorbed rather than losing readings.
-
-Examples:
-    An Arduino Due on a udev-pinned device path:
-        $ uv run serial-sensor --port /dev/labmon-due \\
-              --calibration calibration.toml
-
-    A 10-bit board running at 5V:
-        $ uv run serial-sensor --port /dev/ttyACM0 \\
-              --calibration calibration.toml --resolution-bits 10 --vref 5.0
-
-Requires INFLUXDB3_AUTH_TOKEN to be set (e.g. via .env / direnv).
+`run()` is the loop: it reads raw counts from a `RawSource`, applies the
+calibration for each channel, and writes the results. The command line
+that drives it is `labmon.cli.commands.serial_sensor`.
 """
 
-import argparse
 import logging
 from datetime import UTC, datetime
-from pathlib import Path
-from typing import cast
 
 from influxdb_client_3 import Point
 
-from labmon import logs
 from labmon.calibration import (
     ADC_RESOLUTION_BITS,
     ADC_VREF_VOLTS,
     Calibration,
-    load_calibration,
     raw_to_voltage,
     ureg,
 )
@@ -40,10 +21,7 @@ from labmon.gate import RecordingGate
 from labmon.influx import influx_database
 from labmon.sensors.loop import DEFAULT_SUMMARY_INTERVAL_SECONDS, SensorLoop
 from labmon.sensors.serial_source import (
-    DEFAULT_BAUDRATE,
     RawSource,
-    SerialRawSource,
-    open_serial_port,
 )
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -225,80 +203,3 @@ def run(
             )
         finally:
             loop.summarise_if_due()
-
-
-def main() -> None:
-    """CLI entry point (see module docstring for usage examples)."""
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
-    _ = parser.add_argument(
-        "--port", required=True, help="Serial device to read (e.g. /dev/labmon-due)"
-    )
-    _ = parser.add_argument(
-        "--calibration",
-        required=True,
-        help="Path to the TOML file mapping channels to conversions",
-    )
-    _ = parser.add_argument(
-        "--baudrate",
-        type=int,
-        default=DEFAULT_BAUDRATE,
-        help="Serial baud rate. Ignored by a board using native USB (the "
-        + "Arduino Due's native port included), which always runs at full "
-        + "USB speed, but pyserial still requires a value.",
-    )
-    _ = parser.add_argument(
-        "--resolution-bits",
-        type=int,
-        default=ADC_RESOLUTION_BITS,
-        help="ADC resolution in bits (default suits a 12-bit part)",
-    )
-    _ = parser.add_argument(
-        "--vref",
-        type=float,
-        default=ADC_VREF_VOLTS,
-        help="ADC reference voltage (default suits a 3.3V part)",
-    )
-    _ = parser.add_argument(
-        "--log-level",
-        default="INFO",
-        choices=logs.LEVEL_NAMES,
-        type=str.upper,
-        help="DEBUG shows every reading; INFO shows startup and the summary",
-    )
-    _ = parser.add_argument(
-        "--summary-interval",
-        type=float,
-        default=DEFAULT_SUMMARY_INTERVAL_SECONDS,
-        help="Seconds between 'still writing' summary lines; 0 turns them off",
-    )
-    args = parser.parse_args()
-
-    port = cast(str, args.port)
-    calibration_path = cast(str, args.calibration)
-    baudrate = cast(int, args.baudrate)
-    resolution_bits = cast(int, args.resolution_bits)
-    v_ref = cast(float, args.vref)
-    # argparse cannot hand back None from a float flag, so zero is the off
-    # switch — and "summarise every zero seconds" has no other meaning.
-    summary_interval = cast(float, args.summary_interval) or None
-
-    logs.configure(logs.level_from_name(cast(str, args.log_level)))
-
-    # Load the calibration before opening the port: a bad config should
-    # fail immediately rather than after touching the hardware.
-    calibrations = load_calibration(Path(calibration_path))
-    source = SerialRawSource(open_serial_port(port, baudrate=baudrate))
-
-    run(
-        source=source,
-        calibrations=calibrations,
-        resolution_bits=resolution_bits,
-        v_ref=v_ref,
-        summary_interval=summary_interval,
-    )
-
-
-if __name__ == "__main__":
-    main()  # pragma: no cover

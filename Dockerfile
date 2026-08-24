@@ -37,4 +37,4 @@ ENV PATH="/app/.venv/bin:$PATH"
 # like a dead sensor rather than a buffering artefact.
 ENV PYTHONUNBUFFERED=1
 
-ENTRYPOINT ["mock-sensor"]
+ENTRYPOINT ["labmon", "mock-sensor"]

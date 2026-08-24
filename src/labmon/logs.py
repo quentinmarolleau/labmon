@@ -129,7 +129,7 @@ class LogfmtFormatter(logging.Formatter):
 
 
 # The levels an entry point offers on its command line, in order of
-# increasing severity. Spelled out so argparse can reject anything else:
+# increasing severity. Spelled out so the CLI can reject anything else:
 # resolving a level name with a default silently turns `--log-level DEGUB`
 # into INFO, and the missing DEBUG lines then read as a code problem
 # rather than as the typo they are.
