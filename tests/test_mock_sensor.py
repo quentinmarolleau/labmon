@@ -164,6 +164,8 @@ def test_main_parses_defaults_and_calls_run(monkeypatch: pytest.MonkeyPatch) -> 
             "noise": 0.1,
             "log_scale": False,
             "unit": "",
+            "resolution": None,
+            "significant_digits": 6,
             "summary_interval": 30.0,
         }
     ]
@@ -202,6 +204,8 @@ def test_main_parses_custom_arguments(monkeypatch: pytest.MonkeyPatch) -> None:
             "noise": 0.1,
             "log_scale": False,
             "unit": "",
+            "resolution": None,
+            "significant_digits": 6,
             "summary_interval": 30.0,
         }
     ]
@@ -247,6 +251,8 @@ def test_main_parses_pressure_gauge_arguments(monkeypatch: pytest.MonkeyPatch) -
             "noise": 0.05,
             "log_scale": True,
             "unit": "mbar",
+            "resolution": None,
+            "significant_digits": 6,
             "summary_interval": 30.0,
         }
     ]
@@ -344,3 +350,66 @@ def test_run_passes_its_summary_interval_to_the_loop(
         )
 
     assert "wrote readings" not in caplog.text
+
+
+# --------------------------------------------------------------------------
+# Reported resolution
+#
+# A simulated instrument that reports 76.85006139177405 K is claiming a
+# precision no thermometer has. The walk itself stays at full precision —
+# quantising its internal state would change how it reverts and drifts —
+# so only the reported value is rounded.
+
+
+def test_a_reading_is_rounded_to_the_resolution_step() -> None:
+    assert mock_sensor.quantise(76.85006139177405, resolution=0.001) == 76.85
+
+
+def test_a_step_that_is_not_a_power_of_ten_still_lands_on_the_grid() -> None:
+    assert mock_sensor.quantise(76.85006139177405, resolution=0.25) == 76.75
+
+
+def test_rounding_to_a_step_does_not_reintroduce_float_noise() -> None:
+    # The arithmetic form, round(v / step) * step, gives
+    # 76.85000000000001 here — putting back exactly the digits this is
+    # meant to remove.
+    rounded = mock_sensor.quantise(76.85006139177405, resolution=0.001)
+
+    assert repr(rounded) == "76.85"
+
+
+def test_a_reading_is_rounded_to_significant_digits_by_default() -> None:
+    assert mock_sensor.quantise(76.85006139177405, significant_digits=4) == 76.85
+
+
+def test_significant_digits_survive_a_reading_near_zero() -> None:
+    # The reason this is the default: a vacuum gauge walks at 1e-7 mbar,
+    # and an absolute step of 1e-3 would report every reading as zero.
+    quantised = mock_sensor.quantise(5.594587307076873e-09, significant_digits=4)
+
+    assert quantised == 5.595e-09
+
+
+def test_an_explicit_resolution_wins_over_significant_digits() -> None:
+    quantised = mock_sensor.quantise(
+        76.85006139177405, resolution=0.001, significant_digits=4
+    )
+
+    assert quantised == 76.85
+
+
+def test_quantising_leaves_a_non_finite_value_alone() -> None:
+    # float("nan") never reaches a field — polling refuses it — but the
+    # rounding primitive should not be the thing that raises.
+    assert math.isnan(mock_sensor.quantise(float("nan"), resolution=0.001))
+
+
+def test_the_walk_keeps_full_precision_internally() -> None:
+    # Quantising the walk's own state would change how it reverts, and a
+    # small enough step would freeze it entirely.
+    walk = RandomWalk(setpoint=21.0, noise=0.5)
+
+    for _ in range(20):
+        _ = walk.next()
+
+    assert walk.value != round(walk.value, 3)
