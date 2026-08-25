@@ -7,7 +7,6 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
-import xarray as xr
 from pyarrow import ipc as pa_ipc
 
 from labmon.export.table import attach_metadata, combine, normalise
@@ -21,27 +20,12 @@ from labmon.export.writers import (
     write,
     write_stdout,
 )
+from tests.support import attr as _attr
+from tests.support import open_dataset as _open
 
 _WINDOW = Window(
     since=datetime(2026, 8, 1, tzinfo=UTC), until=datetime(2026, 8, 2, tzinfo=UTC)
 )
-
-
-def _open(path: Path, *, decode_times: bool = True) -> "xr.Dataset":
-    """Open a written netCDF file with a typed result.
-
-    xarray's `open_dataset` signature carries Unknowns, which would leak
-    into every assertion below; contained here so the tests themselves
-    stay fully checked.
-    """
-    return xr.open_dataset(  # pyright: ignore[reportUnknownMemberType]
-        path, decode_times=decode_times
-    )
-
-
-def _attr(node: "xr.DataArray", name: str) -> str:
-    """One netCDF attribute as text; `attrs` is untyped upstream."""
-    return str(node.attrs[name])  # pyright: ignore[reportAny]
 
 
 def _table(units: list[str] | None = None) -> pa.Table:

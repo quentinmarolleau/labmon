@@ -10,6 +10,7 @@ import json
 import logging
 import re
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, BinaryIO, cast
@@ -91,6 +92,20 @@ def _write_feather(table: pa.Table, sink: BinaryIO) -> None:
         writer.write_table(table)
 
 
+# Suffix for the companion variable holding a sensor's ADC input.
+INPUT_VOLTS_SUFFIX = "_input_volts"
+
+
+@dataclass
+class _Channel:
+    """One sensor's readings while a netCDF Dataset is being built."""
+
+    times: list[object] = field(default_factory=list)
+    values: list[float] = field(default_factory=list)
+    volts: list[float | None] = field(default_factory=list)
+    calibrations: list[str] = field(default_factory=list)
+
+
 def _netcdf_dataset(table: pa.Table) -> "xr.Dataset":
     """Build an xarray Dataset with one variable per sensor.
 
@@ -113,23 +128,30 @@ def _netcdf_dataset(table: pa.Table) -> "xr.Dataset":
     manifest = read_metadata(table.schema)
     rows = table.to_pydict()
 
-    grouped: dict[str, tuple[list[object], list[float]]] = {}
+    grouped: dict[str, _Channel] = {}
     order: list[str] = []
     sensor_column = rows["sensor_id"]
     time_column = rows["time"]
     value_column = cast(list[float], rows["value"])
+    volts_column = cast(list[float | None], rows.get("input_volts") or [])
+    calibration_column = rows.get("calibration_id") or []
     for index, sensor in enumerate(sensor_column):
         name = "unnamed" if sensor is None else str(sensor)
         if name not in grouped:
-            grouped[name] = ([], [])
+            grouped[name] = _Channel()
             order.append(name)
-        times, values = grouped[name]
-        times.append(time_column[index])
-        values.append(value_column[index])
+        channel = grouped[name]
+        channel.times.append(time_column[index])
+        channel.values.append(value_column[index])
+        channel.volts.append(volts_column[index] if index < len(volts_column) else None)
+        if index < len(calibration_column):
+            identifier = calibration_column[index]
+            if identifier is not None and str(identifier) not in channel.calibrations:
+                channel.calibrations.append(str(identifier))
 
     variables: dict[str, xr.DataArray] = {}
     for name in order:
-        times, values = grouped[name]
+        channel = grouped[name]
         dim = f"time_{name}"
         # numpy has no timezone-aware datetime64 and warns when it drops
         # one. Every stamp here is already UTC, so the offset is stripped
@@ -137,13 +159,46 @@ def _netcdf_dataset(table: pa.Table) -> "xr.Dataset":
         # epoch written into the file records that it is UTC.
         naive = [
             stamp.replace(tzinfo=None) if isinstance(stamp, datetime) else stamp
-            for stamp in times
+            for stamp in channel.times
         ]
+        axis = np.asarray(naive, dtype="datetime64[ms]")
+        reading_attrs: dict[str, str] = {
+            "units": units.get(name, ""),
+            "long_name": name,
+        }
+        if channel.calibrations:
+            # Which calibration turned the voltage into this number.
+            # Joined when a sensor was recalibrated mid-window: reporting
+            # only the last one would hide the very thing somebody needs
+            # to see.
+            reading_attrs["calibration_id"] = ", ".join(channel.calibrations)
+
+        if any(volt is not None for volt in channel.volts):
+            # The voltage the reading was converted from, on the same
+            # axis as the reading: same sample, same instant. Omitted
+            # entirely for a sensor that never had one, because an
+            # all-NaN variable suggests a measurement that was attempted
+            # and failed.
+            companion = f"{name}{INPUT_VOLTS_SUFFIX}"
+            variables[companion] = xr.DataArray(
+                np.asarray(
+                    [np.nan if volt is None else volt for volt in channel.volts],
+                    dtype="float64",
+                ),
+                dims=[dim],
+                coords={dim: axis},
+                attrs={"units": "V", "long_name": f"{name} ADC input"},
+            )
+            # CF's way of saying "this other variable describes this
+            # one", so a reader finds the voltage without having to guess
+            # the naming scheme.
+            reading_attrs["ancillary_variables"] = companion
+
         variables[name] = xr.DataArray(
-            np.asarray(values, dtype="float64"),
+            np.asarray(channel.values, dtype="float64"),
             dims=[dim],
-            coords={dim: np.asarray(naive, dtype="datetime64[ms]")},
-            attrs={"units": units.get(name, ""), "long_name": name},
+            coords={dim: axis},
+            attrs=reading_attrs,
         )
 
     attrs: dict[str, str] = {"Conventions": "CF-1.10", "title": "labmon export"}
