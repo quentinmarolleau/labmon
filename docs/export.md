@@ -47,6 +47,33 @@ extension counts as already present — `-o run.2026-08-24` becomes
 the filename you were explicit about would be the surprising half of
 that.
 
+### Where the file lands
+
+`-o` takes a path in whatever shape you type it:
+
+```bash
+labmon export --since 2m -o exported/data            # exported/data.csv
+labmon export --since 2m -o ~/data/labmon/2026-08-25 # tilde expanded
+labmon export --since 2m -o exported/                # exported/labmon-export.csv
+```
+
+A directory that does not exist yet is created, however deep, so
+`-o runs/2026-08-25/data` does not fail because a dated directory is
+new. Creating one is logged at INFO, so a typo in the path shows up as a
+directory nobody meant to make rather than as silence.
+
+A `~` is expanded here rather than left to the shell, which does not
+expand it inside quotes — and a directory literally named `~` is never
+what was meant.
+
+A path that names a directory, either because one is already there or
+because it ends in a separator, receives the default filename inside it.
+Writing `exported.csv` *beside* a directory called `exported` is nobody's
+intent.
+
+A path whose parent is an existing *file* is refused, and the file is
+left alone.
+
 CSV, Parquet and Feather need no extra install: `pyarrow` already
 arrives with the InfluxDB client. netCDF does:
 

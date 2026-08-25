@@ -1,6 +1,7 @@
 """`labmon export` — write recorded readings to a file."""
 
 import logging
+import os
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
@@ -95,7 +96,7 @@ def infer_format(output: str | None, requested: Format | None) -> str:
     return Format.csv.value
 
 
-def with_suffix(output: str, fmt: str) -> Path:
+def with_suffix(output: str | Path, fmt: str) -> Path:
     """Give `output` the chosen format's extension unless it has it already.
 
     `-o test --format feather` writes `test.feather`, so a directory does
@@ -120,6 +121,47 @@ def with_suffix(output: str, fmt: str) -> Path:
     return path.with_name(path.name + SUFFIXES[fmt])
 
 
+def resolve_output(output: str, fmt: str) -> Path:
+    """Turn what was typed after -o into the file to write.
+
+    `-o` takes a path a person types, so it arrives in every shape a path
+    comes in. A `~` is expanded here rather than left to the shell, which
+    does not expand it inside quotes — and a directory literally named
+    `~` is never what was meant.
+
+    A path that names a directory, either because one is already there or
+    because it ends in a separator, receives the default filename inside
+    it. Writing `exported.csv` *beside* a directory called `exported`,
+    which is what a plain suffix append does, is nobody's intent.
+    """
+    path = Path(output).expanduser()
+    if output.endswith(("/", os.sep)) or path.is_dir():
+        path = path / DEFAULT_STEM
+    return with_suffix(path, fmt)
+
+
+def ensure_parent(path: Path) -> None:
+    """Make sure `path`'s directory exists, creating it if it does not.
+
+    Creating it is the friendlier default — `-o runs/2026-08-25/data`
+    should not fail because a dated directory is new — but it is
+    announced, so a typo in the path shows up as a directory nobody meant
+    to make rather than as silence.
+    """
+    parent = path.parent
+    if parent.is_dir():
+        return
+    if parent.exists():
+        raise ExportError(
+            f"{parent} is not a directory," + f" so {path.name} cannot be written there"
+        )
+    try:
+        parent.mkdir(parents=True, exist_ok=True)
+    except OSError as error:
+        raise ExportError(f"cannot create {parent}: {error}") from None
+    logger.info("created directory", extra={"path": str(parent)})
+
+
 def split_tables(table: "pa.Table") -> "list[tuple[str, pa.Table]]":
     """One (sensor_id, rows) pair per sensor, in a stable order."""
     import pyarrow as pa
@@ -142,6 +184,7 @@ def _write_split(table: "pa.Table", target: Path, fmt: str, window: "Window") ->
     from labmon.export.table import attach_metadata
     from labmon.export.writers import safe_filename_part, write
 
+    ensure_parent(target)
     suffix = target.suffix or SUFFIXES[fmt]
     stem = target.stem if target.suffix else target.name
     for sensor, rows in split_tables(table):
@@ -192,10 +235,13 @@ def export(
         write_stdout(table, fmt, sys.stdout.buffer)
         return
 
-    target = with_suffix(output, fmt) if output else Path(DEFAULT_STEM + SUFFIXES[fmt])
+    target = (
+        resolve_output(output, fmt) if output else Path(DEFAULT_STEM + SUFFIXES[fmt])
+    )
     if split_per_sensor:
         _write_split(table, target, fmt, window)
         return
 
+    ensure_parent(target)
     write(table, target, fmt)
     logger.info("wrote file", extra={"path": str(target), "rows": table.num_rows})

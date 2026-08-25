@@ -377,3 +377,125 @@ def test_no_raw_input_works_with_splitting(tmp_path: Path) -> None:
 
     header = (tmp_path / "run_cryo-77k.csv").read_text(encoding="utf-8").splitlines()[0]
     assert "calibration_id" not in header
+
+
+# --------------------------------------------------------------------------
+# Where the file lands
+#
+# `-o` is a path somebody types, so it arrives in every shape a path
+# comes in: with a directory that does not exist yet, naming a directory
+# rather than a file, or starting with a tilde the shell did not expand
+# because it was quoted.
+
+
+@pytest.mark.usefixtures("fake_client")
+def test_a_missing_directory_is_created(tmp_path: Path) -> None:
+    target = tmp_path / "exported" / "data"
+
+    result = _run("-o", str(target), "--format", "csv")
+
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / "exported" / "data.csv").is_file()
+
+
+@pytest.mark.usefixtures("fake_client")
+def test_a_missing_directory_tree_is_created(tmp_path: Path) -> None:
+    target = tmp_path / "a" / "b" / "c" / "run"
+
+    result = _run("-o", str(target), "--format", "csv")
+
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / "a" / "b" / "c" / "run.csv").is_file()
+
+
+@pytest.mark.usefixtures("fake_client")
+def test_creating_a_directory_is_announced(tmp_path: Path) -> None:
+    # So a typo in the path shows up as a new directory rather than
+    # silently producing one nobody meant to make.
+    result = _run("-o", str(tmp_path / "exported" / "data"), "--format", "csv")
+
+    assert "created directory" in result.stderr
+
+
+@pytest.mark.usefixtures("fake_client")
+def test_an_existing_directory_receives_the_default_filename(
+    tmp_path: Path,
+) -> None:
+    # Pointing at a directory and getting a file *beside* it is the
+    # surprise this avoids.
+    destination = tmp_path / "exported"
+    destination.mkdir()
+
+    result = _run("-o", str(destination), "--format", "csv")
+
+    assert result.exit_code == 0, result.output
+    assert (destination / "labmon-export.csv").is_file()
+    assert not (tmp_path / "exported.csv").exists()
+
+
+@pytest.mark.usefixtures("fake_client")
+def test_a_trailing_separator_means_a_directory(tmp_path: Path) -> None:
+    # `-o exported/` reads as "into exported", even before it exists.
+    result = _run("-o", f"{tmp_path / 'exported'}/", "--format", "csv")
+
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / "exported" / "labmon-export.csv").is_file()
+
+
+@pytest.mark.usefixtures("fake_client")
+def test_a_tilde_is_expanded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # A quoted `~` reaches the program unexpanded, and a directory
+    # literally named "~" is never what was meant.
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    result = _run("-o", "~/run", "--format", "csv")
+
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / "run.csv").is_file()
+    assert not (Path("~") / "run.csv").exists()
+
+
+@pytest.mark.usefixtures("fake_client")
+def test_a_file_where_a_directory_should_be_is_refused(tmp_path: Path) -> None:
+    blocker = tmp_path / "exported"
+    _ = blocker.write_text("not a directory", encoding="utf-8")
+
+    result = _run("-o", str(blocker / "data"), "--format", "csv")
+
+    assert result.exit_code == 2
+    assert "not a directory" in result.stderr
+    assert blocker.read_text(encoding="utf-8") == "not a directory"
+
+
+@pytest.mark.usefixtures("fake_client")
+def test_splitting_also_creates_the_directory(tmp_path: Path) -> None:
+    target = tmp_path / "exported" / "run"
+
+    result = _run("-o", str(target), "--format", "csv", "--split-per-sensor")
+
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / "exported" / "run_cryo-77k.csv").is_file()
+
+
+@pytest.mark.usefixtures("fake_client")
+def test_stdout_is_not_treated_as_a_path(tmp_path: Path) -> None:
+    result = _run("-o", "-")
+
+    assert result.exit_code == 0
+    assert "cryo-77k" in result.output
+    assert not (tmp_path / "-").exists()
+
+
+@pytest.mark.usefixtures("fake_client")
+def test_a_file_partway_up_the_path_is_refused(tmp_path: Path) -> None:
+    # The parent itself does not exist here, so the failure surfaces from
+    # mkdir rather than from the check above it — still a message, not a
+    # traceback.
+    blocker = tmp_path / "afile"
+    _ = blocker.write_text("not a directory", encoding="utf-8")
+
+    result = _run("-o", str(blocker / "deeper" / "data"), "--format", "csv")
+
+    assert result.exit_code == 2
+    assert "cannot create" in result.stderr
+    assert blocker.read_text(encoding="utf-8") == "not a directory"
