@@ -5,6 +5,7 @@ every column and full precision so nothing is lost, while a terminal
 wants the few columns that carry meaning, aligned, in a width that fits.
 """
 
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -47,11 +48,15 @@ def visible_columns(table: "pa.Table") -> list[str]:
 def _cell(name: str, value: object) -> str:
     if value is None:
         return ""
-    if name == "time":
+    if name == "time" and isinstance(value, datetime):
         # Seconds and milliseconds, without the timezone suffix: every
         # timestamp in a result carries the same one, so repeating it on
-        # every row costs width and says nothing.
-        return str(value)[:23]
+        # every row costs width and says nothing. Dropping the zone and
+        # asking for milliseconds explicitly, rather than slicing to a
+        # fixed width: `str` omits the fractional part when it is zero,
+        # so the slice cut into the offset instead of the digits — and
+        # a whole second is what a sensor on a 1 Hz grid reports.
+        return value.replace(tzinfo=None).isoformat(sep=" ", timespec="milliseconds")
     if name == "value" and isinstance(value, float):
         # `repr` rather than a fixed precision: sensors already round to
         # the resolution they claim, so this shows exactly what was

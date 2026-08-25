@@ -358,3 +358,39 @@ def test_the_command_line_loads_without_the_heavy_libraries() -> None:
         f"labmon.cli.main now imports {result.stdout.strip()} at module scope."
         + " Move it inside the function that needs it."
     )
+
+
+def _at(millis: int) -> "pa.Table":
+    """One reading, timed the way `normalise` leaves it: UTC, in ms."""
+    return combine(
+        [
+            pa.table(
+                {
+                    "time": pa.array([millis], pa.timestamp("ms", tz="UTC")),
+                    "sensor_id": pa.array(["a"]),
+                    "value": pa.array([1.0]),
+                    "unit": pa.array(["K"]),
+                }
+            )
+        ]
+    )
+
+
+def test_a_whole_second_timestamp_keeps_its_milliseconds() -> None:
+    # `str(datetime)` drops the fractional part when microseconds are
+    # zero, so a fixed-width slice of it cut into the timezone suffix
+    # and printed "00:00:01+00:". Sensors sample on whole-second grids,
+    # which makes that the ordinary row rather than an edge case.
+    cell = render(_at(1_000)).splitlines()[2].split()
+
+    assert cell[0:2] == ["1970-01-01", "00:00:01.000"]
+
+
+def test_a_sub_second_timestamp_shows_the_milliseconds_it_has() -> None:
+    assert "00:00:01.250" in render(_at(1_250))
+
+
+def test_the_timezone_suffix_is_never_half_printed() -> None:
+    # Every row in a result carries the same offset, so it is dropped
+    # rather than repeated — but dropped whole, not sliced through.
+    assert "+00:" not in render(_at(1_000))
