@@ -296,6 +296,9 @@ labmon --install-completion
 [`docs/export.md`](docs/export.md) covers the formats, the time window
 spellings, completion for bash and zsh, and why the unit is a column
 rather than only metadata.
+[`docs/loading-exports.md`](docs/loading-exports.md) takes it from the
+other end — loading each file into pandas, polars and xarray, and what
+the shape of the data means once it is there.
 
 ## Running it across the lab
 

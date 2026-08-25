@@ -26,6 +26,10 @@ It reads the same `INFLUXDB_HOST`, `INFLUXDB_DATABASE`,
 — see [`configuration.md`](configuration.md) — so it works from a client
 machine as well as from the server.
 
+For the other end of the trip — loading each of these files into pandas,
+polars and xarray — see
+[`loading-exports.md`](loading-exports.md).
+
 ## Formats
 
 | Format | Flag | Reach for it when |
