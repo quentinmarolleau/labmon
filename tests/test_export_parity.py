@@ -19,13 +19,14 @@ import pytest
 from pyarrow import ipc as pa_ipc
 
 from labmon.export.table import (
+    EXPORT_COLUMNS,
     attach_metadata,
     combine,
     normalise,
     without_raw_input,
 )
 from labmon.export.window import Window
-from labmon.export.writers import write
+from labmon.export.writers import INPUT_VOLTS_SUFFIX, write
 from tests.support import attr, has_attr, open_dataset
 
 _WINDOW = Window(
@@ -270,3 +271,81 @@ def test_a_reduced_netcdf_still_carries_the_readings_and_units(
     dataset = open_dataset(target)
     assert list(dataset["cryo-diode"].values) == [77.31, 77.29]
     assert attr(dataset["cryo-diode"], "units") == "K"
+
+
+# --------------------------------------------------------------------------
+# Every column, not just the ones somebody remembered
+#
+# The netCDF writer lost `input_volts` and `calibration_id`, was fixed,
+# and then still lost `measurement` — because the tests above name the
+# columns they check. This one derives the expectation from the export
+# schema instead, so a column added later is covered without anyone
+# thinking about it.
+
+
+def _netcdf_as_long(path: Path) -> dict[str, list[object]]:
+    """Read a netCDF export back into the long shape the others hold.
+
+    Reading `ancillary_variables` rather than rebuilding the companion
+    name, so the file's own pointer is what is followed.
+    """
+    dataset = open_dataset(path)
+    columns: dict[str, list[object]] = {name: [] for name in EXPORT_COLUMNS}
+    for variable in dataset.data_vars:
+        name = str(variable)
+        if name.endswith(INPUT_VOLTS_SUFFIX):
+            continue
+        series = dataset[variable]
+        companion = (
+            attr(series, "ancillary_variables")
+            if has_attr(series, "ancillary_variables")
+            else ""
+        )
+        volts = (
+            list(dataset[companion].values)
+            if companion in dataset.data_vars
+            else [None] * series.size
+        )
+        columns["time"].extend(series[series.dims[0]].values)
+        columns["sensor_id"].extend([name] * series.size)
+        columns["measurement"].extend([series.attrs.get("measurement")] * series.size)
+        columns["value"].extend(series.values)
+        columns["unit"].extend([series.attrs.get("units")] * series.size)
+        columns["input_volts"].extend(volts)
+        columns["calibration_id"].extend(
+            [series.attrs.get("calibration_id")] * series.size
+        )
+    return columns
+
+
+def test_every_export_column_survives_netcdf(
+    readings: pa.Table, tmp_path: Path
+) -> None:
+    target = tmp_path / "out.nc"
+    write(readings, target, "netcdf")
+
+    restored = _netcdf_as_long(target)
+
+    missing = [
+        name
+        for name in EXPORT_COLUMNS
+        if all(value is None for value in restored[name])
+    ]
+    assert missing == [], (
+        f"netCDF export lost {', '.join(missing)}."
+        + " Every column the other three formats carry has to survive it"
+    )
+
+
+def test_netcdf_records_which_measurement_a_reading_belongs_to(
+    readings: pa.Table, tmp_path: Path
+) -> None:
+    # `measurement` is the InfluxDB table — temperature, pressure — so it
+    # is not in the rows the way a tag is, and a file without it cannot
+    # tell two quantities apart once several are exported together.
+    target = tmp_path / "out.nc"
+
+    write(readings, target, "netcdf")
+
+    dataset = open_dataset(target)
+    assert attr(dataset["cryo-diode"], "measurement") == "temperature"

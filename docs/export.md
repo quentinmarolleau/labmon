@@ -121,6 +121,8 @@ provenance columns become a companion variable and an attribute:
 
 | long format | netCDF |
 |---|---|
+| `measurement` | a `measurement` attribute on the reading's variable |
+| `unit` | a CF `units` attribute |
 | `input_volts` | a `<sensor>_input_volts` variable in volts, on the same time axis |
 | `calibration_id` | a `calibration_id` attribute on the reading's variable |
 

@@ -104,6 +104,7 @@ class _Channel:
     values: list[float] = field(default_factory=list)
     volts: list[float | None] = field(default_factory=list)
     calibrations: list[str] = field(default_factory=list)
+    measurements: list[str] = field(default_factory=list)
 
 
 def _netcdf_dataset(table: pa.Table) -> "xr.Dataset":
@@ -135,6 +136,7 @@ def _netcdf_dataset(table: pa.Table) -> "xr.Dataset":
     value_column = cast(list[float], rows["value"])
     volts_column = cast(list[float | None], rows.get("input_volts") or [])
     calibration_column = rows.get("calibration_id") or []
+    measurement_column = rows.get("measurement") or []
     for index, sensor in enumerate(sensor_column):
         name = "unnamed" if sensor is None else str(sensor)
         if name not in grouped:
@@ -148,6 +150,10 @@ def _netcdf_dataset(table: pa.Table) -> "xr.Dataset":
             identifier = calibration_column[index]
             if identifier is not None and str(identifier) not in channel.calibrations:
                 channel.calibrations.append(str(identifier))
+        if index < len(measurement_column):
+            table_name = measurement_column[index]
+            if table_name is not None and str(table_name) not in channel.measurements:
+                channel.measurements.append(str(table_name))
 
     variables: dict[str, xr.DataArray] = {}
     for name in order:
@@ -166,6 +172,12 @@ def _netcdf_dataset(table: pa.Table) -> "xr.Dataset":
             "units": units.get(name, ""),
             "long_name": name,
         }
+        if channel.measurements:
+            # Which InfluxDB table the reading came from. It is the table
+            # name rather than a tag, so it is not in the rows the way
+            # `unit` is — and without it a file holding several
+            # quantities cannot tell them apart.
+            reading_attrs["measurement"] = ", ".join(channel.measurements)
         if channel.calibrations:
             # Which calibration turned the voltage into this number.
             # Joined when a sensor was recalibrated mid-window: reporting
