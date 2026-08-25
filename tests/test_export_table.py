@@ -174,7 +174,7 @@ def test_units_are_collected_per_sensor() -> None:
         "t",
     )
 
-    assert units_by_sensor(table) == {"a": "K", "b": "mbar"}
+    assert units_by_sensor(table) == {"a": ["K"], "b": ["mbar"]}
 
 
 def test_a_sensor_recalibrated_into_a_new_unit_reports_both() -> None:
@@ -182,7 +182,7 @@ def test_a_sensor_recalibrated_into_a_new_unit_reports_both() -> None:
     # situation somebody needs to see.
     table = normalise(_influx_like([0, 1], ["a", "a"], [1.0, 2.0], ["K", "degC"]), "t")
 
-    assert units_by_sensor(table) == {"a": "K, degC"}
+    assert units_by_sensor(table) == {"a": ["K", "degC"]}
 
 
 def test_rows_without_a_unit_are_skipped() -> None:
@@ -214,6 +214,25 @@ def test_a_single_unit_export_labels_the_value_column() -> None:
     )
 
     assert table.schema.field("value").metadata == {b"unit": b"K"}
+
+
+def test_one_sensor_recalibrated_does_not_label_the_value_column() -> None:
+    # The guard counted distinct joined strings, so a single sensor
+    # carrying "K, degC" looked like one unit and stamped that whole
+    # string on the field — a unit no reader can parse, presented as if
+    # it covered every row.
+    table = attach_metadata(
+        combine(
+            [
+                normalise(
+                    _influx_like([0, 1], ["a", "a"], [1.0, 2.0], ["K", "degC"]), "t"
+                )
+            ]
+        ),
+        _WINDOW,
+    )
+
+    assert table.schema.field("value").metadata is None
 
 
 def test_a_mixed_unit_export_does_not_label_the_value_column() -> None:

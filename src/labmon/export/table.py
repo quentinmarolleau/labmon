@@ -178,12 +178,15 @@ def without_raw_input(table: pa.Table) -> pa.Table:
     return table.select(keep)
 
 
-def units_by_sensor(table: pa.Table) -> dict[str, str]:
-    """The unit each sensor in `table` reports, for metadata and netCDF.
+def units_by_sensor(table: pa.Table) -> dict[str, list[str]]:
+    """The units each sensor in `table` reports, for metadata and netCDF.
 
-    A sensor recalibrated mid-window into a different unit appears once
-    per unit, joined, rather than silently reporting only the last one —
-    that is a situation somebody needs to see, not one to tidy away.
+    A sensor recalibrated mid-window into a different unit keeps both,
+    in the order first seen, rather than silently reporting only the
+    last one — that is a situation somebody needs to see, not one to
+    tidy away. Kept as a list so that a caller counting distinct units
+    counts units rather than counting joined strings; `unit_label`
+    joins them at the point of display.
     """
     if table.num_rows == 0:
         return {}
@@ -197,7 +200,12 @@ def units_by_sensor(table: pa.Table) -> dict[str, str]:
         bucket = seen.setdefault(str(sensor), [])
         if str(unit) not in bucket:
             bucket.append(str(unit))
-    return {sensor: ", ".join(found) for sensor, found in seen.items()}
+    return seen
+
+
+def unit_label(units: list[str]) -> str:
+    """The units of one sensor as a single string, for a human to read."""
+    return ", ".join(units)
 
 
 def attach_metadata(table: pa.Table, window: Window) -> pa.Table:
@@ -214,17 +222,19 @@ def attach_metadata(table: pa.Table, window: Window) -> pa.Table:
         "window_since": window.since.isoformat(),
         "window_until": window.until.isoformat(),
         "rows": table.num_rows,
-        "units": units,
+        "units": {sensor: unit_label(found) for sensor, found in units.items()},
     }
+    # Every unit any sensor reported, counted as units rather than as
+    # joined strings: one sensor recalibrated from K to degC is two, and
+    # a field-level label would be wrong for half its rows.
+    distinct = {unit for found in units.values() for unit in found}
 
     fields: list[pa.Field] = []
     for field in table.schema:
-        if field.name == "value" and len(set(units.values())) == 1:
+        if field.name == "value" and len(distinct) == 1:
             # Only when the whole file is one unit: a field-level "unit"
             # on a mixed table would be read as covering every row.
-            fields.append(
-                field.with_metadata({b"unit": next(iter(units.values())).encode()})
-            )
+            fields.append(field.with_metadata({b"unit": next(iter(distinct)).encode()}))
         else:
             fields.append(field)
 

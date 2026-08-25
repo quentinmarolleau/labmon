@@ -26,7 +26,7 @@ from labmon.export.formats import (
     SUFFIXES,
     ExportError,
 )
-from labmon.export.table import read_metadata, units_by_sensor
+from labmon.export.table import read_metadata, unit_label, units_by_sensor
 
 if TYPE_CHECKING:
     # Only for the annotation: xarray lives behind the `netcdf` extra, so
@@ -169,7 +169,7 @@ def _netcdf_dataset(table: pa.Table) -> "xr.Dataset":
         ]
         axis = np.asarray(naive, dtype="datetime64[ms]")
         reading_attrs: dict[str, str] = {
-            "units": units.get(name, ""),
+            "units": unit_label(units.get(name, [])),
             "long_name": name,
         }
         if channel.measurements:
