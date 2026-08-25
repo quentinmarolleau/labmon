@@ -277,7 +277,32 @@ def test_a_sensorless_row_becomes_its_own_part() -> None:
         )
     )
 
-    assert [name for name, _ in parts] == ["unnamed"]
+    assert [name for name, _ in parts] == [None]
+
+
+def test_a_sensor_named_unnamed_keeps_its_own_rows() -> None:
+    # "unnamed" used to be the key for rows with no sensor id, so a
+    # sensor actually called that matched the null mask and had an empty
+    # file written for it — silently, since an empty part is legal.
+    parts = export_cmd.split_tables(
+        combine(
+            [
+                normalise(
+                    pa.table(
+                        {
+                            "time": pa.array([0, 1], pa.timestamp("ns")),
+                            "sensor_id": pa.array(["unnamed", None]),
+                            "value": pa.array([1.0, 2.0]),
+                        }
+                    ),
+                    "probe",
+                )
+            ]
+        )
+    )
+    rows = {name: part.num_rows for name, part in parts}
+
+    assert rows == {"unnamed": 1, None: 1}
 
 
 # --------------------------------------------------------------------------

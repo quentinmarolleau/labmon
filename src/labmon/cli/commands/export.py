@@ -162,33 +162,40 @@ def ensure_parent(path: Path) -> None:
     logger.info("created directory", extra={"path": str(parent)})
 
 
-def split_tables(table: "pa.Table") -> "list[tuple[str, pa.Table]]":
-    """One (sensor_id, rows) pair per sensor, in a stable order."""
+def split_tables(table: "pa.Table") -> "list[tuple[str | None, pa.Table]]":
+    """One (sensor_id, rows) pair per sensor, in a stable order.
+
+    Rows with no sensor id come back under `None` rather than under a
+    stand-in name. Naming the group here would collide with a sensor
+    that happens to carry that name, and the collision is silent: the
+    real sensor's rows go to the null mask and its file is written
+    empty.
+    """
     import pyarrow as pa
     import pyarrow.compute as pc
 
     column = table.column("sensor_id")
-    values = column.to_pylist()
-    sensors = sorted({"unnamed" if value is None else str(value) for value in values})
-    parts: list[tuple[str, pa.Table]] = []
-    for sensor in sensors:
-        if sensor == "unnamed":
-            mask = pc.is_null(column)
-        else:
-            mask = pc.equal(column.cast(pa.string()), pa.scalar(sensor))
-        parts.append((sensor, table.filter(mask)))
+    named = sorted({str(value) for value in column.to_pylist() if value is not None})
+    parts: list[tuple[str | None, pa.Table]] = [
+        (sensor, table.filter(pc.equal(column.cast(pa.string()), pa.scalar(sensor))))
+        for sensor in named
+    ]
+    unnamed = table.filter(pc.is_null(column))
+    if unnamed.num_rows:
+        parts.append((None, unnamed))
     return parts
 
 
 def _write_split(table: "pa.Table", target: Path, fmt: str, window: "Window") -> None:
     from labmon.export.table import attach_metadata
-    from labmon.export.writers import safe_filename_part, write
+    from labmon.export.writers import UNNAMED_PART, safe_filename_part, write
 
     ensure_parent(target)
     suffix = target.suffix or SUFFIXES[fmt]
     stem = target.stem if target.suffix else target.name
     for sensor, rows in split_tables(table):
-        part = target.with_name(f"{stem}_{safe_filename_part(sensor)}{suffix}")
+        label = UNNAMED_PART if sensor is None else safe_filename_part(sensor)
+        part = target.with_name(f"{stem}_{label}{suffix}")
         write(attach_metadata(rows, window), part, fmt)
         logger.info("wrote file", extra={"path": str(part), "rows": rows.num_rows})
 

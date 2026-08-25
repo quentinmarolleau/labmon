@@ -52,6 +52,12 @@ __all__ = [
 # `/` or a `..` in one would place the output somewhere nobody asked for.
 _SAFE_NAME = re.compile(r"[A-Za-z0-9._-]{1,64}\Z")
 
+# What rows with no sensor id are called, in a filename and in a netCDF
+# variable. The brackets are the point: `_SAFE_NAME` rejects them, so no
+# real sensor id can ever be spelled this way and be mistaken for the
+# group of rows that have no id at all.
+UNNAMED_PART = "(unnamed)"
+
 
 def safe_filename_part(sensor_id: str) -> str:
     """Check a sensor id is usable in a filename, or say why it is not."""
@@ -138,7 +144,7 @@ def _netcdf_dataset(table: pa.Table) -> "xr.Dataset":
     calibration_column = rows.get("calibration_id") or []
     measurement_column = rows.get("measurement") or []
     for index, sensor in enumerate(sensor_column):
-        name = "unnamed" if sensor is None else str(sensor)
+        name = UNNAMED_PART if sensor is None else str(sensor)
         if name not in grouped:
             grouped[name] = _Channel()
             order.append(name)

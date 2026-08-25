@@ -15,6 +15,7 @@ from labmon.export.writers import (
     FORMATS,
     STREAMABLE,
     SUFFIXES,
+    UNNAMED_PART,
     ExportError,
     safe_filename_part,
     write,
@@ -170,7 +171,27 @@ def test_a_sensorless_row_becomes_one_named_variable(tmp_path: Path) -> None:
 
     write(table, target, "netcdf")
 
-    assert "unnamed" in _open(target).data_vars
+    assert UNNAMED_PART in _open(target).data_vars
+
+
+def test_a_sensor_named_unnamed_keeps_its_own_variable(tmp_path: Path) -> None:
+    # The stand-in name must be one no sensor can carry, or the two get
+    # merged into a single variable without anything saying so.
+    raw = pa.table(
+        {
+            "time": pa.array([0, 1], pa.timestamp("ns")),
+            "sensor_id": pa.array(["unnamed", None]),
+            "value": pa.array([1.0, 2.0]),
+        }
+    )
+    table = attach_metadata(combine([normalise(raw, "probe")]), _WINDOW)
+    target = tmp_path / "out.nc"
+
+    write(table, target, "netcdf")
+    dataset = _open(target)
+
+    assert dataset["unnamed"].values.tolist() == [1.0]
+    assert dataset[UNNAMED_PART].values.tolist() == [2.0]
 
 
 @pytest.mark.parametrize("sensor_id", ["cryo-77k", "room_1", "a.b", "A0"])
