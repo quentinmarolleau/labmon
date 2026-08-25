@@ -7,15 +7,13 @@ from typing import override
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
-from typer.testing import CliRunner, Result
 
 from labmon.cli.commands import export as export_cmd
 from labmon.cli.main import build_app
 from labmon.cli.options import Format
 from labmon.export.table import attach_metadata, combine, normalise
 from labmon.export.window import Window
-
-runner = CliRunner()
+from tests.cli_runner import Invocation, invoke
 
 _WINDOW = Window(
     since=datetime(2026, 8, 1, tzinfo=UTC), until=datetime(2026, 8, 2, tzinfo=UTC)
@@ -73,9 +71,9 @@ def fake_client(monkeypatch: pytest.MonkeyPatch) -> FakeClient:
     return client
 
 
-def _run(*args: str) -> Result:
+def _run(*args: str) -> Invocation:
     """Invoke `labmon export`, typed so the result's fields resolve."""
-    return runner.invoke(build_app(), ["export", *args])
+    return invoke(build_app(), ["export", *args])
 
 
 # --------------------------------------------------------------------------

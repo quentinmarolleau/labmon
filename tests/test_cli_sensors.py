@@ -8,18 +8,16 @@ real app rather than through a parser built for the test.
 from pathlib import Path
 
 import pytest
-from typer.testing import CliRunner, Result
 
 from labmon.cli import deprecated
 from labmon.cli.main import build_app
 from labmon.sensors import mock_sensor, serial_sensor
+from tests.cli_runner import Invocation, invoke
 
-runner = CliRunner()
 
-
-def _run(*args: str) -> Result:
+def _run(*args: str) -> Invocation:
     """Invoke a labmon command, typed so the result's fields resolve."""
-    return runner.invoke(build_app(), list(args))
+    return invoke(build_app(), list(args))
 
 
 @pytest.fixture
