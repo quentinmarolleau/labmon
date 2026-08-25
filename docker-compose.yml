@@ -389,7 +389,7 @@ services:
   # before, so a deployment adopts TLS on its own schedule rather than at
   # upgrade time. See docs/deployment.md.
   caddy:
-    image: caddy:2.10-alpine
+    image: caddy:2.11-alpine
     container_name: caddy
     # Comes back after a reboot or a daemon restart, but stays down once
     # deliberately stopped. This half of the deployment is the always-on
