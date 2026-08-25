@@ -1,0 +1,1 @@
+"""The `labmon` command line."""

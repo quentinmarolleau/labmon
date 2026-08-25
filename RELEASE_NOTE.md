@@ -150,7 +150,7 @@ three assumptions the design rests on, written down in
   [`docs/deployment.md`](docs/deployment.md#encrypting-client-and-viewer-traffic)
 - **No export command yet.** Getting data out means SQL or Grafana's per-panel
   CSV export, neither of which suits pulling a run into a notebook. A
-  `labmon-export` CLI is the next release's headline — [#58](https://github.com/quentinmarolleau/labmon/issues/58)
+  `labmon export` CLI is the next release's headline — [#58](https://github.com/quentinmarolleau/labmon/issues/58)
 - **A long outage is recorded as its final stretch.** The queue holds a fixed
   number of points, so what survives is the most recent window rather than the
   whole gap. Keeping the entire window at reduced resolution is tracked in

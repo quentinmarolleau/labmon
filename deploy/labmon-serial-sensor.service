@@ -20,7 +20,7 @@ Type=simple
 User=pi
 WorkingDirectory=/home/pi/labmon
 EnvironmentFile=/home/pi/labmon/.env
-ExecStart=/home/pi/labmon/.venv/bin/serial-sensor --port /dev/labmon-due --calibration /home/pi/labmon/calibration.toml
+ExecStart=/home/pi/labmon/.venv/bin/labmon serial-sensor --port /dev/labmon-due --calibration /home/pi/labmon/calibration.toml
 Restart=on-failure
 RestartSec=5
 

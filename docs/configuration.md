@@ -13,7 +13,7 @@ anyway.
 
 Read from `.env` by Compose, or from the process environment for a bare
 install. `.env` is **not** read by your shell — a value set there reaches
-a container but not a `uv run mock-sensor` you type yourself, unless
+a container but not a `uv run labmon mock-sensor` you type yourself, unless
 something like direnv exports it.
 
 ### Connection settings
@@ -106,6 +106,23 @@ describing hardware. Full description in
 | `--significant-digits` | `6` | Digits a reading carries when `--resolution` is unset |
 | `--log-level` | `INFO` | `DEBUG` adds a line per reading |
 | `--summary-interval` | `30.0` | Seconds between "still writing" lines; `0` turns them off |
+
+### `labmon export` and `labmon query`
+
+Both take the same selection flags. See
+[`docs/export.md`](export.md) for the formats and the window spellings.
+
+| Flag | Default | Purpose |
+|---|---|---|
+| `--measurement` | *(all)* | Measurement to read; repeatable |
+| `--sensor-id` | *(all)* | Restrict to one sensor; repeatable |
+| `--since` | `1h` | Window start: ISO 8601 timestamp or a duration ago |
+| `--until` | *(now)* | Window end, same spellings |
+| `--format` | *(from `-o`, else `csv`)* | `csv`, `parquet`, `feather`, `netcdf` — export only |
+| `-o`, `--output` | `labmon-export.<ext>` | File to write, or `-` for stdout — export only |
+| `--split-per-sensor` | off | One file per sensor — export only |
+| `--no-raw-input` | off | Drop `input_volts` and `calibration_id` — export only |
+| `--limit` | `20` | Rows printed; `0` shows every one — query only |
 
 ### `serial-sensor`
 

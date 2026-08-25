@@ -1,9 +1,7 @@
 import logging
 import signal
-import sys
 import time
 from collections.abc import Callable
-from pathlib import Path
 from types import FrameType
 
 import pint
@@ -14,7 +12,7 @@ from labmon.calibration import Calibration, LinearConversion, ureg
 from labmon.gate import StopRecordingRule
 from labmon.sensors import loop as sensor_loop
 from labmon.sensors import serial_sensor
-from labmon.sensors.serial_sensor import MAX_WARNED_CHANNELS, main, run
+from labmon.sensors.serial_sensor import MAX_WARNED_CHANNELS, run
 from labmon.sensors.serial_source import RawReading
 
 SignalHandler = Callable[[int, FrameType | None], None]
@@ -438,102 +436,6 @@ def test_run_honours_a_custom_adc_resolution_and_reference(
     assert "value=212.5" in point.to_line_protocol()
 
 
-def _patch_main_dependencies(
-    monkeypatch: pytest.MonkeyPatch,
-) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
-    run_calls: list[dict[str, object]] = []
-    port_calls: list[dict[str, object]] = []
-
-    def fake_run(**kwargs: object) -> None:
-        run_calls.append(kwargs)
-
-    def fake_open_serial_port(port: str, baudrate: int) -> object:
-        port_calls.append({"port": port, "baudrate": baudrate})
-        return object()
-
-    def fake_load_calibration(_path: Path) -> dict[str, Calibration]:
-        return {"A0": _temperature_calibration()}
-
-    monkeypatch.setattr(serial_sensor, "run", fake_run)
-    monkeypatch.setattr(serial_sensor, "open_serial_port", fake_open_serial_port)
-    monkeypatch.setattr(serial_sensor, "load_calibration", fake_load_calibration)
-    return run_calls, port_calls
-
-
-def test_main_parses_defaults_and_calls_run(monkeypatch: pytest.MonkeyPatch) -> None:
-    run_calls, port_calls = _patch_main_dependencies(monkeypatch)
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        ["serial-sensor", "--port", "/dev/labmon-due", "--calibration", "cal.toml"],
-    )
-
-    main()
-
-    assert port_calls == [{"port": "/dev/labmon-due", "baudrate": 115200}]
-    [call] = run_calls
-    assert call["resolution_bits"] == 12
-    assert call["v_ref"] == 3.3
-    assert call["summary_interval"] == 30.0
-    assert call["calibrations"] == {"A0": _temperature_calibration()}
-
-
-def test_main_parses_custom_arguments(monkeypatch: pytest.MonkeyPatch) -> None:
-    run_calls, port_calls = _patch_main_dependencies(monkeypatch)
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "serial-sensor",
-            "--port",
-            "/dev/ttyACM0",
-            "--calibration",
-            "/etc/labmon/cal.toml",
-            "--baudrate",
-            "9600",
-            "--resolution-bits",
-            "10",
-            "--vref",
-            "5.0",
-            "--summary-interval",
-            "120",
-        ],
-    )
-
-    main()
-
-    assert port_calls == [{"port": "/dev/ttyACM0", "baudrate": 9600}]
-    [call] = run_calls
-    assert call["resolution_bits"] == 10
-    assert call["v_ref"] == 5.0
-    assert call["summary_interval"] == 120.0
-
-
-def test_a_summary_interval_of_zero_turns_the_heartbeat_off(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Zero is the off switch, since a float flag cannot take None."""
-    run_calls, _ = _patch_main_dependencies(monkeypatch)
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "serial-sensor",
-            "--port",
-            "/dev/labmon-due",
-            "--calibration",
-            "cal.toml",
-            "--summary-interval",
-            "0",
-        ],
-    )
-
-    main()
-
-    [call] = run_calls
-    assert call["summary_interval"] is None
-
-
 @pytest.mark.usefixtures("fake_client", "registered_handlers")
 def test_per_reading_lines_are_debug_not_info(
     caplog: pytest.LogCaptureFixture,
@@ -587,29 +489,6 @@ def test_a_summary_is_logged_once_the_interval_elapses(
     assert [(_field(r, "sensor_id"), _field(r, "readings")) for r in summaries] == [
         ("cryo-77k", 2)
     ]
-
-
-def test_an_unknown_log_level_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A typo must fail at the command line, not quietly become INFO."""
-    _ = _patch_main_dependencies(monkeypatch)
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "serial-sensor",
-            "--port",
-            "/dev/labmon-due",
-            "--calibration",
-            "cal.toml",
-            "--log-level",
-            "DEGUB",
-        ],
-    )
-
-    with pytest.raises(SystemExit) as exit_info:
-        main()
-
-    assert exit_info.value.code == 2
 
 
 @pytest.mark.usefixtures("fake_client", "registered_handlers")

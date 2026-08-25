@@ -37,6 +37,7 @@ together visually.*
 - [The dashboard](#the-dashboard) — what Grafana brings along
 - [Connecting a real instrument](#connecting-a-real-instrument)
 - [Logs, next to the measurements](#logs-next-to-the-measurements)
+- [Getting the data out](#getting-the-data-out) — CSV, Parquet, Feather, netCDF
 - [Running it across the lab](#running-it-across-the-lab)
 - [Configuration](docs/configuration.md) — every setting, and where it lives
 - [How it works](#how-it-works)
@@ -248,6 +249,56 @@ Client machines ship their logs to the same store, so one query answers
 "why did this stop" for the whole lab rather than for one machine.
 [`docs/logging.md`](docs/logging.md) covers retention, what is logged at
 which level, and the setup.
+
+## Getting the data out
+
+Dashboards are for watching. When it is time to look at numbers or plot
+a figure, two commands read the recorded readings:
+
+```bash
+labmon query  --measurement temperature --since 5m        # print a table
+labmon export --measurement temperature --since 24h -o run # write a file
+```
+
+Both take the same selection flags — `--measurement`, `--sensor-id`,
+`--since`, `--until` — so learning one teaches the other.
+
+```bash
+labmon export --sensor-id cryo-77k --since 2026-08-01 --until 2026-08-02
+labmon export --since 5m --format feather -o test   # writes test.feather
+```
+
+CSV by default; Parquet and Feather for anything large; netCDF for
+xarray. All four load in one call:
+
+```python
+pd.read_parquet("run.parquet")  # pandas
+pl.read_ipc("run.feather")  # polars
+xr.open_dataset("run.nc")  # xarray
+```
+
+Output is one row per reading — `time`, `sensor_id`, `measurement`,
+`value`, `unit` — because sensors run at different rates and there is no
+single time axis to grid them onto. `--split-per-sensor` writes one file
+each instead of one combined file.
+
+The unit rides along on every row, in every format, so nobody inherits a
+column of numbers and has to guess whether they are kelvin or celsius.
+
+Tab completion is a command away, and doubles as documentation —
+completing a flag shows its help text beside it:
+
+```bash
+uv tool install --editable .   # puts `labmon` on your PATH
+labmon --install-completion
+```
+
+[`docs/export.md`](docs/export.md) covers the formats, the time window
+spellings, completion for bash and zsh, and why the unit is a column
+rather than only metadata.
+[`docs/loading-exports.md`](docs/loading-exports.md) takes it from the
+other end — loading each file into pandas, polars and xarray, and what
+the shape of the data means once it is there.
 
 ## Running it across the lab
 

@@ -166,14 +166,14 @@ services:
   # docs/serial-sensor.md — including the udev rule that gives the board
   # the stable /dev/labmon-due name used here.
   #
-  # entrypoint: overrides the image's baked-in ENTRYPOINT ["mock-sensor"].
+  # entrypoint: overrides the image's baked-in ENTRYPOINT ["labmon", "mock-sensor"].
   # devices: passes the serial device through to the container.
   # volumes: the calibration file is read at startup and never written.
   #
   # serial-sensor:
   #   <<: *labmon-sensor
   #   container_name: labmon-serial-sensor
-  #   entrypoint: ["serial-sensor"]
+  #   entrypoint: ["labmon", "serial-sensor"]
   #   devices:
   #     - /dev/labmon-due:/dev/labmon-due
   #   volumes:

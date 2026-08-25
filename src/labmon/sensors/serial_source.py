@@ -26,6 +26,8 @@ from typing import Protocol
 
 import serial
 
+from labmon.sensors import constants
+
 logger: logging.Logger = logging.getLogger(__name__)
 
 # INVARIANT (see docs/configuration.md): the wire contract with the
@@ -55,7 +57,7 @@ DEFAULT_READ_TIMEOUT_SECONDS = 1.0
 
 # Ignored by an Arduino Due's native USB port (CDC runs at full USB
 # speed regardless), but pyserial still requires a value.
-DEFAULT_BAUDRATE = 115200
+DEFAULT_BAUDRATE = constants.DEFAULT_BAUDRATE
 
 
 @dataclass(frozen=True)

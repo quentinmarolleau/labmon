@@ -363,7 +363,7 @@ services:
   demo-adc-feeder:
     <<: *mock-sensor
     container_name: demo-adc-feeder
-    # Overrides the image's ENTRYPOINT ["mock-sensor"]. The feeder is
+    # Overrides the image's ENTRYPOINT ["labmon", "mock-sensor"]. The feeder is
     # stdlib-only, so it runs in this image with nothing added.
     entrypoint: ["python", "/app/demo/adc_feeder.py"]
     # Replaces the anchor's environment rather than adding to it: a YAML
@@ -380,7 +380,7 @@ services:
   demo-serial-sensor:
     <<: *mock-sensor
     container_name: demo-serial-sensor
-    entrypoint: ["serial-sensor"]
+    entrypoint: ["labmon", "serial-sensor"]
     depends_on:
       influxdb:
         condition: service_healthy
