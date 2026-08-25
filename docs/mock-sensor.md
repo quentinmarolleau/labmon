@@ -47,6 +47,8 @@ process closes its InfluxDB connection cleanly on SIGINT/SIGTERM.
 | `--field`          | `value`        | InfluxDB field name for the reading                                |
 | `--noise`          | `0.1`          | Std dev of Gaussian noise added each step                         |
 | `--log-scale`      | off            | Perform the walk in log10 space (see below)                       |
+| `--resolution`     | unset          | Absolute step the reading is rounded to, in its own units (see below) |
+| `--significant-digits` | `6`        | Digits a reading carries when `--resolution` is not given          |
 | `--unit`           | `""`           | Unit of the reading (e.g. `°C`, `K`, `mbar`) — written as an InfluxDB `unit` tag when set |
 | `--log-level`      | `INFO`         | `DEBUG` adds a line per reading                                   |
 | `--summary-interval` | `30.0`       | Seconds between "still writing" lines; `0` turns them off         |
@@ -65,6 +67,38 @@ pressure. With `--log-scale`, the walk operates on `log10(reading)`
 internally, so `--noise` becomes a proportional (log10) quantity — jitter
 and mean-reversion scale with magnitude, and the reading can never go
 non-positive. `--setpoint` stays in ordinary linear units either way.
+
+### `--resolution` and `--significant-digits`
+
+A random walk in floating point produces a reading like
+`76.85006139177405` — sixteen digits, claiming a precision no
+thermometer has. Somebody opening the exported column cannot tell
+simulated jitter from a real millikelvin, so readings are rounded before
+they are written.
+
+`--resolution` is an absolute step, in the reading's own units, and is
+how an instrument with a fixed least-significant digit is described:
+
+```bash
+uv run labmon mock-sensor --sensor-id cryo-77k --setpoint 77 --unit K \
+  --resolution 0.001        # 76.85006139177405 -> 76.85
+```
+
+Without one, readings are rounded to `--significant-digits` instead.
+That is the default because it stays meaningful wherever the sensor sits
+on the scale: an absolute step large enough for a thermometer reports a
+vacuum gauge walking at `1e-7 mbar` as exactly zero, whereas six
+significant digits resolves it to `1e-12 mbar`.
+
+The one case needing care is a large value with fine structure. Six
+significant digits at a 276 THz carrier is a 1 GHz step, so a wavemeter
+drifting by a few MHz would return the same number every time — the demo
+therefore gives it `--resolution 1e5`. As a rule, pick a step at least
+an order of magnitude below `--noise`.
+
+The walk itself keeps full precision internally. Rounding its state
+would change how it reverts toward the setpoint, and a step coarser than
+the noise would freeze it outright; only the reported value is rounded.
 
 ### `--unit`
 

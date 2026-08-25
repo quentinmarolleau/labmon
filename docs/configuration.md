@@ -102,6 +102,8 @@ describing hardware. Full description in
 | `--setpoint` | `21.0` | Baseline the walk reverts toward |
 | `--noise` | `0.1` | Standard deviation of the step noise |
 | `--log-scale` | off | Walk in log₁₀ space, for a quantity spanning decades |
+| `--resolution` | *(none)* | Absolute step readings are rounded to, in their own units |
+| `--significant-digits` | `6` | Digits a reading carries when `--resolution` is unset |
 | `--log-level` | `INFO` | `DEBUG` adds a line per reading |
 | `--summary-interval` | `30.0` | Seconds between "still writing" lines; `0` turns them off |
 

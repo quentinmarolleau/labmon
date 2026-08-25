@@ -23,6 +23,7 @@ import math
 import random
 import time
 from datetime import UTC, datetime
+from decimal import ROUND_HALF_EVEN, Decimal
 from typing import cast
 
 from influxdb_client_3 import Point
@@ -32,6 +33,47 @@ from labmon.influx import influx_database
 from labmon.sensors.loop import DEFAULT_SUMMARY_INTERVAL_SECONDS, SensorLoop
 
 logger: logging.Logger = logging.getLogger(__name__)
+
+# How many digits a reading carries when no absolute step is given.
+# Significant digits rather than decimal places because a mock sensor may
+# sit anywhere on the scale: the demo alone spans 4 K and 1.5e-7 mbar, and
+# a fixed number of decimals reports one of those as zero.
+DEFAULT_SIGNIFICANT_DIGITS = 6
+
+
+def quantise(
+    value: float,
+    resolution: float | None = None,
+    significant_digits: int = DEFAULT_SIGNIFICANT_DIGITS,
+) -> float:
+    """Round a reading to the precision the simulated instrument has.
+
+    A walk in floating point produces sixteen digits, and writing them
+    claims a precision no instrument has — someone reading the exported
+    column cannot tell simulated jitter from a real millikelvin.
+
+    `resolution` is an absolute step in the reading's own units, which is
+    how an instrument with a fixed least-significant digit is specified
+    (a thermometer resolving 0.001 K). Without one, the value is rounded
+    to `significant_digits` instead, which stays meaningful at any
+    magnitude — the safe default, since an absolute step large enough for
+    a thermometer reports a vacuum gauge as zero.
+
+    Stepping is done in Decimal rather than as `round(value / step) *
+    step`: the arithmetic form puts back the noise it is removing, giving
+    76.85000000000001 where the decimal form gives 76.85.
+    """
+    if not math.isfinite(value):
+        # `polling` refuses a non-finite value before it becomes a field;
+        # rounding should not be the thing that raises first.
+        return value
+    if resolution is not None:
+        step = Decimal(str(resolution))
+        return float(
+            (Decimal(repr(value)) / step).quantize(Decimal(1), rounding=ROUND_HALF_EVEN)
+            * step
+        )
+    return float(f"{value:.{significant_digits}g}")
 
 
 class RandomWalk:
@@ -73,6 +115,8 @@ def run(
     noise: float = 0.1,
     log_scale: bool = False,
     unit: str = "",
+    resolution: float | None = None,
+    significant_digits: int = DEFAULT_SIGNIFICANT_DIGITS,
     summary_interval: float | None = DEFAULT_SUMMARY_INTERVAL_SECONDS,
 ) -> None:
     """Write simulated readings for `sensor_id` to InfluxDB until interrupted.
@@ -97,7 +141,15 @@ def run(
     )
     while True:
         reading_time = datetime.now(UTC)
-        reading = walk.next()
+        # Rounded here rather than inside the walk: quantising the walk's
+        # own state would change how it reverts to the setpoint, and a
+        # step coarser than the noise would freeze it outright. The gate
+        # then sees the value that will actually be recorded.
+        reading = quantise(
+            walk.next(),
+            resolution=resolution,
+            significant_digits=significant_digits,
+        )
         # The walk cannot currently produce one, but this file is also the
         # template a user copies and edits, and the guard belongs wherever
         # a value becomes a field. Guarding the write rather than skipping
@@ -163,6 +215,22 @@ def main() -> None:
         + "InfluxDB tag when set, and omitted entirely when not.",
     )
     _ = parser.add_argument(
+        "--resolution",
+        type=float,
+        default=None,
+        help="Absolute step the reading is rounded to, in its own units "
+        + "(e.g. 0.001 for a thermometer resolving a millikelvin). "
+        + "Without it, readings are rounded to --significant-digits, "
+        + "which stays meaningful at any magnitude",
+    )
+    _ = parser.add_argument(
+        "--significant-digits",
+        type=int,
+        default=DEFAULT_SIGNIFICANT_DIGITS,
+        help="Digits a reading carries when --resolution is not given "
+        + f"(default: {DEFAULT_SIGNIFICANT_DIGITS})",
+    )
+    _ = parser.add_argument(
         "--log-level",
         default="INFO",
         choices=logs.LEVEL_NAMES,
@@ -187,6 +255,8 @@ def main() -> None:
     noise = cast(float, args.noise)
     log_scale = cast(bool, args.log_scale)
     unit = cast(str, args.unit)
+    resolution = cast(float | None, args.resolution)
+    significant_digits = cast(int, args.significant_digits)
     # argparse cannot hand back None from a float flag, so zero is the off
     # switch — and "summarise every zero seconds" has no other meaning.
     summary_interval = cast(float, args.summary_interval) or None
@@ -200,6 +270,8 @@ def main() -> None:
         noise=noise,
         log_scale=log_scale,
         unit=unit,
+        resolution=resolution,
+        significant_digits=significant_digits,
         summary_interval=summary_interval,
     )
 

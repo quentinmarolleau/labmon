@@ -290,6 +290,7 @@ services:
       - --setpoint=21
       - --noise=0.15
       - --unit=°C
+      - --resolution=0.001
 
   mock-room-2:
     <<: *mock-sensor
@@ -300,6 +301,7 @@ services:
       - --setpoint=22
       - --noise=0.15
       - --unit=°C
+      - --resolution=0.001
 
   mock-cryo-77k:
     <<: *mock-sensor
@@ -310,6 +312,7 @@ services:
       - --setpoint=77
       - --noise=0.3
       - --unit=K
+      - --resolution=0.001
 
   mock-cryo-4k:
     <<: *mock-sensor
@@ -320,6 +323,7 @@ services:
       - --setpoint=4.2
       - --noise=0.05
       - --unit=K
+      - --resolution=0.001
 
   mock-pressure:
     <<: *mock-sensor
@@ -345,6 +349,10 @@ services:
       - --noise=400000
       - --interval=2
       - --unit=Hz
+      # 100 kHz steps. The default rounds to six significant digits,
+      # which at 276 THz is a 1 GHz step — coarser than the whole drift,
+      # so consecutive readings would come back identical.
+      - --resolution=1e5
 
   # The demo's second acquisition path. Unlike the mock sensors above,
   # which invent a value already in physical units, these two run the
