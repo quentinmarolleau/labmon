@@ -24,6 +24,27 @@ chamber pressure, laser power, a magnet's current) into a time-series
 database, and puts it on a live dashboard anyone in the room can open in
 a browser. Two commands to start, no database or web experience needed.
 
+> [!TIP]
+> **🎉 New — `labmon`, a command line for your data.**
+>
+> Recorded readings no longer have to be clicked out of Grafana one
+> panel at a time.
+>
+> ```bash
+> labmon query  --measurement temperature --since 5m        # look at it now
+> labmon export --measurement temperature --since 24h -o run # keep it
+> ```
+>
+> Same four selection flags for both — `--measurement`, `--sensor-id`,
+> `--since`, `--until`. Exports to **CSV, Parquet, Feather and netCDF**
+> 📦, ready to load in pandas, polars or xarray, with the unit
+> travelling alongside every reading so nobody has to guess whether a
+> column is kelvin or celsius. Tab completion included ⚡, and it doubles
+> as documentation — completing a flag shows its help text beside it.
+>
+> [`docs/export.md`](docs/export.md) — getting data out ·
+> [`docs/loading-exports.md`](docs/loading-exports.md) — loading it back
+
 ![The Lab Overview dashboard: a row of current-value tiles for cold finger, chamber pressure, laser power and bias rail; a panel plotting a calibrated temperature against the raw ADC voltage it came from; cryogenic and room temperature, vacuum and laser power time series; a needle dial for laser detuning; an XY plot of beam position; and a table listing every sensor with its unit, raw input, calibration id and whether it is simulated or calibrated](docs/assets/images/lab-overview-screenshot.png)
 
 *The **Lab Overview** dashboard you get out of the box, running against
@@ -426,6 +447,11 @@ What is planned next lives in
 open issue carries a decision: `validated` is agreed and scheduled, and
 `waiting-for-need` is understood and wanted *if* a concrete case appears
 — each of those says in its own thread what would bring it back.
+
+## Changelog
+
+[`CHANGELOG.md`](CHANGELOG.md) records what changed in each release, and
+what is waiting in `Unreleased`.
 
 ## Contributing
 
