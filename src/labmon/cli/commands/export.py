@@ -65,6 +65,15 @@ Output = Annotated[
     ),
 ]
 
+NoRawInput = Annotated[
+    bool,
+    typer.Option(
+        "--no-raw-input",
+        help="Leave out input_volts and calibration_id, keeping only the "
+        + "readings and their units",
+    ),
+]
+
 SplitPerSensor = Annotated[
     bool,
     typer.Option(
@@ -149,10 +158,11 @@ def export(
     output: Output = None,
     format: FormatOption = None,
     split_per_sensor: SplitPerSensor = False,
+    no_raw_input: NoRawInput = False,
     log_level: LogLevelOption = "INFO",  # pyright: ignore[reportArgumentType]
 ) -> None:
     """Export recorded readings to a file a notebook can open."""
-    from labmon.export.table import attach_metadata
+    from labmon.export.table import attach_metadata, without_raw_input
     from labmon.export.writers import write, write_stdout
 
     configure(log_level)
@@ -165,6 +175,8 @@ def export(
         )
 
     readings, window = selection.read(measurement, sensor_id, since, until)
+    if no_raw_input:
+        readings = without_raw_input(readings)
     table = attach_metadata(readings, window)
     logger.info("exported readings", extra={"rows": table.num_rows, "format": fmt})
     if table.num_rows == 0:

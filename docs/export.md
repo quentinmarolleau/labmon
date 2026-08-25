@@ -89,7 +89,40 @@ frame.pivot(index="time", columns="sensor_id", values="value")
 ```
 
 netCDF is the exception: it is variable-per-sensor by nature, each with
-its own time dimension, so no alignment is imposed there either.
+its own time dimension, so no alignment is imposed there either. The two
+provenance columns become a companion variable and an attribute:
+
+| long format | netCDF |
+|---|---|
+| `input_volts` | a `<sensor>_input_volts` variable in volts, on the same time axis |
+| `calibration_id` | a `calibration_id` attribute on the reading's variable |
+
+The reading also carries CF's `ancillary_variables`, pointing at its
+voltage, so a reader finds it without guessing the naming scheme. A
+sensor that never had a voltage — anything simulated — gets no companion
+variable at all, because an all-NaN one would suggest a measurement that
+was attempted and failed. A sensor recalibrated mid-window lists every
+calibration it used, joined, rather than only the last.
+
+## Leaving the provenance out
+
+`--no-raw-input` drops `input_volts` and `calibration_id`:
+
+```bash
+labmon export --since 24h --no-raw-input -o readings.csv
+# time, sensor_id, measurement, value, unit
+```
+
+They are the bulk of a narrow export — about a quarter of the CSV — and
+mean nothing to somebody who only wants the readings.
+
+It is a deliberate loss, not a tidy-up. `input_volts` is stored so a
+reading can be recomputed when a calibration turns out to have been
+wrong; an export without it cannot be corrected after the fact, only
+re-run against the database. Keep it for anything archival.
+
+The unit is never dropped. A column of bare numbers nobody can interpret
+is the failure the whole calibration layer exists to prevent.
 
 ## Units travel with the readings
 

@@ -155,6 +155,29 @@ def _column_type(name: str) -> pa.DataType:
     return pa.float64()
 
 
+# Columns that record where a reading came from rather than what it is.
+# Dropped together by `without_raw_input`: `calibration_id` names the
+# conversion that produced `value` from `input_volts`, so one without the
+# other says nothing useful.
+PROVENANCE_COLUMNS: tuple[str, ...] = ("input_volts", "calibration_id")
+
+
+def without_raw_input(table: pa.Table) -> pa.Table:
+    """Drop the provenance columns, for an export that only wants readings.
+
+    A deliberate loss rather than a tidy-up. `input_volts` is stored so a
+    reading can be recomputed when a calibration turns out to be wrong;
+    without it, what was recorded is all there is. The unit stays, always
+    — a column of bare numbers nobody can interpret is the failure the
+    whole calibration layer exists to prevent.
+
+    Dropping columns that are already absent is not an error, so this is
+    safe on a measurement written by something other than labmon.
+    """
+    keep = [name for name in table.column_names if name not in PROVENANCE_COLUMNS]
+    return table.select(keep)
+
+
 def units_by_sensor(table: pa.Table) -> dict[str, str]:
     """The unit each sensor in `table` reports, for metadata and netCDF.
 

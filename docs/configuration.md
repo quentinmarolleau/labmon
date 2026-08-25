@@ -121,6 +121,7 @@ Both take the same selection flags. See
 | `--format` | *(from `-o`, else `csv`)* | `csv`, `parquet`, `feather`, `netcdf` — export only |
 | `-o`, `--output` | `labmon-export.<ext>` | File to write, or `-` for stdout — export only |
 | `--split-per-sensor` | off | One file per sensor — export only |
+| `--no-raw-input` | off | Drop `input_volts` and `calibration_id` — export only |
 | `--limit` | `20` | Rows printed; `0` shows every one — query only |
 
 ### `serial-sensor`

@@ -333,3 +333,47 @@ def test_the_documented_invocation_is_accepted(tmp_path: Path) -> None:
 
     assert result.exit_code == 0, result.output
     assert (tmp_path / "run.parquet").exists()
+
+
+@pytest.mark.usefixtures("fake_client")
+def test_no_raw_input_leaves_the_provenance_columns_out(tmp_path: Path) -> None:
+    target = tmp_path / "run.csv"
+
+    result = _run("-o", str(target), "--no-raw-input")
+
+    assert result.exit_code == 0, result.output
+    header = target.read_text(encoding="utf-8").splitlines()[0]
+    assert "input_volts" not in header
+    assert "calibration_id" not in header
+
+
+@pytest.mark.usefixtures("fake_client")
+def test_no_raw_input_keeps_the_unit(tmp_path: Path) -> None:
+    # The unit is never optional: a column of bare numbers is the failure
+    # the calibration layer exists to prevent.
+    target = tmp_path / "run.csv"
+
+    _ = _run("-o", str(target), "--no-raw-input")
+
+    text = target.read_text(encoding="utf-8")
+    assert "unit" in text.splitlines()[0]
+    assert "K" in text
+
+
+@pytest.mark.usefixtures("fake_client")
+def test_the_provenance_columns_are_there_by_default(tmp_path: Path) -> None:
+    target = tmp_path / "run.csv"
+
+    _ = _run("-o", str(target))
+
+    header = target.read_text(encoding="utf-8").splitlines()[0]
+    assert "input_volts" in header
+    assert "calibration_id" in header
+
+
+@pytest.mark.usefixtures("fake_client")
+def test_no_raw_input_works_with_splitting(tmp_path: Path) -> None:
+    _ = _run("-o", str(tmp_path / "run.csv"), "--split-per-sensor", "--no-raw-input")
+
+    header = (tmp_path / "run_cryo-77k.csv").read_text(encoding="utf-8").splitlines()[0]
+    assert "calibration_id" not in header
