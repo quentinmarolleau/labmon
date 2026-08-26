@@ -15,6 +15,7 @@ import typer
 from labmon.cli.commands import export as export_command
 from labmon.cli.commands import mock_sensor as mock_sensor_command
 from labmon.cli.commands import query as query_command
+from labmon.cli.commands import sensors as sensors_command
 from labmon.cli.commands import serial_sensor as serial_sensor_command
 from labmon.cli.runtime import reporting
 
@@ -47,7 +48,23 @@ def build_app() -> typer.Typer:
         # rather than start a sensor with every default.
         context_settings={"help_option_names": ["-h", "--help"]},
     )
-    _ = app.command("query", help=query_command.HELP)(reporting(query_command.query))
+    # `query` keeps its own behaviour when invoked bare — the log-style
+    # table is what it has always meant — and gains subcommands for the
+    # other questions worth asking of recorded readings.
+    query_app = typer.Typer(
+        help=query_command.HELP,
+        rich_markup_mode="rich",
+        invoke_without_command=True,
+        context_settings={"help_option_names": ["-h", "--help"]},
+    )
+    _ = query_app.callback(invoke_without_command=True)(reporting(query_command.query))
+    _ = query_app.command("latest", help=query_command.LATEST_HELP)(
+        reporting(query_command.latest)
+    )
+    app.add_typer(query_app, name="query")
+    _ = app.command("sensors", help=sensors_command.HELP)(
+        reporting(sensors_command.sensors)
+    )
     _ = app.command("export", help=export_command.HELP)(
         reporting(export_command.export)
     )

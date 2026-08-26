@@ -276,6 +276,147 @@ screen.
 `query` never emits binary. To pipe a real format into another tool, use
 `labmon export -o -`.
 
+## What is everything reading right now
+
+`labmon query latest` answers a different question from `query` itself:
+not what happened over a window, but where each sensor stands at this
+moment. A subcommand rather than a flag, so it carries its own help and
+completions and leaves room for the other questions worth asking of
+recorded readings.
+
+```bash
+labmon query latest
+labmon query latest --measurement temperature
+labmon query latest --sensor-id cryo-77k --sensor-id room-1
+```
+
+```
+sensor_id     measurement  value             unit  age
+------------  -----------  ----------------  ----  -------
+wavemeter-1   frequency    2.765612997e+14   Hz    2s ago
+chamber-1     pressure     1.9867e-07        mbar  4s ago
+cryo-77k      temperature  76.945            K     4s ago
+room-1        temperature  21.552            °C    4s ago
+old-probe     temperature  21.0691           K     57m ago
+
+13 sensors
+```
+
+Readings are shown plainly where a decimal reads well, and in scientific
+notation where it does not — more than three digits ahead of the point,
+or zeros crowding in behind it, is where a column of numbers has to be
+counted rather than read. Nothing is rounded away in either form: the
+shortest text that reads back as the same number is used, because a
+sensor has already rounded to the resolution it claims.
+
+The unit is never rewritten. Rescaling `Hz` to `THz` is the prettiest
+answer for a wavemeter and the wrong one nearly everywhere else — `mbar`
+already carries a prefix, so choosing one afresh turns a vacuum reading
+into picobar, and `°C` is an offset unit that cannot be scaled at all. A
+per-sensor prefix, chosen rather than inferred, is the better answer
+where one is wanted, and belongs in a configuration file.
+
+One row per sensor, and **the `age` column is as much the point as the
+value is.** A sensor that stopped writing an hour ago still has a most
+recent reading, and it looks perfectly healthy until you can see when it
+arrived — `probe-158` above is the row worth noticing.
+
+Rows are ordered by age with the oldest last, so the sensor that has
+gone quiet is the line an eye lands on. In a terminal the age is
+coloured: unmarked under a minute, amber up to five, red beyond. Those
+thresholds are global for now; sensors here legitimately run from 1 Hz
+to once a minute, so a per-sensor expectation is the better answer and
+belongs in a configuration file.
+
+Colour is written only when the output is a terminal, so piping this
+into a file leaves escape codes out of it.
+
+The same four selection flags apply, and they narrow the remembered
+sensors as well as the query — asking for temperatures does not list a
+silent pressure gauge.
+
+## Sensors that have gone quiet
+
+`--since` bounds how far back the query looks, so a sensor silent for
+longer than the window returns no row. It has nothing to be stale: it
+simply disappears, which is the worst possible failure for a view whose
+job is spotting silence.
+
+labmon therefore remembers the sensors it has seen, and unions that list
+into the result:
+
+```
+sensor_id   measurement  value               unit  age
+----------  -----------  ------------------  ----  -------
+cryo-diode  temperature  17.097367521367556  K     1s ago
+room-1      temperature  20.518              °C    2s ago
+probe-158   temperature                      K     1h ago
+
+6 sensors
+1 of them reported nothing in this window — remembered from a previous run
+```
+
+`probe-158` reported nothing inside the window. Its **value is left
+blank rather than filled with the last reading it ever sent**: printed
+beside a fresh number from another sensor, an old one reads as current.
+
+The rule the cache follows is that **it may only add sensors, never
+replace or filter them.** Used as a union a stale cache is harmless, and
+the worst it can do is mention something that has since been removed.
+Used as a substitute it would grow its own silent failure, hiding a
+newly added sensor until somebody remembered to rebuild it.
+
+## `labmon sensors`
+
+The list is a cache, so it needs a window onto it — otherwise a
+decommissioned instrument shows red for ever with no recourse but
+deleting the file by hand.
+
+```bash
+labmon sensors                       # what labmon knows, and where from
+labmon sensors --refresh             # ask the database and remember
+labmon sensors --refresh --since 1w  # over a wider window
+labmon sensors --forget old-probe    # an instrument that is genuinely gone
+```
+
+```
+sensor_id     measurement  unit  age     source
+------------  -----------  ----  ------  ------
+wavemeter-1   frequency    Hz    1s ago  live
+cryo-77k      temperature  K     1s ago  live
+bias-monitor  voltage      V     2s ago  live
+old-probe     temperature  K     3h ago  cached
+```
+
+**The `source` column appears only with `--refresh`**, because only a
+refresh asks the database anything. A plain listing reads the remembered
+file and touches nothing, so the column could report nothing but
+"cached" — including beside a sensor reporting at that moment. It is
+left out rather than printed misleadingly.
+
+`--measurement` and `--sensor-id` describe a remembered entry, so they
+narrow a plain listing as well as a refresh. `--since` and `--until`
+bound the query a refresh runs, and are refused without it.
+
+An entry is a sensor **and** a measurement, not a sensor alone: one
+writing both a temperature and a pressure is listed once for each, which
+is how the readings themselves are stored.
+
+A refresh is a union too — it never drops what the window did not cover,
+since that would delete exactly the silence worth keeping. `--forget` is
+the way to remove one, and it fails rather than pretending when the name
+is not there, so a mistyped id cannot leave somebody believing they
+removed a sensor that is still listed.
+
+The cache lives at `$XDG_CACHE_HOME/labmon/sensors.json` (usually
+`~/.cache/labmon/sensors.json`) — beside other caches rather than in the
+configuration directory, because it is derived data that can be deleted
+at any moment without losing a setting. It is an indented JSON list, so
+it can be read and edited by hand, and it is written through a temporary
+file and moved into place: a half-written roster would read as empty,
+and what that heals to is the loss of every quiet sensor it exists to
+remember.
+
 ## Tab completion
 
 ```bash

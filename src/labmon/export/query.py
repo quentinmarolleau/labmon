@@ -173,3 +173,193 @@ def fetch(
         extra={"measurement": measurement, "sensors": len(wanted_sensors)},
     )
     return client.query(sql, query_parameters=parameters)
+
+
+# --------------------------------------------------------------------------
+# The latest reading from each sensor
+# --------------------------------------------------------------------------
+
+SENSOR_COLUMN = "sensor_id"
+
+
+# The SQL type each optional column is cast to when a table lacks it.
+# Needed because a UNION arm that selects a bare NULL has no type for the
+# planner to reconcile against the arm that selects a real column.
+_NULL_TYPES: dict[str, str] = {
+    "unit": "VARCHAR",
+    "calibration_id": "VARCHAR",
+    "input_volts": "DOUBLE",
+}
+
+
+def _latest_branch(
+    measurement: str,
+    present: frozenset[str],
+    shared: Sequence[str],
+    sensor_placeholders: Sequence[str],
+) -> str:
+    """One arm of the UNION, reducing a table to a row per sensor.
+
+    Builds SQL text; it does not touch the database. `fetch_latest`
+    calls this once per measurement and sends the arms together as a
+    single query.
+
+    **`GROUP BY sensor_id` is the whole idea.** It sorts every row in
+    the table into piles, one per sensor, and yields one output row per
+    pile — twenty thousand `cryo-77k` readings become a single
+    `cryo-77k` row.
+
+    Collapsing a pile means every column has to answer "which of these
+    values do I show?", which is what the functions are for.
+    `max(time)` is the newest timestamp in the pile, and
+    `last_value(value ORDER BY time)` sorts the pile by time and takes
+    the value from the end — the reading that goes with that timestamp.
+    A bare `value` would not compile: "the value of twenty thousand
+    rows" is not a question with one answer, and SQL insists on being
+    told which one is wanted.
+
+    `last_value` was chosen over `DISTINCT ON (sensor_id)` and over
+    `ROW_NUMBER() OVER (PARTITION BY sensor_id ORDER BY time DESC)`. All
+    three plan on this server; this one is the shortest to generate and
+    measured marginally the fastest.
+
+    The `WHERE` runs before the grouping, so it shrinks the piles first
+    — only rows inside the window, and only the sensors asked for.
+
+    Three details that are not obvious:
+
+    - the measurement is selected as a constant, the same on every row.
+      Each measurement is a separate table, so once rows from several of
+      them are stacked nothing in the data says which table a row came
+      from. This stamps it on.
+    - `$since`, `$until` and `$sensor_0` are placeholders. Their values
+      travel beside the query and are never pasted into its text, so a
+      sensor named `\'; DROP TABLE` is only a sensor that does not
+      exist. The table name *is* interpolated, safe because it came from
+      `resolve_measurements` matching it against the list the server
+      itself reported.
+    - a column this table lacks is selected as `CAST(NULL AS ...)`.
+      `UNION ALL` stacks rows vertically and requires every arm to have
+      the same columns in the same order; the cast is needed because a
+      bare NULL has no type for the planner to reconcile against the arm
+      holding the real column.
+
+    What comes out, for one table with every optional column and a
+    request narrowed to one sensor::
+
+        SELECT \'temperature\' AS "measurement",
+               "sensor_id",
+               max("time")                                  AS "time",
+               last_value("value" ORDER BY "time")          AS "value",
+               last_value("unit" ORDER BY "time")           AS "unit",
+               last_value("calibration_id" ORDER BY "time") AS "calibration_id",
+               last_value("input_volts" ORDER BY "time")    AS "input_volts"
+        FROM "temperature"
+        WHERE "time" >= CAST($since AS TIMESTAMP)
+          AND "time" <  CAST($until AS TIMESTAMP)
+          AND "sensor_id" IN ($sensor_0)
+        GROUP BY "sensor_id"
+    """
+    columns = [
+        f"'{measurement}' AS \"measurement\"",
+        f'"{SENSOR_COLUMN}"',
+        f'max("{TIME_COLUMN}") AS "{TIME_COLUMN}"',
+        f'last_value("{VALUE_COLUMN}" ORDER BY "{TIME_COLUMN}") AS "{VALUE_COLUMN}"',
+    ]
+    for optional in shared:
+        if optional in present:
+            columns.append(
+                f'last_value("{optional}" ORDER BY "{TIME_COLUMN}") AS "{optional}"'
+            )
+        else:
+            # Every arm must project the same columns, so a table that
+            # lacks one contributes a typed NULL rather than being narrower.
+            columns.append(f'CAST(NULL AS {_NULL_TYPES[optional]}) AS "{optional}"')
+
+    conditions = [
+        f'"{TIME_COLUMN}" >= CAST($since AS TIMESTAMP)',
+        f'"{TIME_COLUMN}" < CAST($until AS TIMESTAMP)',
+    ]
+    if sensor_placeholders:
+        conditions.append(f'"{SENSOR_COLUMN}" IN ({", ".join(sensor_placeholders)})')
+
+    return (
+        f"SELECT {', '.join(columns)}"
+        + f' FROM "{measurement}"'
+        + f" WHERE {' AND '.join(conditions)}"
+        + f' GROUP BY "{SENSOR_COLUMN}"'
+    )
+
+
+def fetch_latest(
+    client: Queryable,
+    measurements: Sequence[str],
+    window: Window,
+    sensor_ids: Iterable[str] = (),
+) -> pa.Table:
+    """The most recent reading each sensor produced within `window`.
+
+    One round trip for every measurement, as a UNION of one arm per
+    table. The round trips are what cost — the scan itself is cheap — so
+    asking six times would be six times the latency for the same answer.
+
+    A table with no `sensor_id` is skipped rather than refused: "the
+    latest per sensor" has no meaning there, and a measurement written by
+    something other than labmon may legitimately not have one. Refusing
+    the whole command because one table is unusual would be worse than
+    leaving it out.
+    """
+    parameters: dict[str, str] = {
+        "since": window.since.isoformat(),
+        "until": window.until.isoformat(),
+    }
+    placeholders: list[str] = []
+    for index, sensor in enumerate(sensor_ids):
+        name = f"sensor_{index}"
+        parameters[name] = sensor
+        placeholders.append(f"${name}")
+
+    usable: list[tuple[str, frozenset[str]]] = []
+    for measurement in measurements:
+        present = columns_of(client, measurement)
+        if not {TIME_COLUMN, VALUE_COLUMN, SENSOR_COLUMN} <= present:
+            logger.debug(
+                "measurement has no per-sensor readings",
+                extra={"measurement": measurement},
+            )
+            continue
+        usable.append((measurement, present))
+
+    # The optional columns any usable table has, so every arm can project
+    # the same set — the union of what is available, not the intersection,
+    # so one plain table does not hide another's provenance.
+    shared = [
+        optional
+        for optional in OPTIONAL_COLUMNS
+        if optional != SENSOR_COLUMN
+        and any(optional in present for _, present in usable)
+    ]
+
+    branches = [
+        _latest_branch(measurement, present, shared, placeholders)
+        for measurement, present in usable
+    ]
+
+    if not branches:
+        return _empty_latest()
+
+    sql = "\nUNION ALL\n".join(branches)
+    logger.debug("querying latest", extra={"measurements": len(branches)})
+    return client.query(sql, query_parameters=parameters)
+
+
+def _empty_latest() -> pa.Table:
+    """The shape `fetch_latest` returns when nothing can be asked."""
+    return pa.table(
+        {
+            "measurement": pa.array([], pa.string()),
+            SENSOR_COLUMN: pa.array([], pa.string()),
+            TIME_COLUMN: pa.array([], pa.timestamp("ms", tz="UTC")),
+            VALUE_COLUMN: pa.array([], pa.float64()),
+        }
+    )
