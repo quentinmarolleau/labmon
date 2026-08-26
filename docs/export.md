@@ -321,9 +321,20 @@ value is.** A sensor that stopped writing an hour ago still has a most
 recent reading, and it looks perfectly healthy until you can see when it
 arrived — `probe-158` above is the row worth noticing.
 
-Rows are ordered by age with the oldest last, so the sensor that has
-gone quiet is the line an eye lands on. In a terminal the age is
-coloured: unmarked under a minute, amber up to five, red beyond. Those
+Rows are ordered by **measurement, then sensor**, alphabetically and by
+nothing else. Age was the obvious key while this view printed once and
+exited — it put the sensor that had stopped on the last line, where an
+eye lands. It is unusable on anything that redraws: every row moves on
+every tick, so no row can be followed and reading one value means
+finding it again first. `labmon monitor` shares this renderer, and the
+same order is used by `labmon sensors`, so a sensor sits in the same
+place in all three.
+
+The measurement leads because it is what the rows are sorted by. A table
+ordered by a column it does not show first looks arbitrary.
+
+Staleness is carried by colour instead, which does not depend on
+position: unmarked under a minute, amber up to five, red beyond. Those
 thresholds are global for now; sensors here legitimately run from 1 Hz
 to once a minute, so a per-sensor expectation is the better answer and
 belongs in a configuration file.
@@ -342,17 +353,17 @@ swinging. `--stats` adds the mean, the standard deviation and the number
 of readings over the same window:
 
 ```bash
-labmon query latest --stats --since 15m
+labmon query latest --stats --since 24h
 ```
 
 ```
-sensor_id      measurement  value                  unit  age     mean             sd       n
--------------  -----------  ---------------------  ----  ------  ---------------  -------  -----
-wavemeter-1    frequency    2.765612984e+14        Hz    2h ago  2.765612999e+14  2.0e+06  11136
-laser-1        power        101.77054945054947     mW    2h ago  95.0             8.8      22262
-cryo-77k       temperature  80.735                 K     2h ago  77.0             1.5      4455
-room-1         temperature  19.737                 °C    2h ago  20.93            0.78     4455
-wavemeter-thz  frequency    276.5613007            THz   3h ago  276.56130115     3.1e-07  8
+measurement  sensor_id      value                  unit  age     mean             sd       n    
+-----------  -------------  ---------------------  ----  ------  ---------------  -------  -----
+frequency    wavemeter-1    2.765612976e+14        Hz    2s ago  2.765612998e+14  2.0e+06  13101
+frequency    wavemeter-thz  276.5613007            THz   4h ago  276.56130115     3.1e-07  8
+position     beam-x         6.462197802197792      µm    2s ago  0                19       26189
+position     beam-y         21.799340659340643     µm    2s ago  0                16       26189
+power        laser-1        90.24996336996337      mW    2s ago  95.0             8.8      26189
 ```
 
 These come from the **same grouping as the value**, in the same query —

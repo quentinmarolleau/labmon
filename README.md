@@ -339,15 +339,28 @@ labmon monitor
 ```
 
 ```
-sensor_id      measurement  value                  unit  age     mean             sd       n
--------------  -----------  ---------------------  ----  ------  ---------------  -------  -----
-wavemeter-1    frequency    2.765613014e+14        Hz    0s ago  2.765612999e+14  2.0e+06  11153
-cryo-77k       temperature  76.704                 K     2s ago  77.0             1.5      4462
-room-1         temperature  21.125                 °C    2s ago  20.93            0.78     4462
-probe-158      temperature  21.0691                K     7h ago  21.069           0.056    3
-
-16 sensors
-18:12:09 · window 24h · refreshing every 2s
+                                               labmon                                               
+╭─────────────┬───────────────┬─────────────────┬──────┬────────┬─────────────────┬─────────┬──────╮
+│ measurement │ sensor        │           value │ unit │ age    │            mean │      sd │    n │
+├─────────────┼───────────────┼─────────────────┼──────┼────────┼─────────────────┼─────────┼──────┤
+│ frequency   │ wavemeter-1   │ 2.765612976e+14 │ Hz   │ 2s ago │ 2.765613000e+14 │ 1.9e+06 │  899 │
+│ frequency   │ wavemeter-thz │                 │ THz  │ 4h ago │                 │         │      │
+│ position    │ beam-x        │               4 │ µm   │ 2s ago │               0 │      19 │ 1797 │
+│ position    │ beam-y        │              22 │ µm   │ 2s ago │               0 │      16 │ 1797 │
+│ power       │ laser-1       │            90.8 │ mW   │ 2s ago │            95.0 │     8.9 │ 1797 │
+│ pressure    │ chamber-1     │        1.40e-07 │ mbar │ 3s ago │        1.34e-07 │ 2.1e-08 │  360 │
+│ pressure    │ dual-probe    │                 │ mbar │ 6h ago │                 │         │      │
+│ pressure    │ pirani-1      │           9e-09 │ mbar │ 2s ago │         2.9e-08 │ 3.4e-08 │ 1797 │
+│ temperature │ cryo-4k       │            4.06 │ K    │ 3s ago │            4.26 │    0.24 │  360 │
+│ temperature │ cryo-77k      │            78.6 │ K    │ 3s ago │            76.8 │     1.7 │  360 │
+│ temperature │ cryo-diode    │              41 │ K    │ 2s ago │              28 │      11 │ 1797 │
+│ temperature │ dual-probe    │                 │ K    │ 6h ago │                 │         │      │
+│ temperature │ probe-158     │                 │ K    │ 8h ago │                 │         │      │
+│ temperature │ room-1        │           20.69 │ °C   │ 3s ago │           21.18 │    0.60 │  360 │
+│ temperature │ room-2        │           22.68 │ °C   │ 3s ago │           22.41 │    0.70 │  360 │
+│ voltage     │ bias-monitor  │            -3.1 │ V    │ 2s ago │               0 │     2.2 │ 1797 │
+╰─────────────┴───────────────┴─────────────────┴──────┴────────┴─────────────────┴─────────┴──────╯
+                       16 sensors, 4 quiet · window 30m · every 2s · 19:17:06
 ```
 
 Redraws in place, colours a sensor amber then red as it goes quiet, and

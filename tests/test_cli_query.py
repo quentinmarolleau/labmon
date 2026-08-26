@@ -11,7 +11,13 @@ import pytest
 
 from labmon.cli import selection
 from labmon.cli.main import build_app
-from labmon.cli.render import DEFAULT_LIMIT, render, render_latest, visible_columns
+from labmon.cli.render import (
+    DEFAULT_LIMIT,
+    latest_rows,
+    render,
+    render_latest,
+    visible_columns,
+)
 from labmon.cli.runtime import REFUSED
 from labmon.export.table import combine, normalise
 from tests.cli_runner import Invocation, invoke
@@ -488,21 +494,55 @@ def test_a_sensor_is_listed_once() -> None:
     assert len(body) == 2
 
 
-def test_the_stalest_sensor_is_listed_last() -> None:
-    # The one that stopped reporting is the one worth finding, and a
-    # reader's eye lands on the end of a short list.
+def test_rows_are_ordered_by_measurement_then_sensor() -> None:
+    # Stable ordering is the whole requirement. Sorting by age looks
+    # right on a one-shot listing and is unusable on a panel that
+    # redraws every two seconds: every row moves, so nothing can be
+    # followed. Staleness is carried by colour, which does not depend on
+    # position.
     table = _latest(
         [
-            ("fresh", "temperature", 1.0, "K", 2),
-            ("silent", "temperature", 2.0, "K", 9000),
+            ("room-1", "temperature", 1.0, "°C", 2),
+            ("vac-1", "pressure", 2.0, "mbar", 9000),
+            ("cryo-77k", "temperature", 3.0, "K", 40),
+            ("chamber-1", "pressure", 4.0, "mbar", 5),
         ]
     )
 
-    lines = [
-        line for line in render_latest(table, now=_NOW).splitlines() if " ago" in line
+    listed = [
+        tuple(line.split()[:2])
+        for line in render_latest(table, now=_NOW).splitlines()
+        if " ago" in line
     ]
 
-    assert lines[-1].startswith("silent")
+    assert listed == [
+        ("pressure", "chamber-1"),
+        ("pressure", "vac-1"),
+        ("temperature", "cryo-77k"),
+        ("temperature", "room-1"),
+    ]
+
+
+def test_a_silent_sensor_sorts_among_the_others_rather_than_at_the_end() -> None:
+    # It is remembered, not exiled. Age no longer decides position, so a
+    # roster entry belongs wherever its name puts it.
+    from labmon.cli.roster import Known
+
+    table = _latest([("room-1", "temperature", 1.0, "°C", 2)])
+    quiet = Known(
+        sensor_id="cryo-77k",
+        measurement="temperature",
+        unit="K",
+        last_seen=_NOW - timedelta(hours=4),
+    )
+
+    listed = [
+        line.split()[1]
+        for line in render_latest(table, now=_NOW, silent=[quiet]).splitlines()
+        if " ago" in line
+    ]
+
+    assert listed == ["cryo-77k", "room-1"]
 
 
 def test_columns_stay_aligned_when_an_age_is_coloured() -> None:
@@ -579,16 +619,18 @@ def test_latest_reports_how_long_ago_each_sensor_reported(
     assert "3h ago" in result.output
 
 
-def test_latest_puts_the_quietest_sensor_last(
+def test_latest_orders_by_measurement_then_sensor(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr("labmon.influx.get_client", LatestClient)
 
     body = [
-        line for line in _run("query", "latest").output.splitlines() if " ago" in line
+        line.split()[1]
+        for line in _run("query", "latest").output.splitlines()
+        if " ago" in line
     ]
 
-    assert body[-1].startswith("abandoned")
+    assert body == ["abandoned", "cryo-77k"]
 
 
 def test_latest_closes_the_client_when_the_query_fails(
@@ -698,7 +740,7 @@ def test_a_silent_sensor_shows_no_value_rather_than_a_stale_one(
     line = next(
         line
         for line in _run("query", "latest").output.splitlines()
-        if line.startswith("abandoned")
+        if " abandoned " in line
     )
 
     assert "77.01" not in line
@@ -902,9 +944,9 @@ def test_a_group_with_nothing_to_average_shows_blanks() -> None:
     table = _with_stats([("a", "temperature", 1.0, "K", 3)], [(None, None, 0)])
 
     lines = render_latest(table, now=_NOW).splitlines()
-    row = next(line for line in lines if line.startswith("a "))
+    row = next(line for line in lines if " ago" in line)
 
-    assert row.split() == ["a", "temperature", "1.0", "K", "3s", "ago", "0"]
+    assert row.split() == ["temperature", "a", "1.0", "K", "3s", "ago", "0"]
 
 
 def test_a_silent_sensor_has_no_statistics_to_show() -> None:
@@ -919,9 +961,9 @@ def test_a_silent_sensor_has_no_statistics_to_show() -> None:
     )
 
     lines = render_latest(table, now=_NOW, silent=[quiet]).splitlines()
-    row = next(line for line in lines if line.startswith("gone"))
+    row = next(line for line in lines if " gone " in line)
 
-    assert row.split() == ["gone", "temperature", "K", "4h", "ago"]
+    assert row.split() == ["temperature", "gone", "K", "4h", "ago"]
 
 
 class StatsClient(FakeClient):
@@ -976,3 +1018,48 @@ def test_latest_without_the_flag_asks_for_no_statistics(
     _ = _run("query", "latest")
 
     assert not any("stddev(" in query for query in seen)
+
+
+def test_a_reading_is_shown_exactly_as_stored_by_default() -> None:
+    # `labmon query latest` promises the value as recorded. Rounding it
+    # is the panel's choice, not this view's.
+    table = _with_stats(
+        [("beam-x", "position", -7.441802197802218, "µm", 2)], [(0.0196, 16.136, 900)]
+    )
+
+    _present, rows = latest_rows(table, _NOW)
+
+    assert "-7.441802197802218" in rows[0].cells
+
+
+def test_a_reading_can_be_rounded_to_the_precision_of_its_spread() -> None:
+    # For a panel read at a glance: nineteen digits of a beam position
+    # crowd out the rest of the row and two of them carry information.
+    table = _with_stats(
+        [("beam-x", "position", -7.441802197802218, "µm", 2)], [(0.0196, 16.136, 900)]
+    )
+
+    _present, rows = latest_rows(table, _NOW, round_values=True)
+
+    assert "-7" in rows[0].cells
+    assert "-7.441802197802218" not in rows[0].cells
+
+
+def test_rounding_a_reading_needs_a_spread_to_round_against() -> None:
+    # No statistics at all: the reading is shown in full, because
+    # nothing says where its digits stop meaning anything.
+    table = _latest([("beam-x", "position", -7.441802197802218, "µm", 2)])
+
+    _present, rows = latest_rows(table, _NOW, round_values=True)
+
+    assert "-7.441802197802218" in rows[0].cells
+
+
+def test_the_measurement_leads_so_the_ordering_is_visible() -> None:
+    # A table sorted by a column it does not show first looks arbitrary,
+    # which is the readability problem the ordering was meant to fix.
+    table = _latest([("room-1", "temperature", 1.0, "°C", 2)])
+
+    present, _rows = latest_rows(table, _NOW)
+
+    assert present[:2] == ("measurement", "sensor_id")

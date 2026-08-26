@@ -1,6 +1,7 @@
 """`labmon monitor` — the panel, and the snapshot behind each tick."""
 
 import asyncio
+import io
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -14,6 +15,12 @@ from labmon.cli.main import build_app
 from tests.cli_runner import Invocation, invoke
 
 _NOW = datetime(2026, 8, 26, 12, 0, tzinfo=UTC)
+
+
+def _sensors(snapshot: "monitor.Snapshot") -> list[str]:
+    """The sensor column of every row, in the order they are drawn."""
+    at = snapshot.columns.index("sensor_id")
+    return [row.cells[at] for row in snapshot.rows]
 
 
 def _run(*args: str) -> Invocation:
@@ -74,7 +81,7 @@ def test_a_snapshot_carries_the_table(monkeypatch: pytest.MonkeyPatch) -> None:
 
     taken = monitor.take(None, None, "15m", now=_NOW)
 
-    assert "cryo-77k" in taken.body
+    assert _sensors(taken) == ["abandoned", "cryo-77k"]
     assert taken.error is None
 
 
@@ -85,8 +92,8 @@ def test_a_snapshot_asks_for_statistics(monkeypatch: pytest.MonkeyPatch) -> None
 
     taken = monitor.take(None, None, "15m", now=_NOW)
 
-    assert "mean" in taken.body
-    assert "sd" in taken.body
+    assert "mean" in taken.columns
+    assert "sd" in taken.columns
 
 
 def test_a_failed_tick_becomes_a_message_rather_than_a_crash(
@@ -115,18 +122,23 @@ def test_a_snapshot_says_when_it_was_taken(
     assert taken.taken == _NOW
 
 
-def test_the_status_line_names_the_window_and_the_cadence() -> None:
+def test_the_status_line_names_the_window_and_the_cadence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("labmon.influx.get_client", PanelClient)
+
     line = monitor.status(
-        monitor.Snapshot(body="", taken=_NOW), window="15m", refresh=2.0
+        monitor.take(None, None, "15m", now=_NOW), window="15m", refresh=2.0
     )
 
     assert "15m" in line
-    assert "2" in line
+    assert "every 2s" in line
+    assert "2 sensors" in line
 
 
 def test_the_status_line_leads_with_the_failure_when_there_is_one() -> None:
     line = monitor.status(
-        monitor.Snapshot(body="", taken=_NOW, error="database unreachable"),
+        monitor.Snapshot(taken=_NOW, error="database unreachable"),
         window="15m",
         refresh=2.0,
     )
@@ -152,7 +164,7 @@ def test_the_panel_draws_the_table(monkeypatch: pytest.MonkeyPatch) -> None:
         app = Panel(measurements=None, sensor_ids=None, window="15m", refresh=2.0)
         async with app.run_test() as pilot:
             await pilot.pause()
-            assert "cryo-77k" in app.latest.body
+            assert _sensors(app.latest) == ["abandoned", "cryo-77k"]
 
     _drive(scenario)
 
@@ -304,13 +316,11 @@ def test_a_failed_refresh_keeps_the_last_good_table(
         app = Panel(measurements=None, sensor_ids=None, window="15m", refresh=3600.0)
         async with app.run_test() as pilot:
             await pilot.pause()
-            assert "cryo-77k" in app.latest.body
+            assert _sensors(app.latest) == ["abandoned", "cryo-77k"]
 
             def fail(*args: object, **kwargs: object) -> monitor.Snapshot:
                 _ = (args, kwargs)
-                return monitor.Snapshot(
-                    body="", taken=datetime.now(UTC), error="unreachable"
-                )
+                return monitor.Snapshot(taken=datetime.now(UTC), error="unreachable")
 
             monkeypatch.setattr("labmon.cli.tui.take", fail)
             await pilot.press("r")
@@ -318,7 +328,7 @@ def test_a_failed_refresh_keeps_the_last_good_table(
             await pilot.pause()
 
             assert app.latest.error == "unreachable"
-            assert "cryo-77k" in app.latest.body
+            assert _sensors(app.latest) == ["abandoned", "cryo-77k"]
 
     _drive(scenario)
 
@@ -339,7 +349,7 @@ def test_the_first_refresh_failing_leaves_nothing_to_keep(
             await pilot.pause()
             await pilot.pause()
             assert app.latest.error is not None
-            assert app.latest.body == ""
+            assert app.latest.rows == ()
 
     _drive(scenario)
 
@@ -386,3 +396,139 @@ def test_the_missing_extra_message_names_the_interpreter(
     result = _run("monitor")
 
     assert sys.executable in result.output
+
+
+# --------------------------------------------------------------------------
+# What the panel draws
+# --------------------------------------------------------------------------
+
+
+def _drawn(snapshot: "monitor.Snapshot", width: int = 100) -> str:
+    """The panel rendered to plain text, without starting an app."""
+    from rich.console import Console
+
+    from labmon.cli.tui import panel
+
+    console = Console(width=width, record=True, file=io.StringIO())
+    console.print(panel(snapshot, window="15m", refresh=2.0))
+    return console.export_text()
+
+
+def test_the_panel_has_a_border_and_a_caption(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("labmon.influx.get_client", PanelClient)
+
+    drawn = _drawn(monitor.take(None, None, "15m", now=_NOW))
+
+    assert "─" in drawn
+    assert "cryo-77k" in drawn
+    assert "2 sensors" in drawn
+    assert "every 2s" in drawn
+
+
+def test_the_panel_names_the_sensor_column_something_shorter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A panel has room to spell a column; it does not have to use the
+    # database's name for it.
+    monkeypatch.setattr("labmon.influx.get_client", PanelClient)
+
+    drawn = _drawn(monitor.take(None, None, "15m", now=_NOW))
+
+    assert "sensor_id" not in drawn
+    assert "sensor" in drawn
+
+
+def test_nothing_to_show_says_so_rather_than_drawing_an_empty_box() -> None:
+    drawn = _drawn(monitor.Snapshot(taken=_NOW))
+
+    assert "no readings matched" in drawn
+    assert "─" not in drawn
+
+
+def test_a_failure_with_nothing_to_show_states_the_failure() -> None:
+    drawn = _drawn(monitor.Snapshot(taken=_NOW, error="database unreachable"))
+
+    assert "database unreachable" in drawn
+
+
+@pytest.mark.parametrize("width", [70, 92, 100, 140])
+def test_nothing_is_ever_ellipsised(
+    monkeypatch: pytest.MonkeyPatch, width: int
+) -> None:
+    # A truncated reading is a wrong reading, and a truncated name is
+    # worse than it looks: `wavemeter-1` and `wavemeter-thz` both become
+    # `wavemet…`, so two rows become indistinguishable. Narrow terminals
+    # fold names onto a second line instead.
+    monkeypatch.setattr("labmon.influx.get_client", PanelClient)
+
+    drawn = _drawn(monitor.take(None, None, "15m", now=_NOW), width=width)
+
+    assert "…" not in drawn
+
+
+def test_readings_are_rounded_for_a_glance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The panel is read from across a room. `labmon query latest` is the
+    # one that promises the value exactly as stored.
+    monkeypatch.setattr("labmon.influx.get_client", PanelClient)
+
+    taken = monitor.take(None, None, "15m", now=_NOW)
+    values = [row.cells[taken.columns.index("value")] for row in taken.rows]
+
+    assert "77.01" not in values
+    assert "77.010" in values
+
+
+def test_the_status_line_counts_the_sensors_that_have_gone_quiet(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A remembered sensor is on screen with a blank value; the count is
+    # what says how many of the rows are in that state.
+    from labmon.cli.roster import Known, cache_path, merge, save
+
+    save(
+        cache_path(),
+        merge(
+            {},
+            [
+                Known(
+                    sensor_id="departed",
+                    measurement="temperature",
+                    unit="K",
+                    last_seen=_NOW - timedelta(days=3),
+                )
+            ],
+        ),
+    )
+    monkeypatch.setattr("labmon.influx.get_client", PanelClient)
+
+    line = monitor.status(
+        monitor.take(None, None, "15m", now=_NOW), window="15m", refresh=2.0
+    )
+
+    assert "3 sensors, 1 quiet" in line
+
+
+def test_the_table_is_centred_on_a_wide_terminal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Pinned to the left edge of a wide terminal, the table reads as an
+    # accident. A margin either side reads as a panel.
+    monkeypatch.setattr("labmon.influx.get_client", PanelClient)
+    from textual.widgets import Static
+
+    from labmon.cli.tui import Panel
+
+    async def scenario() -> None:
+        app = Panel(measurements=None, sensor_ids=None, window="15m", refresh=2.0)
+        async with app.run_test(size=(160, 30)) as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            region = app.query_one("#table", Static).region
+            assert region.x > 0
+            assert region.x + region.width < app.size.width
+
+    _drive(scenario)

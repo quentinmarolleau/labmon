@@ -2,7 +2,13 @@
 
 import pytest
 
-from labmon.cli.quantity import PLAIN_BELOW, PLAIN_FROM, quote, show
+from labmon.cli.quantity import (
+    PLAIN_BELOW,
+    PLAIN_FROM,
+    at_the_precision_of,
+    quote,
+    show,
+)
 
 
 @pytest.mark.parametrize(
@@ -210,3 +216,20 @@ def test_a_deviation_that_is_not_finite_is_not_rounded_against() -> None:
 
     assert mean == "4.2"
     assert sd == "nan"
+
+
+def test_a_reading_can_be_shown_at_the_precision_of_its_spread() -> None:
+    # A beam position whose spread over the window is 16 µm has two
+    # meaningful characters, not nineteen.
+    assert at_the_precision_of(-7.441802197802218, 16.13679456395551) == "-7"
+    assert at_the_precision_of(99.76556776556775, 8.847037339748116) == "99.8"
+    assert at_the_precision_of(76.923, 2.3) == "76.9"
+
+
+def test_a_reading_with_nothing_to_round_against_says_so() -> None:
+    # `None` rather than a guess, so the caller falls back to showing
+    # the reading in full rather than inventing a precision.
+    assert at_the_precision_of(76.923, None) is None
+    assert at_the_precision_of(76.923, 0.0) is None
+    assert at_the_precision_of(76.923, float("inf")) is None
+    assert at_the_precision_of(float("nan"), 1.0) is None

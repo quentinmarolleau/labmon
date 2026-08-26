@@ -19,7 +19,11 @@ next tick is simply correct, with no gap to detect or backfill.
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime, tzinfo
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from labmon.cli.render import LatestRow
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -28,14 +32,27 @@ logger: logging.Logger = logging.getLogger(__name__)
 class Snapshot:
     """What one refresh produced, successful or not.
 
+    Carries rows rather than rendered text. The plain table
+    `labmon query latest` prints and the panel `labmon monitor` draws
+    are two presentations of the same `LatestRow` values, which is what
+    keeps them from disagreeing about a reading or its staleness while
+    still letting one of them have a border and a colour scheme.
+
     A failure is carried rather than raised. A panel that dies on one
     unreachable moment is useless next to an experiment, and the window
     is re-queried every tick anyway, so the recovery is automatic.
     """
 
-    body: str
     taken: datetime
+    columns: tuple[str, ...] = ()
+    rows: tuple["LatestRow", ...] = ()
+    quiet: int = 0
     error: str | None = None
+
+    @property
+    def sensors(self) -> int:
+        """How many sensors the table describes."""
+        return len(self.rows)
 
 
 def take(
@@ -44,18 +61,15 @@ def take(
     window: str,
     *,
     now: datetime | None = None,
-    tz: tzinfo = UTC,
-    colour: bool = True,
 ) -> Snapshot:
-    """Query the window and render it, or say why that failed."""
+    """Query the window and lay it out in rows, or say why that failed."""
     from influxdb_client_3.exceptions.exceptions import InfluxDB3ClientError
 
     from labmon.cli import selection
-    from labmon.cli.render import render_latest
+    from labmon.cli.render import latest_rows
     from labmon.export.query import QueryError
     from labmon.export.window import WindowError
 
-    _ = tz  # the latest view reports ages, not absolute times
     moment = now or datetime.now(UTC)
     try:
         table, silent = selection.read_latest_with_roster(
@@ -74,12 +88,10 @@ def take(
         # unreachable moment is no reason to tear down a terminal an
         # experiment is being watched on.
         logger.debug("refresh failed", extra={"reason": str(error)})
-        return Snapshot(body="", taken=moment, error=str(error))
+        return Snapshot(taken=moment, error=str(error))
 
-    return Snapshot(
-        body=render_latest(table, now=moment, colour=colour, silent=silent),
-        taken=moment,
-    )
+    columns, rows = latest_rows(table, moment, silent=silent, round_values=True)
+    return Snapshot(taken=moment, columns=columns, rows=tuple(rows), quiet=len(silent))
 
 
 def status(snapshot: Snapshot, *, window: str, refresh: float) -> str:
@@ -89,10 +101,14 @@ def status(snapshot: Snapshot, *, window: str, refresh: float) -> str:
     changes what the numbers above it mean — they are now stale, and
     nothing else on screen says so.
     """
-    cadence = f"window {window} · refreshing every {_seconds(refresh)}"
+    cadence = f"window {window} · every {_seconds(refresh)}"
     if snapshot.error is not None:
         return f"{snapshot.error} — showing the last good reading · {cadence}"
-    return f"{snapshot.taken.strftime('%H:%M:%S')} · {cadence}"
+
+    counted = f"{snapshot.sensors} sensor{'s' if snapshot.sensors != 1 else ''}"
+    if snapshot.quiet:
+        counted += f", {snapshot.quiet} quiet"
+    return f"{counted} · {cadence} · {snapshot.taken.strftime('%H:%M:%S')}"
 
 
 def _seconds(value: float) -> str:

@@ -6,11 +6,12 @@ wants the few columns that carry meaning, aligned, in a width that fits.
 """
 
 from collections.abc import Container, Mapping, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, tzinfo
 from typing import TYPE_CHECKING, cast
 
 from labmon.cli.age import Freshness, describe, freshness
-from labmon.cli.quantity import quote, show
+from labmon.cli.quantity import at_the_precision_of, quote, show
 
 if TYPE_CHECKING:
     import pyarrow as pa
@@ -136,13 +137,18 @@ def render(table: "pa.Table", limit: int = DEFAULT_LIMIT, tz: tzinfo = UTC) -> s
 # The latest reading from each sensor
 # --------------------------------------------------------------------------
 
+# `measurement` leads because the rows are sorted by it. A table
+# ordered by a column that is not the first one it shows looks
+# arbitrary, which is the readability problem the ordering was meant to
+# solve.
+#
 # `mean`, `sd` and `n` are last because they are only sometimes there:
 # `render_latest` shows a column when the table carries it, so asking
 # the query for statistics is the only switch, and the view cannot
 # disagree with what was fetched.
 LATEST_COLUMNS: tuple[str, ...] = (
-    "sensor_id",
     "measurement",
+    "sensor_id",
     "value",
     "unit",
     "age",
@@ -162,6 +168,105 @@ _STYLES: dict[Freshness, str] = {
 _RESET = "\x1b[0m"
 
 
+@dataclass(frozen=True)
+class LatestRow:
+    """One sensor's line, independent of how it is finally drawn.
+
+    Built once and shared: the plain table `labmon query latest` prints
+    and the panel `labmon monitor` draws are two presentations of these,
+    so they cannot disagree about what a sensor's latest reading is or
+    about how stale it has become.
+    """
+
+    cells: tuple[str, ...]
+    age: timedelta
+    state: Freshness
+
+
+def latest_rows(
+    table: "pa.Table",
+    now: datetime,
+    *,
+    silent: "Sequence[Known]" = (),
+    round_values: bool = False,
+) -> tuple[tuple[str, ...], list[LatestRow]]:
+    """The columns worth showing, and one row per sensor, in order.
+
+    **Ordered by measurement, then by sensor.** Alphabetically, and by
+    nothing else. Age was the obvious key on a view that prints once and
+    exits — it put the sensor that had stopped on the last line, where
+    an eye lands. It is unusable on a panel that redraws every two
+    seconds: every row moves on every tick, so no row can be followed
+    and reading one value means finding it again first. Staleness is
+    carried by colour, which does not depend on position.
+
+    A sensor the roster remembers but the query did not return sorts
+    among the others rather than at the end. It is remembered, not
+    exiled, and its blank value already says what it is.
+
+    `round_values` shows each reading at the precision its own deviation
+    over the window justifies. It is off for `labmon query latest`,
+    which promises the reading exactly as stored, and on for the panel,
+    which is read at a glance from across a room and where nineteen
+    digits of a beam position crowd out the rest of the row. Nothing is
+    lost: the exact value is one `labmon query latest` away.
+    """
+    columns = {name: table.column(name).to_pylist() for name in table.column_names}
+    present = tuple(name for name in LATEST_COLUMNS if name == "age" or name in columns)
+
+    rows: list[tuple[tuple[str, str], LatestRow]] = []
+    for index in range(table.num_rows):
+        age = now - _as_datetime(columns["time"][index])
+        # `mean` and `sd` are rounded against each other, so neither can
+        # be formatted alone — see `labmon.cli.quantity.quote`.
+        summary = _summary(columns, index, round_values=round_values)
+        cells = tuple(
+            describe(age)
+            if name == "age"
+            else summary[name]
+            if name in summary
+            else _cell(name, columns[name][index])
+            for name in present
+        )
+        rows.append(
+            (
+                (
+                    str(_at(columns, "measurement", index)),
+                    str(columns["sensor_id"][index]),
+                ),
+                LatestRow(cells=cells, age=age, state=freshness(age)),
+            )
+        )
+
+    # Sensors the query returned nothing for, carried in from the roster.
+    # Their value column is left blank rather than filled with the last
+    # reading they ever sent: printed beside a fresh number from another
+    # sensor, an old one reads as current.
+    for entry in silent:
+        age = now - entry.last_seen
+        rows.append(
+            (
+                (entry.measurement, entry.sensor_id),
+                LatestRow(
+                    cells=tuple(_silent_cell(name, entry, age) for name in present),
+                    age=age,
+                    state=freshness(age),
+                ),
+            )
+        )
+
+    rows.sort(key=lambda item: item[0])
+    return present, [row for _key, row in rows]
+
+
+def _at(columns: "dict[str, list[object]]", name: str, index: int) -> object:
+    """One column's value at `index`, or an empty string when absent."""
+    values = columns.get(name)
+    if values is None or values[index] is None:
+        return ""
+    return values[index]
+
+
 def render_latest(
     table: "pa.Table",
     now: datetime,
@@ -169,11 +274,7 @@ def render_latest(
     colour: bool = False,
     silent: "Sequence[Known]" = (),
 ) -> str:
-    """One row per sensor, oldest last, with how long ago it reported.
-
-    Sorted by age rather than by name, ascending, so the sensor that has
-    stopped reporting is the last line — which is where an eye lands on
-    a short list, and it is the row this view exists to surface.
+    """One row per sensor, by measurement then sensor, with its age.
 
     Colour is applied after padding, never before. An escape code counts
     toward `len`, so a cell coloured first pads to fewer visible
@@ -187,42 +288,8 @@ def render_latest(
     if total == 0:
         return "no readings matched"
 
-    columns = {name: table.column(name).to_pylist() for name in table.column_names}
-    ages = [now - _as_datetime(stamp) for stamp in columns["time"]]
-    # Over the live rows only: `total` counts the silent sensors too, and
-    # those carry their age from the roster rather than from this table.
-    order = sorted(range(table.num_rows), key=lambda index: ages[index])
-
-    present = [name for name in LATEST_COLUMNS if name == "age" or name in columns]
-    entries: list[tuple[timedelta, list[str]]] = []
-    for index in order:
-        # `mean` and `sd` are rounded against each other, so neither can
-        # be formatted alone — see `labmon.cli.quantity.quote`.
-        summary = _summary(columns, index)
-        entries.append(
-            (
-                ages[index],
-                [
-                    describe(ages[index])
-                    if name == "age"
-                    else summary.get(name, "")
-                    if name in summary
-                    else _cell(name, columns[name][index])
-                    for name in present
-                ],
-            )
-        )
-    # Sensors the query returned nothing for, carried in from the roster.
-    # Their value column is left blank rather than filled with the last
-    # reading they ever sent: printed beside a fresh number from another
-    # sensor, an old one reads as current.
-    for entry in silent:
-        age = now - entry.last_seen
-        entries.append((age, [_silent_cell(name, entry, age) for name in present]))
-
-    entries.sort(key=lambda item: item[0])
-    rows = [cells for _, cells in entries]
-    styles = [_STYLES[freshness(age)] if colour else "" for age, _ in entries]
+    present, entries = latest_rows(table, now, silent=silent)
+    rows = [row.cells for row in entries]
 
     widths = [
         max(len(name), *(len(row[position]) for row in rows))
@@ -235,10 +302,11 @@ def render_latest(
         ),
         "  ".join("-" * width for width in widths),
     ]
-    for row, style in zip(rows, styles, strict=True):
+    for row, entry in zip(rows, entries, strict=True):
         padded = "  ".join(
             cell.ljust(width) for cell, width in zip(row, widths, strict=True)
         ).rstrip()
+        style = _STYLES[entry.state] if colour else ""
         lines.append(f"{style}{padded}{_RESET}" if style else padded)
 
     lines.append("")
@@ -252,8 +320,10 @@ def render_latest(
     return "\n".join(lines)
 
 
-def _summary(columns: "dict[str, list[object]]", index: int) -> dict[str, str]:
-    """The `mean` and `sd` cells for one row, rounded against each other.
+def _summary(
+    columns: "dict[str, list[object]]", index: int, *, round_values: bool = False
+) -> dict[str, str]:
+    """The cells one row's statistics decide, rounded against each other.
 
     Empty when the table carries no statistics, which is how a result
     fetched without them ends up showing none.
@@ -266,8 +336,17 @@ def _summary(columns: "dict[str, list[object]]", index: int) -> dict[str, str]:
         # No readings to average — the row came from somewhere the
         # aggregate could not be computed.
         return {"mean": "", "sd": ""}
-    shown, spread = quote(mean, sd if isinstance(sd, float) else None)
-    return {"mean": shown, "sd": spread}
+    spread = sd if isinstance(sd, float) else None
+    shown, deviation = quote(mean, spread)
+    cells = {"mean": shown, "sd": deviation}
+
+    if round_values:
+        reading = columns["value"][index]
+        if isinstance(reading, float):
+            matched = at_the_precision_of(reading, spread)
+            if matched is not None:
+                cells["value"] = matched
+    return cells
 
 
 def _silent_cell(name: str, entry: "Known", age: timedelta) -> str:
@@ -305,7 +384,12 @@ def render_roster(
     now: datetime,
     colour: bool = False,
 ) -> str:
-    """The remembered sensors, oldest last, saying which are reporting.
+    """The remembered sensors, in order, saying which are reporting.
+
+    Ordered by measurement then sensor, the same as `render_latest`.
+    Three views of the same kind of table sorting three different ways
+    would make a sensor hard to find in whichever one you were not
+    looking at.
 
     The `source` column is what earns this view its place: it states
     whether a sensor is reporting now or is only remembered, which makes
@@ -319,7 +403,9 @@ def render_roster(
     if not known:
         return "nothing remembered yet"
 
-    entries = sorted(known.values(), key=lambda entry: now - entry.last_seen)
+    entries = sorted(
+        known.values(), key=lambda entry: (entry.measurement, entry.sensor_id)
+    )
     names = ROSTER_COLUMNS if live is not None else ROSTER_COLUMNS[:-1]
     rows = [
         [

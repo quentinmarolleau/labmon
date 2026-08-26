@@ -156,6 +156,23 @@ def _for_mean(mean: float, place: int) -> int:
     return min(place, math.floor(math.log10(abs(mean))) - (MEAN_FIGURES - 1))
 
 
+def at_the_precision_of(value: float, sd: float | None) -> str | None:
+    """`value` rounded to where `sd` says its digits stop meaning anything.
+
+    For a panel read at a glance rather than a table read carefully.
+    `-7.441802197802218 µm` on a beam whose spread over the window is
+    16 µm is nineteen characters of which two carry information, and it
+    crowds out the rest of the row.
+
+    Returns `None` when there is nothing to round against, so the caller
+    can fall back to showing the reading in full.
+    """
+    if sd is None or not math.isfinite(sd) or sd == 0.0 or not math.isfinite(value):
+        return None
+    place = math.floor(math.log10(abs(sd))) - (DEVIATION_FIGURES - 1)
+    return _at_place(value, place)
+
+
 def _at_place(value: float, place: int) -> str:
     """`value` rounded to `10 ** place`, plain or scientific to match `show`.
 

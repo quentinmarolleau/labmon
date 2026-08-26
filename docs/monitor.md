@@ -10,21 +10,35 @@ labmon monitor --measurement temperature
 ```
 
 ```
-sensor_id      measurement  value                  unit  age     mean             sd       n
--------------  -----------  ---------------------  ----  ------  ---------------  -------  -----
-wavemeter-1    frequency    2.765613014e+14        Hz    0s ago  2.765612999e+14  2.0e+06  11153
-cryo-77k       temperature  76.704                 K     2s ago  77.0             1.5      4462
-cryo-4k        temperature  4.103                  K     2s ago  4.11             0.25     4462
-room-1         temperature  21.125                 °C    2s ago  20.93            0.78     4462
-wavemeter-thz  frequency    276.5613007            THz   3h ago  276.56130115     3.1e-07  8
-probe-158      temperature  21.0691                K     7h ago  21.069           0.056    3
-
-16 sensors
-18:12:09 · window 24h · refreshing every 2s
+                                               labmon                                               
+╭─────────────┬───────────────┬─────────────────┬──────┬────────┬─────────────────┬─────────┬──────╮
+│ measurement │ sensor        │           value │ unit │ age    │            mean │      sd │    n │
+├─────────────┼───────────────┼─────────────────┼──────┼────────┼─────────────────┼─────────┼──────┤
+│ frequency   │ wavemeter-1   │ 2.765612976e+14 │ Hz   │ 2s ago │ 2.765613000e+14 │ 1.9e+06 │  899 │
+│ frequency   │ wavemeter-thz │                 │ THz  │ 4h ago │                 │         │      │
+│ position    │ beam-x        │               4 │ µm   │ 2s ago │               0 │      19 │ 1797 │
+│ position    │ beam-y        │              22 │ µm   │ 2s ago │               0 │      16 │ 1797 │
+│ power       │ laser-1       │            90.8 │ mW   │ 2s ago │            95.0 │     8.9 │ 1797 │
+│ pressure    │ chamber-1     │        1.40e-07 │ mbar │ 3s ago │        1.34e-07 │ 2.1e-08 │  360 │
+│ pressure    │ dual-probe    │                 │ mbar │ 6h ago │                 │         │      │
+│ pressure    │ pirani-1      │           9e-09 │ mbar │ 2s ago │         2.9e-08 │ 3.4e-08 │ 1797 │
+│ temperature │ cryo-4k       │            4.06 │ K    │ 3s ago │            4.26 │    0.24 │  360 │
+│ temperature │ cryo-77k      │            78.6 │ K    │ 3s ago │            76.8 │     1.7 │  360 │
+│ temperature │ cryo-diode    │              41 │ K    │ 2s ago │              28 │      11 │ 1797 │
+│ temperature │ dual-probe    │                 │ K    │ 6h ago │                 │         │      │
+│ temperature │ probe-158     │                 │ K    │ 8h ago │                 │         │      │
+│ temperature │ room-1        │           20.69 │ °C   │ 3s ago │           21.18 │    0.60 │  360 │
+│ temperature │ room-2        │           22.68 │ °C   │ 3s ago │           22.41 │    0.70 │  360 │
+│ voltage     │ bias-monitor  │            -3.1 │ V    │ 2s ago │               0 │     2.2 │ 1797 │
+╰─────────────┴───────────────┴─────────────────┴──────┴────────┴─────────────────┴─────────┴──────╯
+                       16 sensors, 4 quiet · window 30m · every 2s · 19:17:06
 ```
 
 `q` quits. `r` redraws immediately, for when waiting out the cadence is
-one second too many.
+one second too many. `p` opens the command palette, where the colour
+theme can be changed — the default is `nord`, chosen for being calm at a
+glance and legible on a projector, which is where a panel beside an
+experiment tends to end up.
 
 Needs the `tui` extra, which brings in Textual:
 
@@ -41,6 +55,31 @@ Grafana is the right tool for a wall display and for digging through
 history. It is the wrong one for the terminal that is already open next
 to the experiment, and it is unavailable over a bare SSH session — which
 is exactly the moment "is the cryostat still cold?" is worth asking.
+
+## Rows stay where you left them
+
+Ordered by measurement, then by sensor, alphabetically. Nothing about a
+reading moves a row.
+
+This matters more here than anywhere else: a panel sorted by age
+reorders itself on every tick, so following one number means finding it
+again first. Staleness is carried by colour, which does not need a
+position to say anything.
+
+## Readings are rounded to their own noise
+
+The panel shows each value at the precision its standard deviation over
+the window justifies — `76.9 K` rather than `76.92300000000001`, `-7 µm`
+for a beam whose spread is 16 µm.
+
+It is a glance view, read from across a room, and nineteen digits of a
+beam position crowd out the rest of the row while two of them carry
+information. `labmon query latest` is the view that promises the reading
+exactly as stored, and it still does.
+
+A reading with no statistics to round against — one sample in the window
+— is shown in full, because nothing says where its digits stop meaning
+anything.
 
 ## What it shows, and what it shares
 
