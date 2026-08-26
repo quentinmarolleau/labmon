@@ -97,3 +97,68 @@ def test_a_file_that_cannot_be_read_is_reported(config_home: Path) -> None:
 
     with pytest.raises(ConfigError, match=r"labmon\.toml"):
         _ = load(config_home)
+
+
+# --------------------------------------------------------------------------
+# The monitor section
+# --------------------------------------------------------------------------
+
+
+def test_the_monitor_has_defaults_without_a_section(config_home: Path) -> None:
+    monitor = load(config_home).monitor
+
+    assert monitor.refresh == 2.0
+    assert monitor.window == "15m"
+
+
+def test_the_monitor_section_is_read(config_home: Path) -> None:
+    config = load(_write(config_home, '[monitor]\nrefresh = "5s"\nwindow = "1h"\n'))
+
+    assert config.monitor.refresh == 5.0
+    assert config.monitor.window == "1h"
+
+
+def test_a_refresh_is_spelled_the_way_since_is(config_home: Path) -> None:
+    # One duration spelling across the project. "2" would have to guess
+    # a unit, and guessing wrong refreshes sixty times too often.
+    with pytest.raises(ConfigError, match="duration"):
+        _ = load(_write(config_home, '[monitor]\nrefresh = "2"\n'))
+
+
+def test_a_refresh_that_is_not_a_string_is_refused(config_home: Path) -> None:
+    with pytest.raises(ConfigError, match="refresh"):
+        _ = load(_write(config_home, "[monitor]\nrefresh = 2\n"))
+
+
+def test_a_refresh_of_zero_is_refused(config_home: Path) -> None:
+    # A panel that refreshes every zero seconds is a busy loop against
+    # the database, not a fast panel.
+    with pytest.raises(ConfigError, match="refresh"):
+        _ = load(_write(config_home, '[monitor]\nrefresh = "0s"\n'))
+
+
+def test_a_window_is_checked_when_it_is_read_not_when_it_is_used(
+    config_home: Path,
+) -> None:
+    # Otherwise the mistake surfaces on the first refresh, after the
+    # panel has already drawn itself and cleared the screen.
+    with pytest.raises(ConfigError, match="window"):
+        _ = load(_write(config_home, '[monitor]\nwindow = "last tuesday"\n'))
+
+
+def test_an_unknown_monitor_key_is_refused(config_home: Path) -> None:
+    # A plausible name for the same idea, which is how the mistake gets
+    # made — and silently ignoring it would leave the panel refreshing
+    # at the default while the file says otherwise.
+    with pytest.raises(ConfigError, match="interval"):
+        _ = load(_write(config_home, '[monitor]\ninterval = "2s"\n'))
+
+
+def test_a_monitor_that_is_not_a_table_is_refused(config_home: Path) -> None:
+    with pytest.raises(ConfigError, match="monitor"):
+        _ = load(_write(config_home, 'monitor = "on"\n'))
+
+
+def test_a_window_that_is_not_a_string_is_refused(config_home: Path) -> None:
+    with pytest.raises(ConfigError, match="window"):
+        _ = load(_write(config_home, "[monitor]\nwindow = 15\n"))

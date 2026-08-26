@@ -14,6 +14,7 @@ import typer
 
 from labmon.cli.commands import export as export_command
 from labmon.cli.commands import mock_sensor as mock_sensor_command
+from labmon.cli.commands import monitor as monitor_command
 from labmon.cli.commands import query as query_command
 from labmon.cli.commands import sensors as sensors_command
 from labmon.cli.commands import serial_sensor as serial_sensor_command
@@ -64,6 +65,9 @@ def build_app() -> typer.Typer:
     app.add_typer(query_app, name="query")
     _ = app.command("sensors", help=sensors_command.HELP)(
         reporting(sensors_command.sensors)
+    )
+    _ = app.command("monitor", help=monitor_command.HELP)(
+        reporting(monitor_command.monitor)
     )
     _ = app.command("export", help=export_command.HELP)(
         reporting(export_command.export)

@@ -169,6 +169,24 @@ timezone = "Europe/Paris"
 | Key | Default | Purpose |
 |---|---|---|
 | `timezone` | `"UTC"` | Zone the `time` column is printed in. An IANA name, or `"local"` for the machine's own zone |
+| `monitor.refresh` | `"2s"` | How often `labmon monitor` redraws |
+| `monitor.window` | `"15m"` | How much history the panel's statistics cover |
+
+```toml
+timezone = "Europe/Paris"
+
+[monitor]
+refresh = "2s"
+window  = "15m"
+```
+
+Durations are spelled the way `--since` spells them — `2s`, `90m`,
+`24h`, `7d`, `1w` — because one parser serves both. A bare number is
+refused: `2` could be seconds or minutes, and a panel that guesses wrong
+refreshes sixty times too often. Both `[monitor]` values are validated
+when the file is read rather than when they are first used, since a
+mistake that surfaced on the first tick would already have taken over
+the terminal. See [`docs/monitor.md`](monitor.md).
 
 `timezone` changes only what a terminal prints. Readings are stored in
 UTC and exported in UTC — a data file that carried somebody's desk clock

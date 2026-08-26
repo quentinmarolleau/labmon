@@ -59,6 +59,7 @@ together visually.*
 - [Connecting a real instrument](#connecting-a-real-instrument)
 - [Logs, next to the measurements](#logs-next-to-the-measurements)
 - [Getting the data out](#getting-the-data-out) — CSV, Parquet, Feather, netCDF
+- [Watching it in the terminal](#watching-it-in-the-terminal) — a panel over SSH
 - [Running it across the lab](#running-it-across-the-lab)
 - [Configuration](docs/configuration.md) — every setting, and where it lives
 - [How it works](#how-it-works)
@@ -324,6 +325,35 @@ rather than only metadata.
 [`docs/loading-exports.md`](docs/loading-exports.md) takes it from the
 other end — loading each file into pandas, polars and xarray, and what
 the shape of the data means once it is there.
+
+## Watching it in the terminal
+
+Grafana is the right tool for a wall display. It is the wrong one for
+the terminal already open next to the experiment, and it is unavailable
+over a bare SSH session — which is exactly when *is the cryostat still
+cold?* is worth asking.
+
+```bash
+pip install 'labmon[tui]'
+labmon monitor
+```
+
+```
+sensor_id      measurement  value                  unit  age     mean             sd       n
+-------------  -----------  ---------------------  ----  ------  ---------------  -------  -----
+wavemeter-1    frequency    2.765613014e+14        Hz    0s ago  2.765612999e+14  2.0e+06  11153
+cryo-77k       temperature  76.704                 K     2s ago  77.0             1.5      4462
+room-1         temperature  21.125                 °C    2s ago  20.93            0.78     4462
+probe-158      temperature  21.0691                K     7h ago  21.069           0.056    3
+
+16 sensors
+18:12:09 · window 24h · refreshing every 2s
+```
+
+Redraws in place, colours a sensor amber then red as it goes quiet, and
+keeps the last good table on screen when the database is briefly
+unreachable rather than tearing down the terminal.
+[`docs/monitor.md`](docs/monitor.md) has the rest.
 
 ## Running it across the lab
 

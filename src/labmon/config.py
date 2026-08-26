@@ -48,16 +48,43 @@ class ConfigError(Exception):
     """
 
 
+# What `labmon monitor` does when the file says nothing. Two seconds is
+# fast enough that a value looks live and slow enough that a 14 ms query
+# is nowhere near the duty cycle; fifteen minutes of history is enough
+# for a trend without being enough to wait for.
+DEFAULT_REFRESH = "2s"
+DEFAULT_WINDOW = "15m"
+
+
+@dataclass(frozen=True)
+class Monitor:
+    """How the terminal panel behaves.
+
+    `refresh` is seconds, already parsed: the file spells it "2s" the
+    way `--since` is spelled, and resolving it here means a bad value is
+    caught on load rather than on the first tick, after the panel has
+    drawn itself over the terminal.
+
+    `window` stays as written, because that is what the selection layer
+    takes. It is parsed on load all the same, and the result thrown
+    away, so a typo cannot wait for a refresh to surface.
+    """
+
+    refresh: float = 2.0
+    window: str = DEFAULT_WINDOW
+
+
 @dataclass(frozen=True)
 class Config:
     """Everything the configuration file settles.
 
-    One field today. It is a dataclass rather than a bare timezone so
-    that adding the monitor's layout does not change every signature
-    that carries the configuration around.
+    A dataclass rather than a bare timezone so that adding a section
+    does not change every signature that carries the configuration
+    around.
     """
 
     timezone: tzinfo = UTC
+    monitor: Monitor = Monitor()
 
 
 def config_path() -> Path:
@@ -99,7 +126,7 @@ def load(path: Path | None = None) -> Config:
 
 def _from_document(document: dict[str, object], where: Path) -> Config:
     """Build a `Config` from a parsed document, or say what is wrong."""
-    unknown = sorted(set(document) - {"timezone"})
+    unknown = sorted(set(document) - {"timezone", "monitor"})
     if unknown:
         raise ConfigError(
             f"{where}: unknown setting{'s' if len(unknown) > 1 else ''}"
@@ -111,7 +138,60 @@ def _from_document(document: dict[str, object], where: Path) -> Config:
         raise ConfigError(
             f"{where}: timezone must be a string, not {type(zone).__name__}"
         )
-    return Config(timezone=_resolve(zone, where))
+    return Config(
+        timezone=_resolve(zone, where),
+        monitor=_monitor(document.get("monitor", {}), where),
+    )
+
+
+def _monitor(section: object, where: Path) -> Monitor:
+    """The `[monitor]` table, with every value checked on the way in."""
+    if not isinstance(section, dict):
+        raise ConfigError(
+            f"{where}: monitor must be a table written as [monitor],"
+            + f" not {type(section).__name__}"
+        )
+    table = cast(dict[str, object], section)
+
+    unknown = sorted(set(table) - {"refresh", "window"})
+    if unknown:
+        raise ConfigError(
+            f"{where}: unknown monitor setting{'s' if len(unknown) > 1 else ''}"
+            + f" {', '.join(repr(name) for name in unknown)}"
+        )
+
+    from labmon.export.window import WindowError, parse_duration, parse_instant
+
+    refresh = table.get("refresh", DEFAULT_REFRESH)
+    if not isinstance(refresh, str):
+        raise ConfigError(
+            f"{where}: monitor.refresh must be a duration in quotes such as"
+            + f' "2s", not {type(refresh).__name__}'
+        )
+    try:
+        seconds = parse_duration(refresh)
+    except WindowError as error:
+        raise ConfigError(f"{where}: monitor.refresh — {error}") from None
+    if seconds <= 0:
+        raise ConfigError(
+            f"{where}: monitor.refresh must be greater than zero;"
+            + " every zero seconds is a busy loop, not a fast panel"
+        )
+
+    window = table.get("window", DEFAULT_WINDOW)
+    if not isinstance(window, str):
+        raise ConfigError(
+            f'{where}: monitor.window must be a string such as "15m",'
+            + f" not {type(window).__name__}"
+        )
+    try:
+        # Parsed and thrown away. The selection layer wants the text, but
+        # a typo caught here beats one that surfaces on the first tick.
+        _ = parse_instant(window)
+    except WindowError as error:
+        raise ConfigError(f"{where}: monitor.window — {error}") from None
+
+    return Monitor(refresh=seconds, window=window)
 
 
 def _resolve(name: str, where: Path) -> tzinfo:
