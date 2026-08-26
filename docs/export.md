@@ -278,27 +278,43 @@ screen.
 
 ## What is everything reading right now
 
-`--latest` answers a different question from the rest of `query`: not
-what happened over a window, but where each sensor stands at this
-moment.
+`labmon query latest` answers a different question from `query` itself:
+not what happened over a window, but where each sensor stands at this
+moment. A subcommand rather than a flag, so it carries its own help and
+completions and leaves room for the other questions worth asking of
+recorded readings.
 
 ```bash
-labmon query --latest
-labmon query --latest --measurement temperature
-labmon query --latest --sensor-id cryo-77k --sensor-id room-1
+labmon query latest
+labmon query latest --measurement temperature
+labmon query latest --sensor-id cryo-77k --sensor-id room-1
 ```
 
 ```
-sensor_id     measurement  value                   unit  age
-------------  -----------  ----------------------  ----  -------
-wavemeter-1   frequency    276561302600000.0       Hz    1s ago
-beam-y        position     22.652263736263734      µm    2s ago
-cryo-77k      temperature  74.828                  K     4s ago
-room-1        temperature  20.132                  °C    5s ago
-probe-158     temperature  21.0691                 K     57m ago
+sensor_id     measurement  value             unit  age
+------------  -----------  ----------------  ----  -------
+wavemeter-1   frequency    2.765612997e+14   Hz    2s ago
+chamber-1     pressure     1.9867e-07        mbar  4s ago
+cryo-77k      temperature  76.945            K     4s ago
+room-1        temperature  21.552            °C    4s ago
+old-probe     temperature  21.0691           K     57m ago
 
 13 sensors
 ```
+
+Readings are shown plainly where a decimal reads well, and in scientific
+notation where it does not — more than three digits ahead of the point,
+or zeros crowding in behind it, is where a column of numbers has to be
+counted rather than read. Nothing is rounded away in either form: the
+shortest text that reads back as the same number is used, because a
+sensor has already rounded to the resolution it claims.
+
+The unit is never rewritten. Rescaling `Hz` to `THz` is the prettiest
+answer for a wavemeter and the wrong one nearly everywhere else — `mbar`
+already carries a prefix, so choosing one afresh turns a vacuum reading
+into picobar, and `°C` is an offset unit that cannot be scaled at all. A
+per-sensor prefix, chosen rather than inferred, is the better answer
+where one is wanted, and belongs in a configuration file.
 
 One row per sensor, and **the `age` column is as much the point as the
 value is.** A sensor that stopped writing an hour ago still has a most

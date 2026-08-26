@@ -10,6 +10,7 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, cast
 
 from labmon.cli.age import Freshness, describe, freshness
+from labmon.cli.quantity import show
 
 if TYPE_CHECKING:
     import pyarrow as pa
@@ -30,6 +31,11 @@ PREFERRED_COLUMNS: tuple[str, ...] = (
 # Rows shown when --limit is not given. Enough to see a trend, few enough
 # that a stray `labmon query` over a week does not fill the scrollback.
 DEFAULT_LIMIT = 20
+
+# Columns holding a measured quantity, shown at a readable magnitude.
+# `input_volts` is here for the export-shaped tables that carry it, even
+# though the terminal views leave it out.
+_NUMERIC_COLUMNS: frozenset[str] = frozenset({"value", "input_volts"})
 
 
 def _is_all_null(column: "pa.ChunkedArray") -> bool:
@@ -62,11 +68,10 @@ def _cell(name: str, value: object) -> str:
         # so the slice cut into the offset instead of the digits — and
         # a whole second is what a sensor on a 1 Hz grid reports.
         return value.replace(tzinfo=None).isoformat(sep=" ", timespec="milliseconds")
-    if name == "value" and isinstance(value, float):
-        # `repr` rather than a fixed precision: sensors already round to
-        # the resolution they claim, so this shows exactly what was
-        # stored rather than inventing or hiding digits.
-        return repr(value)
+    if name in _NUMERIC_COLUMNS and isinstance(value, float):
+        # Plain where a decimal reads well, scientific where it does not,
+        # and nothing rounded away in either — see `labmon.cli.quantity`.
+        return show(value)
     return str(value)
 
 
