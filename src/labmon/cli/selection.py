@@ -94,6 +94,32 @@ def read_latest(
     return table, window
 
 
+def reporting_measurements(
+    sensor_id: str, since: str, until: str | None = None
+) -> list[str]:
+    """The measurements `sensor_id` still has readings in, in the window.
+
+    Asked after a sensor is dropped from the roster, to say whether the
+    database agrees that it is gone. Runs the same latest-query as
+    everything else, narrowed to the one sensor, so what it reports is
+    exactly what `labmon query latest` would find.
+
+    The rows are checked against the sensor asked for rather than
+    trusted. Naming a sensor that is not the one enquired about would
+    turn this into misinformation, and it is one comparison to be sure.
+    """
+    table, _window = read_latest(None, [sensor_id], since, until)
+    sensors = table.column("sensor_id").to_pylist()
+    measurements = table.column("measurement").to_pylist()
+    return sorted(
+        {
+            str(name)
+            for sensor, name in zip(sensors, measurements, strict=True)
+            if name and str(sensor) == sensor_id
+        }
+    )
+
+
 def known_from(table: "pa.Table") -> "list[Known]":
     """The roster entries a latest-query result describes."""
     from labmon.cli.roster import Known

@@ -1,11 +1,18 @@
 """`labmon sensors` — what labmon remembers, and how to correct it."""
 
+import logging
 from typing import Annotated
 
 import typer
 
 from labmon.cli.options import LogLevelOption, Measurements, SensorIds, Since, Until
 from labmon.cli.runtime import configure
+
+logger: logging.Logger = logging.getLogger(__name__)
+
+# The window a refresh covers, and the one a forgotten sensor is
+# checked against, so the two agree on what "recently" means.
+DEFAULT_WINDOW = "24h"
 
 HELP = (
     "List the sensors labmon knows about."
@@ -78,6 +85,7 @@ def sensors(
             ) from None
         save(path, remaining)
         print(f"forgot {forget}")
+        _say_if_still_reporting(forget)
         return
 
     if not refresh and (since is not None or until is not None):
@@ -92,7 +100,7 @@ def sensors(
     live: set[tuple[str, str]] | None = None
     if refresh:
         table, _silent = selection.read_latest_with_roster(
-            measurement, sensor_id, since or "24h", until
+            measurement, sensor_id, since or DEFAULT_WINDOW, until
         )
         live = set(
             zip(
@@ -128,4 +136,42 @@ def sensors(
         render_roster(
             known, live=live, now=datetime.now(UTC), colour=sys.stdout.isatty()
         )
+    )
+
+
+def _say_if_still_reporting(sensor_id: str) -> None:
+    """Say so when the database still holds readings for a forgotten sensor.
+
+    Forgetting edits the cache, and the cache may only ever add — so a
+    sensor that is still writing will be found by the next query and
+    remembered again. `forgot X` on its own reads as "it is gone", which
+    for a sensor still reporting it is not.
+
+    Best-effort, and deliberately silent when it cannot run: the roster
+    has already been written, and a database that is unreachable is no
+    reason to fail a command that has finished its work. The condition
+    it reports on cannot exist if there is no database to report it.
+    """
+    from influxdb_client_3.exceptions.exceptions import InfluxDB3ClientError
+
+    from labmon.cli import selection
+    from labmon.export.query import QueryError
+
+    try:
+        still = selection.reporting_measurements(sensor_id, DEFAULT_WINDOW)
+    except (InfluxDB3ClientError, QueryError, OSError, KeyError) as error:
+        # The same failures `labmon.cli.runtime` turns into exit codes —
+        # a server that is down or refusing the token, a query it will
+        # not answer, `INFLUXDB3_AUTH_TOKEN` unset — none of which say
+        # anything about a sensor.
+        logger.debug(
+            "could not check for recent readings", extra={"reason": str(error)}
+        )
+        return
+    if not still:
+        return
+    print(
+        f"it still has readings in {', '.join(still)} from the last"
+        + f" {DEFAULT_WINDOW}, so a query over that window will find it"
+        + " and remember it again until they age out"
     )

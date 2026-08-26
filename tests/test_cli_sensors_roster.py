@@ -214,3 +214,52 @@ def test_a_window_without_a_refresh_is_refused(roster: Path) -> None:
     result = _run("sensors", "--since", "1w")
 
     assert result.exit_code != 0
+
+
+def test_forgetting_a_sensor_that_is_still_writing_says_so(
+    roster: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The cache may only ever add, so a sensor still reporting will be
+    # remembered again by the next query. `forgot X` alone would read as
+    # "it is gone" for a sensor that is not.
+    _remember(roster, "cryo-77k")
+    monkeypatch.setattr("labmon.influx.get_client", RosterClient)
+
+    result = _run("sensors", "--forget", "cryo-77k")
+
+    assert result.exit_code == 0
+    assert ("cryo-77k", "temperature") not in load(roster)
+    assert "still has readings in temperature" in result.output
+
+
+def test_forgetting_a_silent_sensor_adds_nothing(
+    roster: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # RosterClient only ever reports cryo-77k, so the database agrees
+    # that old-probe is gone and there is nothing to warn about.
+    _remember(roster, "old-probe")
+    monkeypatch.setattr("labmon.influx.get_client", RosterClient)
+
+    result = _run("sensors", "--forget", "old-probe")
+
+    assert result.exit_code == 0
+    assert "still has readings" not in result.output
+
+
+def test_forgetting_works_with_the_database_unreachable(
+    roster: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The roster is already written by the time the check runs, so a
+    # database that is not there cannot turn a finished command into a
+    # failed one.
+    _remember(roster, "old-probe")
+
+    def refuse() -> object:
+        raise OSError("no route to host")
+
+    monkeypatch.setattr("labmon.influx.get_client", refuse)
+
+    result = _run("sensors", "--forget", "old-probe")
+
+    assert result.exit_code == 0
+    assert ("old-probe", "temperature") not in load(roster)
