@@ -314,7 +314,7 @@ uv tool install --editable .   # puts `labmon` on your PATH
 labmon --install-completion
 ```
 
-`labmon query --latest` answers the other question — what every sensor
+`labmon query latest` answers the other question — what every sensor
 reads right now, and how long ago each last spoke, so a silent one shows
 up instead of quietly disappearing.
 

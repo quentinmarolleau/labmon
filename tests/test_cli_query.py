@@ -516,7 +516,7 @@ class LatestClient(FakeClient):
 def test_latest_prints_one_row_per_sensor(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("labmon.influx.get_client", LatestClient)
 
-    result = _run("query", "--latest")
+    result = _run("query", "latest")
 
     assert result.exit_code == 0, result.output
     assert "cryo-77k" in result.output
@@ -528,7 +528,7 @@ def test_latest_reports_how_long_ago_each_sensor_reported(
 ) -> None:
     monkeypatch.setattr("labmon.influx.get_client", LatestClient)
 
-    result = _run("query", "--latest")
+    result = _run("query", "latest")
 
     assert "2s ago" in result.output
     assert "3h ago" in result.output
@@ -540,7 +540,7 @@ def test_latest_puts_the_quietest_sensor_last(
     monkeypatch.setattr("labmon.influx.get_client", LatestClient)
 
     body = [
-        line for line in _run("query", "--latest").output.splitlines() if " ago" in line
+        line for line in _run("query", "latest").output.splitlines() if " ago" in line
     ]
 
     assert body[-1].startswith("abandoned")
@@ -564,7 +564,7 @@ def test_latest_closes_the_client_when_the_query_fails(
 
     monkeypatch.setattr("labmon.influx.get_client", Failing)
 
-    result = _run("query", "--latest")
+    result = _run("query", "latest")
 
     assert result.exit_code != 0
     assert closed == [True]
@@ -621,7 +621,7 @@ def test_a_sensor_silent_beyond_the_window_is_still_listed(
     )
     monkeypatch.setattr("labmon.influx.get_client", QuietClient)
 
-    result = _run("query", "--latest")
+    result = _run("query", "latest")
 
     assert "abandoned" in result.output
     assert "2d ago" in result.output
@@ -652,7 +652,7 @@ def test_a_silent_sensor_shows_no_value_rather_than_a_stale_one(
 
     line = next(
         line
-        for line in _run("query", "--latest").output.splitlines()
+        for line in _run("query", "latest").output.splitlines()
         if line.startswith("abandoned")
     )
 
@@ -666,7 +666,7 @@ def test_a_live_sensor_is_remembered_for_next_time(
 
     monkeypatch.setattr("labmon.influx.get_client", QuietClient)
 
-    _ = _run("query", "--latest")
+    _ = _run("query", "latest")
 
     assert ("cryo-77k", "temperature") in load(roster)
 
@@ -713,7 +713,7 @@ def test_an_unwritable_cache_does_not_fail_the_command(
 
     monkeypatch.setattr("labmon.cli.roster.save", refuse)
 
-    result = _run("query", "--latest")
+    result = _run("query", "latest")
 
     assert result.exit_code == 0
     assert "cryo-77k" in result.output
@@ -749,7 +749,39 @@ def test_narrowing_by_measurement_narrows_the_roster_too(
     )
     monkeypatch.setattr("labmon.influx.get_client", QuietClient)
 
-    output = _run("query", "--latest", "--measurement", "temperature").output
+    output = _run("query", "latest", "--measurement", "temperature").output
 
     assert "old-thermo" in output
     assert "old-gauge" not in output
+
+
+def test_query_still_prints_readings_with_no_subcommand(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # `latest` is an addition, not a replacement: the log-style view is
+    # what `labmon query` has always meant and is documented as.
+    monkeypatch.setattr("labmon.influx.get_client", FakeClient)
+
+    result = _run("query", "--since", "1h")
+
+    assert result.exit_code == 0, result.output
+    assert "cryo-77k" in result.output
+
+
+def test_latest_is_a_subcommand_rather_than_a_flag(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A subcommand gets its own help and its own completions, and leaves
+    # room for the other questions worth asking of recorded readings.
+    monkeypatch.setattr("labmon.influx.get_client", LatestClient)
+
+    result = _run("query", "--latest")
+
+    assert result.exit_code != 0
+
+
+def test_query_help_names_its_subcommand() -> None:
+    result = _run("query", "--help")
+
+    assert result.exit_code == 0
+    assert "latest" in result.output
