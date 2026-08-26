@@ -90,11 +90,21 @@ def monitor(
     try:
         from labmon.cli.tui import Panel
     except ImportError as error:
-        # An ImportError traceback names a module. What somebody needs is
-        # the command that fixes it.
+        # Only when Textual is genuinely absent. Reporting every
+        # ImportError raised while loading that module as "the extra is
+        # missing" would misdiagnose a renamed Textual symbol after an
+        # upgrade, and send somebody to reinstall a package they have.
+        import importlib.util
+        import sys
+
+        if importlib.util.find_spec("textual") is not None:
+            raise
         raise typer.BadParameter(
-            "labmon monitor needs Textual, which is not installed."
-            + " Install it with: pip install 'labmon[tui]'"
+            "labmon monitor needs Textual, which is not installed in"
+            + f" {sys.executable}."
+            + " Install it with: pip install 'labmon[tui]' — or, for an"
+            + " editable checkout installed as a tool,"
+            + " uv tool install --editable '.[tui]' --force"
         ) from error
 
     Panel(

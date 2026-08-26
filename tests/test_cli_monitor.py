@@ -4,6 +4,7 @@ import asyncio
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import cast
 
 import pyarrow as pa
 import pytest
@@ -341,3 +342,47 @@ def test_the_first_refresh_failing_leaves_nothing_to_keep(
             assert app.latest.body == ""
 
     _drive(scenario)
+
+
+def test_an_import_failure_that_is_not_a_missing_extra_is_not_disguised(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Textual is installed and the panel still failed to import: a
+    # renamed symbol after an upgrade, say. Reporting that as "install
+    # the extra" sends somebody to reinstall a package they already
+    # have, and hides the traceback that would have said what broke.
+    import sys
+
+    monkeypatch.delitem(sys.modules, "labmon.cli.tui", raising=False)
+
+    real = __import__
+
+    def half_broken(name: str, *args: object, **kwargs: object) -> object:
+        if name == "labmon.cli.tui":
+            raise ImportError("cannot import name 'Binding' from 'textual'")
+        return cast(object, real(name, *args, **kwargs))  # pyright: ignore[reportArgumentType]
+
+    import builtins
+
+    monkeypatch.setattr(builtins, "__import__", half_broken)
+
+    result = _run("monitor")
+
+    assert result.exit_code != 0
+    assert "labmon[tui]" not in result.output
+
+
+def test_the_missing_extra_message_names_the_interpreter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # An editable checkout installed with `uv tool install` has its own
+    # environment, and `uv sync` does not touch it — so "not installed"
+    # is only half the answer without saying where.
+    import sys
+
+    monkeypatch.setitem(sys.modules, "textual", None)
+    monkeypatch.delitem(sys.modules, "labmon.cli.tui", raising=False)
+
+    result = _run("monitor")
+
+    assert sys.executable in result.output
