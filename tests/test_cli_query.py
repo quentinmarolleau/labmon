@@ -2,6 +2,7 @@
 
 import re
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import override
 
 import pyarrow as pa
@@ -567,3 +568,179 @@ def test_latest_closes_the_client_when_the_query_fails(
 
     assert result.exit_code != 0
     assert closed == [True]
+
+
+class QuietClient(FakeClient):
+    """Returns one live sensor, so a cached one has nothing to match."""
+
+    @override
+    def query(self, query: str, *args: object, **kwargs: object) -> pa.Table:
+        if query.startswith("SELECT '"):
+            return pa.table(
+                {
+                    "measurement": pa.array(["temperature"]),
+                    "sensor_id": pa.array(["cryo-77k"]),
+                    "time": pa.array(
+                        [datetime.now(UTC) - timedelta(seconds=2)],
+                        pa.timestamp("ms", tz="UTC"),
+                    ),
+                    "value": pa.array([77.01]),
+                    "unit": pa.array(["K"]),
+                }
+            )
+        return super().query(query, *args, **kwargs)  # pyright: ignore[reportArgumentType]
+
+
+@pytest.fixture
+def roster(tmp_path: "Path", monkeypatch: pytest.MonkeyPatch) -> "Path":
+    """Point the roster cache somewhere disposable."""
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+    return tmp_path / "labmon" / "sensors.json"
+
+
+def test_a_sensor_silent_beyond_the_window_is_still_listed(
+    monkeypatch: pytest.MonkeyPatch, roster: "Path"
+) -> None:
+    # The whole point of the cache: without it this sensor has no row to
+    # be stale, so it vanishes instead of turning red.
+    from labmon.cli.roster import Known, save
+
+    save(
+        roster,
+        {
+            "abandoned": Known(
+                sensor_id="abandoned",
+                measurement="temperature",
+                unit="K",
+                last_seen=datetime.now(UTC) - timedelta(days=2),
+            )
+        },
+    )
+    monkeypatch.setattr("labmon.influx.get_client", QuietClient)
+
+    result = _run("query", "--latest")
+
+    assert "abandoned" in result.output
+    assert "2d ago" in result.output
+
+
+def test_a_silent_sensor_shows_no_value_rather_than_a_stale_one(
+    monkeypatch: pytest.MonkeyPatch, roster: "Path"
+) -> None:
+    # Printing the last value it ever sent, next to a fresh reading from
+    # another sensor, would read as current.
+    from labmon.cli.roster import Known, save
+
+    save(
+        roster,
+        {
+            "abandoned": Known(
+                sensor_id="abandoned",
+                measurement="temperature",
+                unit="K",
+                last_seen=datetime.now(UTC) - timedelta(days=2),
+            )
+        },
+    )
+    monkeypatch.setattr("labmon.influx.get_client", QuietClient)
+
+    line = next(
+        line
+        for line in _run("query", "--latest").output.splitlines()
+        if line.startswith("abandoned")
+    )
+
+    assert "77.01" not in line
+
+
+def test_a_live_sensor_is_remembered_for_next_time(
+    monkeypatch: pytest.MonkeyPatch, roster: "Path"
+) -> None:
+    from labmon.cli.roster import load
+
+    monkeypatch.setattr("labmon.influx.get_client", QuietClient)
+
+    _ = _run("query", "--latest")
+
+    assert "cryo-77k" in load(roster)
+
+
+def test_a_row_without_a_sensor_is_left_out_of_the_roster() -> None:
+    # A measurement written by something else may carry no sensor id, and
+    # remembering an entry with no name would be remembering nothing.
+    table = pa.table(
+        {
+            "measurement": pa.array(["temperature", "temperature"]),
+            "sensor_id": pa.array(["a", None]),
+            "time": pa.array([datetime.now(UTC), None], pa.timestamp("ms", tz="UTC")),
+            "value": pa.array([1.0, 2.0]),
+            "unit": pa.array(["K", "K"]),
+        }
+    )
+
+    assert [entry.sensor_id for entry in selection.known_from(table)] == ["a"]
+
+
+def test_a_missing_unit_column_is_remembered_as_blank() -> None:
+    table = pa.table(
+        {
+            "sensor_id": pa.array(["a"]),
+            "time": pa.array([datetime.now(UTC)], pa.timestamp("ms", tz="UTC")),
+            "value": pa.array([1.0]),
+        }
+    )
+
+    assert selection.known_from(table)[0].unit == ""
+
+
+def test_an_unwritable_cache_does_not_fail_the_command(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Everything the query returned is still correct; refusing to print
+    # it because a derived file could not be written would be the wrong
+    # trade.
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+    monkeypatch.setattr("labmon.influx.get_client", QuietClient)
+
+    def refuse(*_args: object, **_kwargs: object) -> None:
+        raise OSError("read-only file system")
+
+    monkeypatch.setattr("labmon.cli.roster.save", refuse)
+
+    result = _run("query", "--latest")
+
+    assert result.exit_code == 0
+    assert "cryo-77k" in result.output
+
+
+def test_narrowing_by_measurement_narrows_the_roster_too(
+    monkeypatch: pytest.MonkeyPatch, roster: Path
+) -> None:
+    # Asking for temperatures and being shown a silent pressure gauge is
+    # answering a question that was not asked.
+    from labmon.cli.roster import Known, save
+
+    stale = datetime.now(UTC) - timedelta(days=1)
+    save(
+        roster,
+        {
+            "old-thermo": Known(
+                sensor_id="old-thermo",
+                measurement="temperature",
+                unit="K",
+                last_seen=stale,
+            ),
+            "old-gauge": Known(
+                sensor_id="old-gauge",
+                measurement="pressure",
+                unit="mbar",
+                last_seen=stale,
+            ),
+        },
+    )
+    monkeypatch.setattr("labmon.influx.get_client", QuietClient)
+
+    output = _run("query", "--latest", "--measurement", "temperature").output
+
+    assert "old-thermo" in output
+    assert "old-gauge" not in output

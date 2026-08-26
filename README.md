@@ -314,6 +314,10 @@ uv tool install --editable .   # puts `labmon` on your PATH
 labmon --install-completion
 ```
 
+`labmon query --latest` answers the other question — what every sensor
+reads right now, and how long ago each last spoke, so a silent one shows
+up instead of quietly disappearing.
+
 [`docs/export.md`](docs/export.md) covers the formats, the time window
 spellings, completion for bash and zsh, and why the unit is a column
 rather than only metadata.

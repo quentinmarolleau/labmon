@@ -315,9 +315,79 @@ belongs in a configuration file.
 Colour is written only when the output is a terminal, so piping this
 into a file leaves escape codes out of it.
 
-The same four selection flags apply. `--since` still bounds how far back
-to look — a sensor silent for longer than the window has no row at all,
-which is the one case this view cannot show you.
+The same four selection flags apply, and they narrow the remembered
+sensors as well as the query — asking for temperatures does not list a
+silent pressure gauge.
+
+## Sensors that have gone quiet
+
+`--since` bounds how far back the query looks, so a sensor silent for
+longer than the window returns no row. It has nothing to be stale: it
+simply disappears, which is the worst possible failure for a view whose
+job is spotting silence.
+
+labmon therefore remembers the sensors it has seen, and unions that list
+into the result:
+
+```
+sensor_id   measurement  value               unit  age
+----------  -----------  ------------------  ----  -------
+cryo-diode  temperature  17.097367521367556  K     1s ago
+room-1      temperature  20.518              °C    2s ago
+probe-158   temperature                      K     1h ago
+
+6 sensors
+1 of them reported nothing in this window — remembered from a previous run
+```
+
+`probe-158` reported nothing inside the window. Its **value is left
+blank rather than filled with the last reading it ever sent**: printed
+beside a fresh number from another sensor, an old one reads as current.
+
+The rule the cache follows is that **it may only add sensors, never
+replace or filter them.** Used as a union a stale cache is harmless, and
+the worst it can do is mention something that has since been removed.
+Used as a substitute it would grow its own silent failure, hiding a
+newly added sensor until somebody remembered to rebuild it.
+
+## `labmon sensors`
+
+The list is a cache, so it needs a window onto it — otherwise a
+decommissioned instrument shows red for ever with no recourse but
+deleting the file by hand.
+
+```bash
+labmon sensors                       # what labmon knows, and where from
+labmon sensors --refresh             # ask the database and remember
+labmon sensors --refresh --since 1w  # over a wider window
+labmon sensors --forget old-probe    # an instrument that is genuinely gone
+```
+
+```
+sensor_id     measurement  unit  age     source
+------------  -----------  ----  ------  ------
+wavemeter-1   frequency    Hz    1s ago  live
+cryo-77k      temperature  K     1s ago  live
+bias-monitor  voltage      V     2s ago  live
+old-probe     temperature  K     3h ago  cached
+
+14 sensors
+```
+
+The `source` column is what earns the command its place: it says
+outright whether a sensor is reporting now or is only remembered.
+
+A refresh is a union too — it never drops what the window did not cover,
+since that would delete exactly the silence worth keeping. `--forget` is
+the way to remove one, and it fails rather than pretending when the name
+is not there, so a mistyped id cannot leave somebody believing they
+removed a sensor that is still listed.
+
+The cache lives at `$XDG_CACHE_HOME/labmon/sensors.json` (usually
+`~/.cache/labmon/sensors.json`) — beside other caches rather than in the
+configuration directory, because it is derived data that can be deleted
+at any moment without losing a setting. It is indented JSON, so it can
+be read and edited by hand.
 
 ## Tab completion
 

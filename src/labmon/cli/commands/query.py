@@ -57,11 +57,20 @@ def query(
 
     configure(log_level)
     if latest:
-        table, _window = selection.read_latest(measurement, sensor_id, since, until)
+        table, silent = selection.read_latest_with_roster(
+            measurement, sensor_id, since, until
+        )
         # Colour only where something will interpret it. Piping this into
         # a file should leave escape codes out of the file, and `isatty`
         # is what answers that without guessing at the terminal.
-        print(render_latest(table, now=datetime.now(UTC), colour=sys.stdout.isatty()))
+        print(
+            render_latest(
+                table,
+                now=datetime.now(UTC),
+                colour=sys.stdout.isatty(),
+                silent=silent,
+            )
+        )
         return
     table, _window = selection.read(measurement, sensor_id, since, until)
     print(render(table, limit=limit))

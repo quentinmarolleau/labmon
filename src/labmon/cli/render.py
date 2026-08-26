@@ -5,13 +5,16 @@ every column and full precision so nothing is lost, while a terminal
 wants the few columns that carry meaning, aligned, in a width that fits.
 """
 
-from datetime import UTC, datetime
+from collections.abc import Container, Mapping, Sequence
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, cast
 
 from labmon.cli.age import Freshness, describe, freshness
 
 if TYPE_CHECKING:
     import pyarrow as pa
+
+    from labmon.cli.roster import Known
 
 # Columns worth a terminal's width, in reading order. `calibration_id` and
 # `input_volts` are deliberately absent: they are provenance, they are in
@@ -128,7 +131,13 @@ _STYLES: dict[Freshness, str] = {
 _RESET = "\x1b[0m"
 
 
-def render_latest(table: "pa.Table", now: datetime, *, colour: bool = False) -> str:
+def render_latest(
+    table: "pa.Table",
+    now: datetime,
+    *,
+    colour: bool = False,
+    silent: "Sequence[Known]" = (),
+) -> str:
     """One row per sensor, oldest last, with how long ago it reported.
 
     Sorted by age rather than by name, ascending, so the sensor that has
@@ -139,26 +148,41 @@ def render_latest(table: "pa.Table", now: datetime, *, colour: bool = False) -> 
     toward `len`, so a cell coloured first pads to fewer visible
     characters than its neighbours and silently shortens its column.
     """
-    total = table.num_rows
+    total = table.num_rows + len(silent)
     if total == 0:
         return "no readings matched"
 
     columns = {name: table.column(name).to_pylist() for name in table.column_names}
     ages = [now - _as_datetime(stamp) for stamp in columns["time"]]
-    order = sorted(range(total), key=lambda index: ages[index])
+    # Over the live rows only: `total` counts the silent sensors too, and
+    # those carry their age from the roster rather than from this table.
+    order = sorted(range(table.num_rows), key=lambda index: ages[index])
 
     present = [name for name in LATEST_COLUMNS if name == "age" or name in columns]
-    rows: list[list[str]] = []
-    styles: list[str] = []
+    entries: list[tuple[timedelta, list[str]]] = []
     for index in order:
-        cells = [
-            describe(ages[index])
-            if name == "age"
-            else _cell(name, columns[name][index])
-            for name in present
-        ]
-        rows.append(cells)
-        styles.append(_STYLES[freshness(ages[index])] if colour else "")
+        entries.append(
+            (
+                ages[index],
+                [
+                    describe(ages[index])
+                    if name == "age"
+                    else _cell(name, columns[name][index])
+                    for name in present
+                ],
+            )
+        )
+    # Sensors the query returned nothing for, carried in from the roster.
+    # Their value column is left blank rather than filled with the last
+    # reading they ever sent: printed beside a fresh number from another
+    # sensor, an old one reads as current.
+    for entry in silent:
+        age = now - entry.last_seen
+        entries.append((age, [_silent_cell(name, entry, age) for name in present]))
+
+    entries.sort(key=lambda item: item[0])
+    rows = [cells for _, cells in entries]
+    styles = [_STYLES[freshness(age)] if colour else "" for age, _ in entries]
 
     widths = [
         max(len(name), *(len(row[position]) for row in rows))
@@ -179,7 +203,27 @@ def render_latest(table: "pa.Table", now: datetime, *, colour: bool = False) -> 
 
     lines.append("")
     lines.append(f"{total} sensor{'s' if total != 1 else ''}")
+    if silent:
+        quiet = len(silent)
+        lines.append(
+            f"{quiet} of them reported nothing in this window"
+            + " — remembered from a previous run"
+        )
     return "\n".join(lines)
+
+
+def _silent_cell(name: str, entry: "Known", age: timedelta) -> str:
+    """One cell for a sensor the query returned no reading for."""
+    if name == "age":
+        return describe(age)
+    if name == "sensor_id":
+        return entry.sensor_id
+    if name == "measurement":
+        return entry.measurement
+    if name == "unit":
+        return entry.unit
+    # `value` and anything else: nothing was read, so nothing is shown.
+    return ""
 
 
 def _as_datetime(stamp: object) -> datetime:
@@ -191,3 +235,59 @@ def _as_datetime(stamp: object) -> datetime:
     """
     moment = cast(datetime, stamp)
     return moment if moment.tzinfo else moment.replace(tzinfo=UTC)
+
+
+ROSTER_COLUMNS: tuple[str, ...] = ("sensor_id", "measurement", "unit", "age", "source")
+
+
+def render_roster(
+    known: "Mapping[str, Known]",
+    *,
+    live: "Container[str]",
+    now: datetime,
+    colour: bool = False,
+) -> str:
+    """The remembered sensors, oldest last, saying which are reporting.
+
+    The `source` column is what earns this view its place: it states
+    whether a sensor is reporting now or is only remembered, which makes
+    the union rule visible instead of magic.
+    """
+    if not known:
+        return "nothing remembered yet"
+
+    entries = sorted(known.values(), key=lambda entry: now - entry.last_seen)
+    rows = [
+        [
+            entry.sensor_id,
+            entry.measurement,
+            entry.unit,
+            describe(now - entry.last_seen),
+            "live" if entry.sensor_id in live else "cached",
+        ]
+        for entry in entries
+    ]
+    styles = [
+        _STYLES[freshness(now - entry.last_seen)] if colour else "" for entry in entries
+    ]
+
+    widths = [
+        max(len(name), *(len(row[position]) for row in rows))
+        for position, name in enumerate(ROSTER_COLUMNS)
+    ]
+    lines = [
+        "  ".join(
+            name.ljust(width)
+            for name, width in zip(ROSTER_COLUMNS, widths, strict=True)
+        ),
+        "  ".join("-" * width for width in widths),
+    ]
+    for row, style in zip(rows, styles, strict=True):
+        padded = "  ".join(
+            cell.ljust(width) for cell, width in zip(row, widths, strict=True)
+        ).rstrip()
+        lines.append(f"{style}{padded}{_RESET}" if style else padded)
+
+    lines.append("")
+    lines.append(f"{len(entries)} sensor{'s' if len(entries) != 1 else ''}")
+    return "\n".join(lines)
