@@ -4,7 +4,12 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from labmon.export.window import Window, WindowError, parse_instant
+from labmon.export.window import (
+    Window,
+    WindowError,
+    parse_duration,
+    parse_instant,
+)
 
 _NOW = datetime(2026, 8, 24, 12, 0, tzinfo=UTC)
 
@@ -111,3 +116,48 @@ def test_window_parse_defaults_to_the_current_time() -> None:
     window = Window.parse("1s", None)
 
     assert before - timedelta(seconds=2) <= window.since <= datetime.now(UTC)
+
+
+# --------------------------------------------------------------------------
+# Durations on their own
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("text", "seconds"),
+    [
+        ("2s", 2.0),
+        ("0.5s", 0.5),
+        ("90m", 5400.0),
+        ("1h", 3600.0),
+        ("7d", 604800.0),
+        ("1w", 604800.0),
+        (" 15m ", 900.0),
+    ],
+)
+def test_a_duration_reads_as_seconds(text: str, seconds: float) -> None:
+    assert parse_duration(text) == seconds
+
+
+def test_a_timestamp_is_not_a_duration() -> None:
+    # `parse_instant` accepts both spellings because "since" can mean
+    # either. A refresh interval cannot be a date.
+    with pytest.raises(WindowError, match="duration"):
+        _ = parse_duration("2026-08-01")
+
+
+def test_an_empty_duration_says_so() -> None:
+    with pytest.raises(WindowError):
+        _ = parse_duration("")
+
+
+def test_a_duration_without_a_unit_is_refused() -> None:
+    # "2" could be seconds or minutes, and guessing wrong is a panel
+    # that refreshes sixty times too often.
+    with pytest.raises(WindowError, match="duration"):
+        _ = parse_duration("2")
+
+
+def test_a_partial_unit_is_not_mistaken_for_a_whole_one() -> None:
+    with pytest.raises(WindowError, match="duration"):
+        _ = parse_duration("24hours")
