@@ -50,9 +50,11 @@ def query(
         # and print two tables.
         return
 
+    from labmon.config import load
+
     configure(log_level)
     table, _window = selection.read(measurement, sensor_id, since, until)
-    print(render(table, limit=limit))
+    print(render(table, limit=limit, tz=load().timezone))
 
 
 LATEST_HELP = (

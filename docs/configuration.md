@@ -1,11 +1,12 @@
 # Configuration reference
 
-Every setting labmon exposes, in one place. Behaviour is tuned in three
-places — the environment, a command line, and the calibration file — and
-which one a given knob lives in is not always guessable. This page is the
-index; the per-component docs explain what each setting is *for*.
+Every setting labmon exposes, in one place. Behaviour is tuned in four
+places — the environment, a command line, the calibration file, and a
+per-user configuration file — and which one a given knob lives in is not
+always guessable. This page is the index; the per-component docs explain
+what each setting is *for*.
 
-There is a fourth category, at the bottom: the constants that are
+There is a fifth category, at the bottom: the constants that are
 deliberately **not** configurable, and what breaks if you change them
 anyway.
 
@@ -147,6 +148,43 @@ They do decide how finely `value` is rounded — see
 [How many digits a reading keeps](#how-many-digits-a-reading-keeps) —
 and digits dropped on the way in do not come back. `input_volts` keeps
 all of its own, which is what makes the correction possible.
+
+## The user configuration file
+
+Everything above configures a *deployment* — a host, a database, a
+token — and reaches labmon through the environment, because that is how
+a container is configured. The settings in this section configure a
+*person*: how readings are shown to whoever is reading them. They live
+with that person's other dotfiles rather than with the stack.
+
+Read from `$XDG_CONFIG_HOME/labmon/labmon.toml`, or
+`~/.config/labmon/labmon.toml` when `XDG_CONFIG_HOME` is unset. **Not
+having one is the ordinary case**: every key has a default and a missing
+file is not an error.
+
+```toml
+timezone = "Europe/Paris"
+```
+
+| Key | Default | Purpose |
+|---|---|---|
+| `timezone` | `"UTC"` | Zone the `time` column is printed in. An IANA name, or `"local"` for the machine's own zone |
+
+`timezone` changes only what a terminal prints. Readings are stored in
+UTC and exported in UTC — a data file that carried somebody's desk clock
+would be unusable to the next person to open it. What it fixes is the
+question you actually ask standing next to an experiment: whether the
+cryostat was cold at 3 a.m. *your* time.
+
+`"local"` is resolved by asking the machine, so a laptop that travels
+follows it. A name that looks right but is rejected usually means the
+system timezone database is not installed — `tzdata` provides it.
+
+**An unrecognised key is an error, not a warning.** A config file that
+skips what it does not understand gives a misspelled setting the exact
+appearance of a working one, with nothing to notice. The cost is that a
+key added by a newer labmon fails on an older one, which is a message
+naming the key rather than a silent wrong answer.
 
 ## The calibration file
 

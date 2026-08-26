@@ -4,6 +4,7 @@ import re
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import override
+from zoneinfo import ZoneInfo
 
 import pyarrow as pa
 import pytest
@@ -11,6 +12,7 @@ import pytest
 from labmon.cli import selection
 from labmon.cli.main import build_app
 from labmon.cli.render import DEFAULT_LIMIT, render, render_latest, visible_columns
+from labmon.cli.runtime import REFUSED
 from labmon.export.table import combine, normalise
 from tests.cli_runner import Invocation, invoke
 
@@ -397,6 +399,49 @@ def test_the_timezone_suffix_is_never_half_printed() -> None:
     # Every row in a result carries the same offset, so it is dropped
     # rather than repeated — but dropped whole, not sliced through.
     assert "+00:" not in render(_at(1_000))
+
+
+def test_a_configured_timezone_moves_the_printed_time() -> None:
+    # Paris was CET, UTC+1, on this date. The stored instant does not
+    # move; where it is shown does.
+    assert "1970-01-01 01:00:01.000" in render(_at(1_000), tz=ZoneInfo("Europe/Paris"))
+
+
+def test_a_shifted_time_still_does_not_print_its_offset() -> None:
+    # Dropping the suffix is what makes the column narrow enough to
+    # read, and it stays dropped once the zone is no longer UTC.
+    assert "+01:" not in render(_at(1_000), tz=ZoneInfo("Europe/Paris"))
+
+
+def test_the_timezone_reaches_the_query_command(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config = tmp_path / "config" / "labmon" / "labmon.toml"
+    config.parent.mkdir(parents=True)
+    _ = config.write_text('timezone = "Europe/Paris"\n')
+    monkeypatch.setattr("labmon.influx.get_client", FakeClient)
+
+    result = _run("query", "--since", "1h")
+
+    assert result.exit_code == 0
+    # FakeClient stamps its one reading at the epoch, which in Paris is
+    # an hour later on the same day.
+    assert "1970-01-01 01:00:00.000" in result.output
+
+
+def test_a_broken_configuration_is_reported_without_a_traceback(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config = tmp_path / "config" / "labmon" / "labmon.toml"
+    config.parent.mkdir(parents=True)
+    _ = config.write_text('timezone = "Mars/Olympus"\n')
+    monkeypatch.setattr("labmon.influx.get_client", FakeClient)
+
+    result = _run("query", "--since", "1h")
+
+    assert result.exit_code == REFUSED
+    assert "Traceback" not in result.output
+    assert "Mars/Olympus" in result.output
 
 
 # --------------------------------------------------------------------------

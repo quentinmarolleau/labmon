@@ -6,7 +6,7 @@ wants the few columns that carry meaning, aligned, in a width that fits.
 """
 
 from collections.abc import Container, Mapping, Sequence
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, tzinfo
 from typing import TYPE_CHECKING, cast
 
 from labmon.cli.age import Freshness, describe, freshness
@@ -56,7 +56,7 @@ def visible_columns(table: "pa.Table") -> list[str]:
     ]
 
 
-def _cell(name: str, value: object) -> str:
+def _cell(name: str, value: object, tz: tzinfo = UTC) -> str:
     if value is None:
         return ""
     if name == "time" and isinstance(value, datetime):
@@ -67,7 +67,16 @@ def _cell(name: str, value: object) -> str:
         # fixed width: `str` omits the fractional part when it is zero,
         # so the slice cut into the offset instead of the digits — and
         # a whole second is what a sensor on a 1 Hz grid reports.
-        return value.replace(tzinfo=None).isoformat(sep=" ", timespec="milliseconds")
+        #
+        # Moved into the reader's zone first. The stored instant does not
+        # change; where somebody standing next to the experiment reads it
+        # does, and "was the cryostat cold at 3 a.m." is a question about
+        # their clock, not about UTC.
+        return (
+            value.astimezone(tz)
+            .replace(tzinfo=None)
+            .isoformat(sep=" ", timespec="milliseconds")
+        )
     if name in _NUMERIC_COLUMNS and isinstance(value, float):
         # Plain where a decimal reads well, scientific where it does not,
         # and nothing rounded away in either — see `labmon.cli.quantity`.
@@ -75,12 +84,16 @@ def _cell(name: str, value: object) -> str:
     return str(value)
 
 
-def render(table: "pa.Table", limit: int = DEFAULT_LIMIT) -> str:
+def render(table: "pa.Table", limit: int = DEFAULT_LIMIT, tz: tzinfo = UTC) -> str:
     """Format `table` as an aligned table, most recent rows last.
 
     A limit of 0 means every row. When rows are dropped, the footer says
     so — a silently truncated table is one somebody draws a conclusion
     from.
+
+    `tz` is the zone timestamps are shown in, from the user's config.
+    It defaults to UTC so a caller with no configuration to hand — a
+    test, or a path that has not been given one — behaves as before.
     """
     total = table.num_rows
     if total == 0:
@@ -91,7 +104,7 @@ def render(table: "pa.Table", limit: int = DEFAULT_LIMIT) -> str:
     columns = {name: shown.column(name).to_pylist() for name in names}
 
     rows = [
-        [_cell(name, columns[name][index]) for name in names]
+        [_cell(name, columns[name][index], tz) for name in names]
         for index in range(shown.num_rows)
     ]
     widths = [
