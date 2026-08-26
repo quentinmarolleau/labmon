@@ -20,17 +20,56 @@ HELP = (
     + " in log10 space, so jitter scales multiplicatively — which suits a"
     + " quantity spanning decades, such as vacuum pressure."
     + "\n\n"
+    + "[bold]--measurement[/bold] and [bold]--unit[/bold] are required."
+    + " Neither can be guessed: a walk around 21.0 is a plausible room in"
+    + " celsius and a plausible cryostat stage in kelvin, and a reading"
+    + " that cannot say which is not worth recording."
+    + "\n\n"
     + "[bold]Examples[/bold]\n\n"
-    + "    labmon mock-sensor\n"
-    + "    labmon mock-sensor --sensor-id room-2 --setpoint 22 --unit °C\n"
-    + "    labmon mock-sensor --sensor-id cryo-77k --setpoint 77 --unit K"
-    + " --resolution 0.001\n"
+    + "    labmon mock-sensor --measurement temperature --unit °C\n"
+    + "    labmon mock-sensor --sensor-id room-2 --measurement temperature"
+    + " --setpoint 22 --unit °C\n"
+    + "    labmon mock-sensor --sensor-id cryo-77k --measurement temperature"
+    + " --setpoint 77 --unit K --resolution 0.001\n"
     + "    labmon mock-sensor --sensor-id chamber-1 --measurement pressure"
     + " --setpoint 1e-7 --log-scale --unit mbar"
 )
 
 
+def _required_text(value: str) -> str:
+    """Refuse an option given as an empty string.
+
+    Typer treats `--unit ""` as the option having been supplied, so
+    requiring it is not on its own enough — without this, the unlabelled
+    reading this guards against is still one argument away.
+    """
+    if not value.strip():
+        raise typer.BadParameter("cannot be empty")
+    return value
+
+
 def mock_sensor(
+    # Required, so they come before every option that has a default.
+    # Neither can be inferred: a walk around 21.0 is a plausible room in
+    # celsius and a plausible cryostat stage in kelvin, and a reading
+    # that says which is the whole point of recording one.
+    measurement: Annotated[
+        str,
+        typer.Option(
+            "--measurement",
+            help="InfluxDB measurement (table) to write to, e.g. 'temperature'",
+            callback=_required_text,
+        ),
+    ],
+    unit: Annotated[
+        str,
+        typer.Option(
+            "--unit",
+            help="Unit of the reading, e.g. '°C', 'K', 'mbar'. Written as an"
+            + " InfluxDB tag",
+            callback=_required_text,
+        ),
+    ],
     sensor_id: Annotated[
         str, typer.Option("--sensor-id", help="Tag identifying the sensor")
     ] = "mock-sensor-1",
@@ -41,10 +80,6 @@ def mock_sensor(
         float,
         typer.Option("--setpoint", help="Baseline reading the walk reverts toward"),
     ] = 21.0,
-    measurement: Annotated[
-        str,
-        typer.Option("--measurement", help="InfluxDB measurement (table) to write to"),
-    ] = "temperature",
     field: Annotated[
         str, typer.Option("--field", help="InfluxDB field name for the reading")
     ] = "value",
@@ -64,14 +99,6 @@ def mock_sensor(
             + "--setpoint stays in linear units; --noise becomes log10",
         ),
     ] = False,
-    unit: Annotated[
-        str,
-        typer.Option(
-            "--unit",
-            help="Unit of the reading (e.g. '°C', 'K', 'mbar'). Written as an "
-            + "InfluxDB tag when set, and omitted entirely when not",
-        ),
-    ] = "",
     resolution: Annotated[
         float | None,
         typer.Option(

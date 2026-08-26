@@ -138,7 +138,8 @@ one produces no line.
 To see every reading while bringing a board up:
 
 ```bash
-uv run labmon mock-sensor --log-level debug
+uv run labmon mock-sensor --measurement temperature --unit "°C" \
+  --log-level debug
 uv run labmon serial-sensor --port … --calibration … --log-level debug
 ```
 

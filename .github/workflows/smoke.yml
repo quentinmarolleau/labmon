@@ -123,9 +123,9 @@ jobs:
           token="$(grep '^INFLUXDB3_AUTH_TOKEN=' .env | cut -d= -f2-)"
           network="$(docker inspect influxdb \
             --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{end}}')"
-          # --entrypoint, because the image's own is `mock-sensor`: without
-          # it `timeout` and its arguments are appended to the sensor's
-          # command line instead of wrapping it.
+          # --entrypoint, because the image's own is `labmon mock-sensor`:
+          # without it `timeout` and its arguments are appended to the
+          # sensor's command line instead of wrapping it.
           # --preserve-status reports the sensor's own fate rather than
           # timeout's, so a crash on the TLS path reads differently in the
           # log from the SIGTERM that ends a healthy run.
@@ -138,8 +138,8 @@ jobs:
             -e INFLUXDB_DATABASE=lab \
             -e INFLUXDB3_AUTH_TOKEN="$token" \
             labmon:latest \
-            --preserve-status 12 mock-sensor --sensor-id tls-smoke \
-              --measurement temperature --interval 1 || status=$?
+            --preserve-status 12 labmon mock-sensor --sensor-id tls-smoke \
+              --measurement temperature --unit K --interval 1 || status=$?
           # 0 if it handled the signal, 143 if it took SIGTERM as it was.
           case "$status" in
             0|143) echo "sensor ended on the timeout (status $status)" ;;

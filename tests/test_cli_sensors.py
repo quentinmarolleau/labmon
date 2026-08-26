@@ -32,10 +32,12 @@ def captured_run(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, object]]:
     return calls
 
 
-def test_the_defaults_reach_the_sensor(
+def test_the_remaining_defaults_reach_the_sensor(
     captured_run: list[dict[str, object]],
 ) -> None:
-    result = _run("mock-sensor")
+    # `--measurement` and `--unit` are required, so they are named here
+    # rather than defaulted; everything else still has a default.
+    result = _run("mock-sensor", "--measurement", "temperature", "--unit", "°C")
 
     assert result.exit_code == 0
     assert captured_run == [
@@ -47,7 +49,7 @@ def test_the_defaults_reach_the_sensor(
             "field": "value",
             "noise": 0.1,
             "log_scale": False,
-            "unit": "",
+            "unit": "°C",
             "resolution": None,
             "significant_digits": 6,
             "summary_interval": 30.0,
@@ -115,7 +117,15 @@ def test_a_summary_interval_of_zero_turns_the_heartbeat_off(
 ) -> None:
     # Typer cannot hand back None from a float option, so zero is the off
     # switch — "summarise every zero seconds" has no other meaning.
-    result = _run("mock-sensor", "--summary-interval", "0")
+    result = _run(
+        "mock-sensor",
+        "--measurement",
+        "temperature",
+        "--unit",
+        "K",
+        "--summary-interval",
+        "0",
+    )
 
     assert result.exit_code == 0
     assert captured_run[0]["summary_interval"] is None
@@ -135,9 +145,63 @@ def test_an_unknown_log_level_is_rejected(
 
 @pytest.mark.usefixtures("captured_run")
 def test_a_lower_case_log_level_is_accepted() -> None:
-    result = _run("mock-sensor", "--log-level", "debug")
+    result = _run(
+        "mock-sensor",
+        "--measurement",
+        "temperature",
+        "--unit",
+        "K",
+        "--log-level",
+        "debug",
+    )
 
     assert result.exit_code == 0
+
+
+@pytest.mark.usefixtures("captured_run")
+def test_the_mock_sensor_requires_a_measurement() -> None:
+    # A bare run used to write a 21.0 into `temperature` with no unit at
+    # all, which is a number nobody can act on: 21 °C is a warm room and
+    # 21 K is a cryostat stage, and the reading said neither.
+    result = _run("mock-sensor")
+
+    assert result.exit_code != 0
+    assert "--measurement" in result.output
+
+
+@pytest.mark.usefixtures("captured_run")
+def test_the_mock_sensor_requires_a_unit() -> None:
+    result = _run("mock-sensor", "--measurement", "temperature")
+
+    assert result.exit_code != 0
+    assert "--unit" in result.output
+
+
+@pytest.mark.usefixtures("captured_run")
+def test_naming_both_is_enough_to_run() -> None:
+    result = _run("mock-sensor", "--measurement", "temperature", "--unit", "K")
+
+    assert result.exit_code == 0
+
+
+def test_a_measurement_cannot_be_left_empty(
+    captured_run: list[dict[str, object]],
+) -> None:
+    # Requiring the option and then accepting "" for it would be the same
+    # unlabelled reading with an extra step.
+    result = _run("mock-sensor", "--measurement", "", "--unit", "K")
+
+    assert result.exit_code != 0
+    assert captured_run == []
+
+
+def test_a_unit_cannot_be_left_empty(
+    captured_run: list[dict[str, object]],
+) -> None:
+    result = _run("mock-sensor", "--measurement", "temperature", "--unit", "")
+
+    assert result.exit_code != 0
+    assert captured_run == []
 
 
 def test_the_serial_sensor_requires_a_port_and_a_calibration() -> None:
@@ -202,7 +266,18 @@ def test_the_serial_sensor_passes_its_settings_through(
 def test_the_mock_sensor_alias_still_runs_the_command(
     captured_run: list[dict[str, object]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("sys.argv", ["mock-sensor", "--sensor-id", "room-1"])
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "mock-sensor",
+            "--sensor-id",
+            "room-1",
+            "--measurement",
+            "temperature",
+            "--unit",
+            "°C",
+        ],
+    )
 
     with pytest.raises(SystemExit) as exit_info:
         deprecated.mock_sensor_main()

@@ -13,15 +13,17 @@ For reading an actual board rather than simulating one, see
 ## Usage
 
 ```bash
-# Defaults: sensor-id "mock-sensor-1", measurement "temperature", setpoint
-# 21, one reading every 5s
-uv run labmon mock-sensor
+# --measurement and --unit are required; the rest default to sensor-id
+# "mock-sensor-1", setpoint 21, one reading every 5s
+uv run labmon mock-sensor --measurement temperature --unit "°C"
 
 # A second room temperature sensor, sampled every second
-uv run labmon mock-sensor --sensor-id room-2 --setpoint 22 --interval 1 --unit "°C"
+uv run labmon mock-sensor --sensor-id room-2 --measurement temperature \
+  --setpoint 22 --interval 1 --unit "°C"
 
 # A cryogenic zone sensor
-uv run labmon mock-sensor --sensor-id cryo-77k --setpoint 77 --noise 0.3 --unit K
+uv run labmon mock-sensor --sensor-id cryo-77k --measurement temperature \
+  --setpoint 77 --noise 0.3 --unit K
 
 # A vacuum gauge: values spanning orders of magnitude need --log-scale
 # (see below) so noise/mean-reversion scale multiplicatively, not by a
@@ -36,6 +38,22 @@ uv run labmon mock-sensor --help
 Stop with Ctrl+C (or `docker stop`/`kill` if run as a service) — the
 process closes its InfluxDB connection cleanly on SIGINT/SIGTERM.
 
+## Why `--measurement` and `--unit` are required
+
+Neither can be guessed from the others. A walk around the default
+setpoint of 21.0 is a plausible room in celsius and a plausible
+cryostat stage in kelvin, and a reading that cannot say which is not
+worth recording — it is the one thing an exported column cannot
+reconstruct later.
+
+Defaulting them was worse than requiring them. A default `°C` would
+have quietly labelled a `--measurement pressure` run in celsius, and a
+wrong unit is more dangerous than a missing one: a missing unit sends
+somebody to check, a wrong one does not.
+
+An empty string is refused too. `--unit ""` is otherwise the same
+unlabelled reading with an extra step.
+
 ## Options
 
 | Flag             | Default        | Purpose                                                        |
@@ -43,13 +61,13 @@ process closes its InfluxDB connection cleanly on SIGINT/SIGTERM.
 | `--sensor-id`      | `mock-sensor-1`| Tag identifying the sensor                                       |
 | `--interval`       | `5.0`          | Seconds between readings                                          |
 | `--setpoint`       | `21.0`         | Baseline reading the walk reverts toward                          |
-| `--measurement`    | `temperature`  | InfluxDB measurement (table) to write to                          |
+| `--measurement`    | **required**   | InfluxDB measurement (table) to write to                          |
 | `--field`          | `value`        | InfluxDB field name for the reading                                |
 | `--noise`          | `0.1`          | Std dev of Gaussian noise added each step                         |
 | `--log-scale`      | off            | Perform the walk in log10 space (see below)                       |
 | `--resolution`     | unset          | Absolute step the reading is rounded to, in its own units (see below) |
 | `--significant-digits` | `6`        | Digits a reading carries when `--resolution` is not given          |
-| `--unit`           | `""`           | Unit of the reading (e.g. `°C`, `K`, `mbar`) — written as an InfluxDB `unit` tag when set |
+| `--unit`           | **required**   | Unit of the reading (e.g. `°C`, `K`, `mbar`) — written as an InfluxDB `unit` tag |
 | `--log-level`      | `INFO`         | `DEBUG` adds a line per reading                                   |
 | `--summary-interval` | `30.0`       | Seconds between "still writing" lines; `0` turns them off         |
 
@@ -80,7 +98,8 @@ they are written.
 how an instrument with a fixed least-significant digit is described:
 
 ```bash
-uv run labmon mock-sensor --sensor-id cryo-77k --setpoint 77 --unit K \
+uv run labmon mock-sensor --sensor-id cryo-77k --measurement temperature \
+  --setpoint 77 --unit K \
   --resolution 0.001        # 76.85006139177405 -> 76.85
 ```
 
