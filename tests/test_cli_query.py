@@ -1,5 +1,7 @@
 """`labmon query` and the terminal table it prints."""
 
+import re
+from datetime import UTC, datetime, timedelta
 from typing import override
 
 import pyarrow as pa
@@ -7,7 +9,7 @@ import pytest
 
 from labmon.cli import selection
 from labmon.cli.main import build_app
-from labmon.cli.render import DEFAULT_LIMIT, render, visible_columns
+from labmon.cli.render import DEFAULT_LIMIT, render, render_latest, visible_columns
 from labmon.export.table import combine, normalise
 from tests.cli_runner import Invocation, invoke
 
@@ -394,3 +396,174 @@ def test_the_timezone_suffix_is_never_half_printed() -> None:
     # Every row in a result carries the same offset, so it is dropped
     # rather than repeated — but dropped whole, not sliced through.
     assert "+00:" not in render(_at(1_000))
+
+
+# --------------------------------------------------------------------------
+# The latest reading from each sensor
+# --------------------------------------------------------------------------
+
+
+def _latest(rows: list[tuple[str, str, float, str, int]]) -> "pa.Table":
+    """One row per sensor, `seconds` old, in the shape fetch_latest returns."""
+    now = datetime(2026, 8, 26, 12, 0, tzinfo=UTC)
+    return pa.table(
+        {
+            "measurement": pa.array([r[1] for r in rows]),
+            "sensor_id": pa.array([r[0] for r in rows]),
+            "time": pa.array(
+                [now - timedelta(seconds=r[4]) for r in rows],
+                pa.timestamp("ms", tz="UTC"),
+            ),
+            "value": pa.array([r[2] for r in rows]),
+            "unit": pa.array([r[3] for r in rows]),
+        }
+    )
+
+
+_NOW = datetime(2026, 8, 26, 12, 0, tzinfo=UTC)
+
+
+def test_the_latest_view_has_an_age_column() -> None:
+    rendered = render_latest(_latest([("a", "temperature", 1.0, "K", 3)]), now=_NOW)
+
+    assert "age" in rendered.splitlines()[0]
+    assert "3s ago" in rendered
+
+
+def test_a_sensor_is_listed_once() -> None:
+    table = _latest(
+        [("a", "temperature", 1.0, "K", 3), ("b", "temperature", 2.0, "K", 9)]
+    )
+
+    body = [
+        line for line in render_latest(table, now=_NOW).splitlines() if " ago" in line
+    ]
+
+    assert len(body) == 2
+
+
+def test_the_stalest_sensor_is_listed_last() -> None:
+    # The one that stopped reporting is the one worth finding, and a
+    # reader's eye lands on the end of a short list.
+    table = _latest(
+        [
+            ("fresh", "temperature", 1.0, "K", 2),
+            ("silent", "temperature", 2.0, "K", 9000),
+        ]
+    )
+
+    lines = [
+        line for line in render_latest(table, now=_NOW).splitlines() if " ago" in line
+    ]
+
+    assert lines[-1].startswith("silent")
+
+
+def test_columns_stay_aligned_when_an_age_is_coloured() -> None:
+    # Padding a string that carries escape codes counts them toward its
+    # width, so a coloured cell silently shortens its own column.
+    table = _latest(
+        [
+            ("a", "temperature", 1.0, "K", 2),
+            ("bbbbbbbbbb", "temperature", 2.0, "K", 9000),
+        ]
+    )
+
+    rendered = render_latest(table, now=_NOW, colour=True)
+    plain = [
+        re.sub(r"\x1b\[[0-9;]*m", "", line)
+        for line in rendered.splitlines()
+        if " ago" in line
+    ]
+
+    starts = {line.index("ago") for line in plain}
+    assert len(starts) == 1, f"age column is ragged: {starts}"
+
+
+def test_no_colour_means_no_escape_codes() -> None:
+    rendered = render_latest(_latest([("a", "temperature", 1.0, "K", 2)]), now=_NOW)
+
+    assert "\x1b[" not in rendered
+
+
+def test_an_empty_latest_result_says_so() -> None:
+    assert render_latest(_latest([]), now=_NOW) == "no readings matched"
+
+
+class LatestClient(FakeClient):
+    """Answers the latest query with one row per sensor, of differing ages."""
+
+    @override
+    def query(self, query: str, *args: object, **kwargs: object) -> pa.Table:
+        if query.startswith("SELECT '"):
+            now = datetime.now(UTC)
+            return pa.table(
+                {
+                    "measurement": pa.array(["temperature", "temperature"]),
+                    "sensor_id": pa.array(["cryo-77k", "abandoned"]),
+                    "time": pa.array(
+                        [now - timedelta(seconds=2), now - timedelta(hours=3)],
+                        pa.timestamp("ms", tz="UTC"),
+                    ),
+                    "value": pa.array([77.01, 4.2]),
+                    "unit": pa.array(["K", "K"]),
+                }
+            )
+        return super().query(query, *args, **kwargs)  # pyright: ignore[reportArgumentType]
+
+
+def test_latest_prints_one_row_per_sensor(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("labmon.influx.get_client", LatestClient)
+
+    result = _run("query", "--latest")
+
+    assert result.exit_code == 0, result.output
+    assert "cryo-77k" in result.output
+    assert "2 sensors" in result.output
+
+
+def test_latest_reports_how_long_ago_each_sensor_reported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("labmon.influx.get_client", LatestClient)
+
+    result = _run("query", "--latest")
+
+    assert "2s ago" in result.output
+    assert "3h ago" in result.output
+
+
+def test_latest_puts_the_quietest_sensor_last(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("labmon.influx.get_client", LatestClient)
+
+    body = [
+        line for line in _run("query", "--latest").output.splitlines() if " ago" in line
+    ]
+
+    assert body[-1].startswith("abandoned")
+
+
+def test_latest_closes_the_client_when_the_query_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    closed: list[bool] = []
+
+    class Failing(FakeClient):
+        @override
+        def query(self, query: str, *args: object, **kwargs: object) -> pa.Table:
+            if query.startswith("SELECT '"):
+                raise RuntimeError("server said no")
+            return super().query(query, *args, **kwargs)  # pyright: ignore[reportArgumentType]
+
+        @override
+        def close(self) -> None:
+            closed.append(True)
+
+    monkeypatch.setattr("labmon.influx.get_client", Failing)
+
+    result = _run("query", "--latest")
+
+    assert result.exit_code != 0
+    assert closed == [True]

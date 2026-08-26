@@ -5,8 +5,10 @@ every column and full precision so nothing is lost, while a terminal
 wants the few columns that carry meaning, aligned, in a width that fits.
 """
 
-from datetime import datetime
-from typing import TYPE_CHECKING
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, cast
+
+from labmon.cli.age import Freshness, describe, freshness
 
 if TYPE_CHECKING:
     import pyarrow as pa
@@ -107,3 +109,85 @@ def render(table: "pa.Table", limit: int = DEFAULT_LIMIT) -> str:
         lines.append("")
         lines.append(f"{total} reading{'s' if total != 1 else ''}")
     return "\n".join(lines)
+
+
+# --------------------------------------------------------------------------
+# The latest reading from each sensor
+# --------------------------------------------------------------------------
+
+LATEST_COLUMNS: tuple[str, ...] = ("sensor_id", "measurement", "value", "unit", "age")
+
+# SGR codes rather than a styling library: this is the only colour the
+# CLI emits, and reaching for one would pull an import into a path the
+# startup work deliberately keeps clear.
+_STYLES: dict[Freshness, str] = {
+    Freshness.FRESH: "",
+    Freshness.AGEING: "\x1b[33m",
+    Freshness.STALE: "\x1b[31m",
+}
+_RESET = "\x1b[0m"
+
+
+def render_latest(table: "pa.Table", now: datetime, *, colour: bool = False) -> str:
+    """One row per sensor, oldest last, with how long ago it reported.
+
+    Sorted by age rather than by name, ascending, so the sensor that has
+    stopped reporting is the last line — which is where an eye lands on
+    a short list, and it is the row this view exists to surface.
+
+    Colour is applied after padding, never before. An escape code counts
+    toward `len`, so a cell coloured first pads to fewer visible
+    characters than its neighbours and silently shortens its column.
+    """
+    total = table.num_rows
+    if total == 0:
+        return "no readings matched"
+
+    columns = {name: table.column(name).to_pylist() for name in table.column_names}
+    ages = [now - _as_datetime(stamp) for stamp in columns["time"]]
+    order = sorted(range(total), key=lambda index: ages[index])
+
+    present = [name for name in LATEST_COLUMNS if name == "age" or name in columns]
+    rows: list[list[str]] = []
+    styles: list[str] = []
+    for index in order:
+        cells = [
+            describe(ages[index])
+            if name == "age"
+            else _cell(name, columns[name][index])
+            for name in present
+        ]
+        rows.append(cells)
+        styles.append(_STYLES[freshness(ages[index])] if colour else "")
+
+    widths = [
+        max(len(name), *(len(row[position]) for row in rows))
+        for position, name in enumerate(present)
+    ]
+
+    lines = [
+        "  ".join(
+            name.ljust(width) for name, width in zip(present, widths, strict=True)
+        ),
+        "  ".join("-" * width for width in widths),
+    ]
+    for row, style in zip(rows, styles, strict=True):
+        padded = "  ".join(
+            cell.ljust(width) for cell, width in zip(row, widths, strict=True)
+        ).rstrip()
+        lines.append(f"{style}{padded}{_RESET}" if style else padded)
+
+    lines.append("")
+    lines.append(f"{total} sensor{'s' if total != 1 else ''}")
+    return "\n".join(lines)
+
+
+def _as_datetime(stamp: object) -> datetime:
+    """A timestamp column entry as an aware datetime.
+
+    pyarrow hands back a naive value for a column with no zone, and the
+    latest query stamps in UTC, so an absent zone means UTC rather than
+    local time.
+    """
+    moment = cast(datetime, stamp)
+    return moment if moment.tzinfo else moment.replace(tzinfo=UTC)

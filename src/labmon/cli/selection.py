@@ -59,3 +59,34 @@ def read(
         extra={"rows": table.num_rows, "measurements": len(resolved)},
     )
     return table, window
+
+
+def read_latest(
+    measurements: Sequence[str] | None,
+    sensor_ids: Sequence[str] | None,
+    since: str,
+    until: str | None,
+) -> "tuple[pa.Table, Window]":
+    """The most recent reading each sensor produced within the window.
+
+    Shares the client handling and the measurement allowlist with
+    `read`, and differs only in the query it runs — so a sensor visible
+    to one is visible to the other.
+    """
+    from labmon.export.query import fetch_latest, resolve_measurements
+    from labmon.export.window import Window
+    from labmon.influx import get_client
+
+    window = Window.parse(since, until)
+    client = get_client()
+    try:
+        resolved = resolve_measurements(client, list(measurements or ()))
+        table = fetch_latest(client, resolved, window, list(sensor_ids or ()))
+    finally:
+        client.close()
+
+    logger.debug(
+        "read latest",
+        extra={"sensors": table.num_rows, "measurements": len(resolved)},
+    )
+    return table, window

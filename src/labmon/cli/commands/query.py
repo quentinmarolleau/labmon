@@ -6,7 +6,7 @@ import typer
 
 from labmon.cli import selection
 from labmon.cli.options import LogLevelOption, Measurements, SensorIds, Since, Until
-from labmon.cli.render import DEFAULT_LIMIT, render
+from labmon.cli.render import DEFAULT_LIMIT, render, render_latest
 from labmon.cli.runtime import configure
 
 HELP = (
@@ -23,6 +23,15 @@ HELP = (
     + "    labmon query --since 1h --limit 0"
 )
 
+Latest = Annotated[
+    bool,
+    typer.Option(
+        "--latest",
+        help="One row per sensor: its most recent reading, and how long ago"
+        + " it arrived",
+    ),
+]
+
 Limit = Annotated[
     int,
     typer.Option(
@@ -38,10 +47,21 @@ def query(
     sensor_id: SensorIds = None,
     since: Since = "1h",
     until: Until = None,
+    latest: Latest = False,
     limit: Limit = DEFAULT_LIMIT,
     log_level: LogLevelOption = "INFO",  # pyright: ignore[reportArgumentType]
 ) -> None:
     """Print recorded readings as a table."""
+    import sys
+    from datetime import UTC, datetime
+
     configure(log_level)
+    if latest:
+        table, _window = selection.read_latest(measurement, sensor_id, since, until)
+        # Colour only where something will interpret it. Piping this into
+        # a file should leave escape codes out of the file, and `isatty`
+        # is what answers that without guessing at the terminal.
+        print(render_latest(table, now=datetime.now(UTC), colour=sys.stdout.isatty()))
+        return
     table, _window = selection.read(measurement, sensor_id, since, until)
     print(render(table, limit=limit))

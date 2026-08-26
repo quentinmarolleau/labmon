@@ -276,6 +276,49 @@ screen.
 `query` never emits binary. To pipe a real format into another tool, use
 `labmon export -o -`.
 
+## What is everything reading right now
+
+`--latest` answers a different question from the rest of `query`: not
+what happened over a window, but where each sensor stands at this
+moment.
+
+```bash
+labmon query --latest
+labmon query --latest --measurement temperature
+labmon query --latest --sensor-id cryo-77k --sensor-id room-1
+```
+
+```
+sensor_id     measurement  value                   unit  age
+------------  -----------  ----------------------  ----  -------
+wavemeter-1   frequency    276561302600000.0       Hz    1s ago
+beam-y        position     22.652263736263734      µm    2s ago
+cryo-77k      temperature  74.828                  K     4s ago
+room-1        temperature  20.132                  °C    5s ago
+probe-158     temperature  21.0691                 K     57m ago
+
+13 sensors
+```
+
+One row per sensor, and **the `age` column is as much the point as the
+value is.** A sensor that stopped writing an hour ago still has a most
+recent reading, and it looks perfectly healthy until you can see when it
+arrived — `probe-158` above is the row worth noticing.
+
+Rows are ordered by age with the oldest last, so the sensor that has
+gone quiet is the line an eye lands on. In a terminal the age is
+coloured: unmarked under a minute, amber up to five, red beyond. Those
+thresholds are global for now; sensors here legitimately run from 1 Hz
+to once a minute, so a per-sensor expectation is the better answer and
+belongs in a configuration file.
+
+Colour is written only when the output is a terminal, so piping this
+into a file leaves escape codes out of it.
+
+The same four selection flags apply. `--since` still bounds how far back
+to look — a sensor silent for longer than the window has no row at all,
+which is the one case this view cannot show you.
+
 ## Tab completion
 
 ```bash
