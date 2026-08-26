@@ -7,7 +7,7 @@ import pyarrow as pa
 import pytest
 
 from labmon.cli.main import build_app
-from labmon.cli.roster import Known, load, save
+from labmon.cli.roster import Known, load, merge, save
 from tests.cli_runner import Invocation, invoke
 
 
@@ -62,14 +62,13 @@ def roster(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 def _remember(path: Path, sensor: str, days: int = 2) -> None:
-    known = load(path)
-    known[sensor] = Known(
+    entry = Known(
         sensor_id=sensor,
         measurement="temperature",
         unit="K",
         last_seen=datetime.now(UTC) - timedelta(days=days),
     )
-    save(path, known)
+    save(path, merge(load(path), [entry]))
 
 
 @pytest.mark.usefixtures("roster")
@@ -89,16 +88,6 @@ def test_sensors_lists_what_is_remembered(roster: Path) -> None:
     assert "old-probe" in result.output
 
 
-def test_a_remembered_sensor_is_marked_as_cached(roster: Path) -> None:
-    # The source column is the point: it says outright whether a sensor
-    # is reporting now or is only remembered.
-    _remember(roster, "old-probe")
-
-    result = _run("sensors")
-
-    assert "cached" in result.output
-
-
 def test_refresh_rebuilds_from_the_database(
     roster: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -107,7 +96,7 @@ def test_refresh_rebuilds_from_the_database(
     result = _run("sensors", "--refresh")
 
     assert result.exit_code == 0
-    assert "cryo-77k" in load(roster)
+    assert ("cryo-77k", "temperature") in load(roster)
 
 
 @pytest.mark.usefixtures("roster")
@@ -131,7 +120,7 @@ def test_refresh_keeps_a_sensor_the_database_no_longer_has(
 
     _ = _run("sensors", "--refresh")
 
-    assert "old-probe" in load(roster)
+    assert ("old-probe", "temperature") in load(roster)
 
 
 def test_forget_removes_a_decommissioned_sensor(roster: Path) -> None:
@@ -140,7 +129,7 @@ def test_forget_removes_a_decommissioned_sensor(roster: Path) -> None:
     result = _run("sensors", "--forget", "old-probe")
 
     assert result.exit_code == 0
-    assert "old-probe" not in load(roster)
+    assert ("old-probe", "temperature") not in load(roster)
 
 
 def test_forgetting_an_unknown_sensor_fails_rather_than_pretending(
@@ -153,7 +142,7 @@ def test_forgetting_an_unknown_sensor_fails_rather_than_pretending(
     result = _run("sensors", "--forget", "typo")
 
     assert result.exit_code != 0
-    assert "old-probe" in load(roster)
+    assert ("old-probe", "temperature") in load(roster)
 
 
 def test_forget_and_refresh_together_are_refused(roster: Path) -> None:
@@ -162,5 +151,66 @@ def test_forget_and_refresh_together_are_refused(roster: Path) -> None:
     _remember(roster, "old-probe")
 
     result = _run("sensors", "--refresh", "--forget", "old-probe")
+
+    assert result.exit_code != 0
+
+
+def test_a_plain_listing_does_not_claim_to_know_what_is_live(roster: Path) -> None:
+    # Without --refresh nothing is asked of the database, so a `source`
+    # column could only ever say "cached" — including for sensors
+    # reporting right now. Better to omit a column than to print one
+    # that is misleading.
+    _remember(roster, "old-probe")
+
+    result = _run("sensors")
+
+    assert "source" not in result.output
+
+
+def test_a_refresh_does_report_what_is_live(
+    roster: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _remember(roster, "old-probe")
+    monkeypatch.setattr("labmon.influx.get_client", RosterClient)
+
+    result = _run("sensors", "--refresh")
+
+    assert "source" in result.output
+    assert "live" in result.output
+
+
+def test_a_listing_can_be_narrowed_to_one_sensor(roster: Path) -> None:
+    _remember(roster, "old-probe")
+    _remember(roster, "other-probe")
+
+    result = _run("sensors", "--sensor-id", "old-probe")
+
+    assert "old-probe" in result.output
+    assert "other-probe" not in result.output
+
+
+def test_a_listing_can_be_narrowed_to_one_measurement(roster: Path) -> None:
+    known = load(roster)
+    known[("gauge", "pressure")] = Known(
+        sensor_id="gauge",
+        measurement="pressure",
+        unit="mbar",
+        last_seen=datetime.now(UTC),
+    )
+    save(roster, known)
+    _remember(roster, "thermo")
+
+    result = _run("sensors", "--measurement", "temperature")
+
+    assert "thermo" in result.output
+    assert "gauge" not in result.output
+
+
+def test_a_window_without_a_refresh_is_refused(roster: Path) -> None:
+    # --since only bounds the query a refresh runs; accepting it for a
+    # plain listing would let somebody believe it had narrowed something.
+    _remember(roster, "old-probe")
+
+    result = _run("sensors", "--since", "1w")
 
     assert result.exit_code != 0

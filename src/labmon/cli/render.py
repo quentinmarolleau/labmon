@@ -241,9 +241,9 @@ ROSTER_COLUMNS: tuple[str, ...] = ("sensor_id", "measurement", "unit", "age", "s
 
 
 def render_roster(
-    known: "Mapping[str, Known]",
+    known: "Mapping[tuple[str, str], Known]",
     *,
-    live: "Container[str]",
+    live: "Container[tuple[str, str]] | None",
     now: datetime,
     colour: bool = False,
 ) -> str:
@@ -252,18 +252,24 @@ def render_roster(
     The `source` column is what earns this view its place: it states
     whether a sensor is reporting now or is only remembered, which makes
     the union rule visible instead of magic.
+
+    It appears only when `live` is known — that is, when the database was
+    actually asked. A plain listing touches nothing, so the column could
+    only ever read "cached", including beside a sensor reporting at that
+    moment. Omitting it beats printing one that misleads.
     """
     if not known:
         return "nothing remembered yet"
 
     entries = sorted(known.values(), key=lambda entry: now - entry.last_seen)
+    names = ROSTER_COLUMNS if live is not None else ROSTER_COLUMNS[:-1]
     rows = [
         [
             entry.sensor_id,
             entry.measurement,
             entry.unit,
             describe(now - entry.last_seen),
-            "live" if entry.sensor_id in live else "cached",
+            *(["live" if entry.key in live else "cached"] if live is not None else []),
         ]
         for entry in entries
     ]
@@ -273,13 +279,10 @@ def render_roster(
 
     widths = [
         max(len(name), *(len(row[position]) for row in rows))
-        for position, name in enumerate(ROSTER_COLUMNS)
+        for position, name in enumerate(names)
     ]
     lines = [
-        "  ".join(
-            name.ljust(width)
-            for name, width in zip(ROSTER_COLUMNS, widths, strict=True)
-        ),
+        "  ".join(name.ljust(width) for name, width in zip(names, widths, strict=True)),
         "  ".join("-" * width for width in widths),
     ]
     for row, style in zip(rows, styles, strict=True):

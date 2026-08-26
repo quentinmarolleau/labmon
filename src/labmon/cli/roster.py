@@ -35,12 +35,24 @@ CACHE_NAME = "sensors.json"
 
 @dataclass(frozen=True)
 class Known:
-    """One sensor the roster remembers, and when it was last heard from."""
+    """One sensor the roster remembers, and when it was last heard from.
+
+    Identified by sensor *and* measurement, because a sensor may write
+    to more than one table and `fetch_latest` returns a row for each
+    pair. Keying on the sensor alone kept whichever arrived last, and
+    the row order of a UNION is not defined — so which survived was
+    arbitrary.
+    """
 
     sensor_id: str
     measurement: str
     unit: str
     last_seen: datetime
+
+    @property
+    def key(self) -> tuple[str, str]:
+        """What identifies this entry in the roster."""
+        return (self.sensor_id, self.measurement)
 
 
 def cache_path() -> Path:
@@ -50,7 +62,7 @@ def cache_path() -> Path:
     return root / "labmon" / CACHE_NAME
 
 
-def load(path: Path) -> dict[str, Known]:
+def load(path: Path) -> dict[tuple[str, str], Known]:
     """Read the roster, treating anything unreadable as empty.
 
     A cache is rebuildable by definition, so a truncated or hand-edited
@@ -62,16 +74,16 @@ def load(path: Path) -> dict[str, Known]:
     except (OSError, ValueError):
         logger.debug("no usable roster cache", extra={"path": str(path)})
         return {}
-    if not isinstance(parsed, dict):
+    if not isinstance(parsed, list):
         return {}
 
-    known: dict[str, Known] = {}
-    for sensor, entry in cast(dict[str, object], parsed).items():
+    known: dict[tuple[str, str], Known] = {}
+    for entry in cast(list[object], parsed):
         if not isinstance(entry, dict):
             continue
         fields = cast(dict[str, object], entry)
         try:
-            known[str(sensor)] = Known(
+            found = Known(
                 sensor_id=str(fields["sensor_id"]),
                 measurement=str(fields["measurement"]),
                 unit=str(fields["unit"]),
@@ -79,30 +91,48 @@ def load(path: Path) -> dict[str, Known]:
             )
         except (KeyError, ValueError):
             continue
+        known[found.key] = found
     return known
 
 
-def save(path: Path, known: Mapping[str, Known]) -> None:
+def save(path: Path, known: Mapping[tuple[str, str], Known]) -> None:
     """Write the roster, creating its directory if need be.
 
-    Indented rather than compact: somebody should be able to open it,
-    see what is remembered and delete a line.
+    A list rather than an object, since an entry is identified by two
+    fields and a composite key would only be readable by splitting it.
+    Indented rather than compact: somebody should be able to open this,
+    see what is remembered, and delete an entry.
+
+    Written to a neighbouring temporary file and moved into place. A
+    crash midway through a direct write leaves a truncated file, which
+    `load` correctly treats as empty — self-healing, except that what it
+    heals to is an empty roster, discarding exactly the memory of quiet
+    sensors this exists to keep. `os.replace` is atomic within a
+    filesystem, so a reader sees either the old roster or the new one.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {
-        sensor: {
+    payload = [
+        {
             "sensor_id": entry.sensor_id,
             "measurement": entry.measurement,
             "unit": entry.unit,
             "last_seen": entry.last_seen.astimezone(UTC).isoformat(),
         }
-        for sensor, entry in known.items()
-    }
-    _ = path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+        for entry in sorted(known.values(), key=lambda item: item.key)
+    ]
+    scratch = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    try:
+        _ = scratch.write_text(json.dumps(payload, indent=2) + "\n")
+        os.replace(scratch, path)
+    except OSError:
+        scratch.unlink(missing_ok=True)
+        raise
     logger.debug("wrote roster cache", extra={"sensors": len(payload)})
 
 
-def merge(cached: Mapping[str, Known], live: Iterable[Known]) -> dict[str, Known]:
+def merge(
+    cached: Mapping[tuple[str, str], Known], live: Iterable[Known]
+) -> dict[tuple[str, str], Known]:
     """Everything the cache knows, updated by everything just seen.
 
     A union, never a replacement — see the module docstring. A live
@@ -112,17 +142,25 @@ def merge(cached: Mapping[str, Known], live: Iterable[Known]) -> dict[str, Known
     """
     merged = dict(cached)
     for entry in live:
-        merged[entry.sensor_id] = entry
+        merged[entry.key] = entry
     return merged
 
 
-def forget(cached: Mapping[str, Known], sensor_id: str) -> dict[str, Known]:
-    """The roster without `sensor_id`, for one that is genuinely gone.
+def forget(
+    cached: Mapping[tuple[str, str], Known], sensor_id: str
+) -> dict[tuple[str, str], Known]:
+    """The roster without `sensor_id`, for an instrument that is gone.
+
+    Every measurement it wrote to goes with it: the thing being removed
+    is a sensor, not one of the tables it happened to appear in.
 
     Raises `KeyError` when it was never there: silently succeeding would
     leave somebody believing they had removed a sensor that is still
     listed under a name they mistyped.
     """
-    if sensor_id not in cached:
+    remaining = {
+        key: entry for key, entry in cached.items() if entry.sensor_id != sensor_id
+    }
+    if len(remaining) == len(cached):
         raise KeyError(sensor_id)
-    return {name: entry for name, entry in cached.items() if name != sensor_id}
+    return remaining

@@ -47,7 +47,7 @@ def sensors(
     forget: Forget = None,
     measurement: Measurements = None,
     sensor_id: SensorIds = None,
-    since: Since = "24h",
+    since: Since | None = None,
     until: Until = None,
     log_level: LogLevelOption = "INFO",  # pyright: ignore[reportArgumentType]
 ) -> None:
@@ -80,17 +80,42 @@ def sensors(
         print(f"forgot {forget}")
         return
 
-    live: set[str] = set()
+    if not refresh and (since is not None or until is not None):
+        # A window only bounds the query a refresh runs. Accepting it for
+        # a plain listing would let somebody believe it had narrowed
+        # something.
+        raise typer.BadParameter(
+            "--since and --until apply to --refresh; a plain listing reads"
+            + " only the remembered list"
+        )
+
+    live: set[tuple[str, str]] | None = None
     if refresh:
         table, _silent = selection.read_latest_with_roster(
-            measurement, sensor_id, since, until
+            measurement, sensor_id, since or "24h", until
         )
-        live = {str(name) for name in table.column("sensor_id").to_pylist()}
-        # read_latest_with_roster has already merged and saved; reloading
-        # rather than rebuilding keeps one writer for the file.
-        known = load(path)
-    else:
-        known = load(path)
+        live = set(
+            zip(
+                (str(name) for name in table.column("sensor_id").to_pylist()),
+                (str(name) for name in table.column("measurement").to_pylist()),
+                strict=True,
+            )
+        )
+    # read_latest_with_roster has already merged and saved; reloading
+    # rather than rebuilding keeps one writer for the file.
+    known = load(path)
+
+    # `--measurement` and `--sensor-id` describe a roster entry, so they
+    # narrow a plain listing too rather than being quietly ignored.
+    wanted_sensors = set(sensor_id or ())
+    wanted_measurements = set(measurement or ())
+    if wanted_sensors or wanted_measurements:
+        known = {
+            key: entry
+            for key, entry in known.items()
+            if (not wanted_sensors or entry.sensor_id in wanted_sensors)
+            and (not wanted_measurements or entry.measurement in wanted_measurements)
+        }
 
     if not known:
         print(

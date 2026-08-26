@@ -603,18 +603,21 @@ def test_a_sensor_silent_beyond_the_window_is_still_listed(
 ) -> None:
     # The whole point of the cache: without it this sensor has no row to
     # be stale, so it vanishes instead of turning red.
-    from labmon.cli.roster import Known, save
+    from labmon.cli.roster import Known, merge, save
 
     save(
         roster,
-        {
-            "abandoned": Known(
-                sensor_id="abandoned",
-                measurement="temperature",
-                unit="K",
-                last_seen=datetime.now(UTC) - timedelta(days=2),
-            )
-        },
+        merge(
+            {},
+            [
+                Known(
+                    sensor_id="abandoned",
+                    measurement="temperature",
+                    unit="K",
+                    last_seen=datetime.now(UTC) - timedelta(days=2),
+                )
+            ],
+        ),
     )
     monkeypatch.setattr("labmon.influx.get_client", QuietClient)
 
@@ -629,18 +632,21 @@ def test_a_silent_sensor_shows_no_value_rather_than_a_stale_one(
 ) -> None:
     # Printing the last value it ever sent, next to a fresh reading from
     # another sensor, would read as current.
-    from labmon.cli.roster import Known, save
+    from labmon.cli.roster import Known, merge, save
 
     save(
         roster,
-        {
-            "abandoned": Known(
-                sensor_id="abandoned",
-                measurement="temperature",
-                unit="K",
-                last_seen=datetime.now(UTC) - timedelta(days=2),
-            )
-        },
+        merge(
+            {},
+            [
+                Known(
+                    sensor_id="abandoned",
+                    measurement="temperature",
+                    unit="K",
+                    last_seen=datetime.now(UTC) - timedelta(days=2),
+                )
+            ],
+        ),
     )
     monkeypatch.setattr("labmon.influx.get_client", QuietClient)
 
@@ -662,7 +668,7 @@ def test_a_live_sensor_is_remembered_for_next_time(
 
     _ = _run("query", "--latest")
 
-    assert "cryo-77k" in load(roster)
+    assert ("cryo-77k", "temperature") in load(roster)
 
 
 def test_a_row_without_a_sensor_is_left_out_of_the_roster() -> None:
@@ -718,25 +724,28 @@ def test_narrowing_by_measurement_narrows_the_roster_too(
 ) -> None:
     # Asking for temperatures and being shown a silent pressure gauge is
     # answering a question that was not asked.
-    from labmon.cli.roster import Known, save
+    from labmon.cli.roster import Known, merge, save
 
     stale = datetime.now(UTC) - timedelta(days=1)
     save(
         roster,
-        {
-            "old-thermo": Known(
-                sensor_id="old-thermo",
-                measurement="temperature",
-                unit="K",
-                last_seen=stale,
-            ),
-            "old-gauge": Known(
-                sensor_id="old-gauge",
-                measurement="pressure",
-                unit="mbar",
-                last_seen=stale,
-            ),
-        },
+        merge(
+            {},
+            [
+                Known(
+                    sensor_id="old-thermo",
+                    measurement="temperature",
+                    unit="K",
+                    last_seen=stale,
+                ),
+                Known(
+                    sensor_id="old-gauge",
+                    measurement="pressure",
+                    unit="mbar",
+                    last_seen=stale,
+                ),
+            ],
+        ),
     )
     monkeypatch.setattr("labmon.influx.get_client", QuietClient)
 

@@ -370,12 +370,21 @@ wavemeter-1   frequency    Hz    1s ago  live
 cryo-77k      temperature  K     1s ago  live
 bias-monitor  voltage      V     2s ago  live
 old-probe     temperature  K     3h ago  cached
-
-14 sensors
 ```
 
-The `source` column is what earns the command its place: it says
-outright whether a sensor is reporting now or is only remembered.
+**The `source` column appears only with `--refresh`**, because only a
+refresh asks the database anything. A plain listing reads the remembered
+file and touches nothing, so the column could report nothing but
+"cached" — including beside a sensor reporting at that moment. It is
+left out rather than printed misleadingly.
+
+`--measurement` and `--sensor-id` describe a remembered entry, so they
+narrow a plain listing as well as a refresh. `--since` and `--until`
+bound the query a refresh runs, and are refused without it.
+
+An entry is a sensor **and** a measurement, not a sensor alone: one
+writing both a temperature and a pressure is listed once for each, which
+is how the readings themselves are stored.
 
 A refresh is a union too — it never drops what the window did not cover,
 since that would delete exactly the silence worth keeping. `--forget` is
@@ -386,8 +395,11 @@ removed a sensor that is still listed.
 The cache lives at `$XDG_CACHE_HOME/labmon/sensors.json` (usually
 `~/.cache/labmon/sensors.json`) — beside other caches rather than in the
 configuration directory, because it is derived data that can be deleted
-at any moment without losing a setting. It is indented JSON, so it can
-be read and edited by hand.
+at any moment without losing a setting. It is an indented JSON list, so
+it can be read and edited by hand, and it is written through a temporary
+file and moved into place: a half-written roster would read as empty,
+and what that heals to is the loss of every quiet sensor it exists to
+remember.
 
 ## Tab completion
 

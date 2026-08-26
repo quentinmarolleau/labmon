@@ -163,12 +163,15 @@ def read_latest_with_roster(
     # question nobody asked.
     wanted_sensors = set(sensor_ids or ())
     wanted_measurements = set(measurements or ())
-    seen = {entry.sensor_id for entry in live}
+    # Compared on the same key the roster is stored under — a sensor and
+    # a measurement — so a sensor that reports to two tables can be
+    # current in one and silent in the other.
+    seen = {entry.key for entry in live}
     silent = [
         entry
-        for name, entry in sorted(remembered.items())
-        if name not in seen
-        and (not wanted_sensors or name in wanted_sensors)
+        for key, entry in sorted(remembered.items())
+        if key not in seen
+        and (not wanted_sensors or entry.sensor_id in wanted_sensors)
         and (not wanted_measurements or entry.measurement in wanted_measurements)
     ]
     return table, silent
