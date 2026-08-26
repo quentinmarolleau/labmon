@@ -2,6 +2,7 @@ import logging
 import queue
 import threading
 import time
+from collections.abc import Callable
 
 import pytest
 
@@ -16,6 +17,32 @@ def _field(record: logging.LogRecord, name: str) -> object:
     so this says plainly that the lookup is dynamic.
     """
     return getattr(record, name)  # pyright: ignore[reportAny]
+
+
+def _eventually(
+    predicate: Callable[[], bool], *, within: float, description: str
+) -> None:
+    """Block until `predicate` holds, or fail once `within` has passed.
+
+    The writer drains on a background thread, so the work a test is
+    waiting for finishes after an unpredictable amount of wall clock —
+    a poll tick, then a backoff, then a retry, all at the mercy of
+    whatever else the machine is doing. Sleeping a fixed interval and
+    asserting afterwards is therefore a race: it passes on a quiet
+    laptop and fails on a shared CI runner.
+
+    Waiting on the condition removes the race without weakening a test
+    that uses its deadline as the assertion. `within` stays far below
+    the time the behaviour under test would need if it were broken, so
+    such a test still fails for the right reason — it just no longer
+    fails for the wrong one.
+    """
+    deadline = time.monotonic() + within
+    while time.monotonic() < deadline:
+        if predicate():
+            return
+        time.sleep(0.005)
+    raise AssertionError(f"{description} within {within}s")
 
 
 class FakeClient[T]:
@@ -245,7 +272,11 @@ def test_write_retries_transient_failures_then_succeeds(
 
     with caplog.at_level(logging.WARNING):
         writer.write(1)
-        time.sleep(0.1)
+        _eventually(
+            lambda: client.attempts == 3,
+            within=5.0,
+            description="the write was never retried to success",
+        )
         writer.close()
 
     written = [point for batch in client.batches for point in batch]
@@ -263,7 +294,11 @@ def test_close_drops_a_batch_still_failing_at_shutdown(
     writer = PointWriter[int](client, poll_interval=0.01)
 
     writer.write(1)
-    time.sleep(0.05)
+    _eventually(
+        lambda: client.attempts >= 1,
+        within=5.0,
+        description="the client was never called",
+    )
 
     start = time.monotonic()
     with caplog.at_level(logging.ERROR):
@@ -305,9 +340,17 @@ def test_the_first_retry_waits_the_backoff_it_was_given(
         client, poll_interval=0.01, initial_backoff=0.01, max_backoff=0.01
     )
 
+    # 1.5s is the assertion: the 1.0s default backoff doubles, so a third
+    # attempt would land near 3s and miss this deadline. It is also fifteen
+    # times the window this test used to allow, which is what stopped a
+    # loaded runner from failing it.
     with caplog.at_level(logging.CRITICAL, logger="labmon.writer"):
         writer.write(1)
-        time.sleep(0.1)
+        _eventually(
+            lambda: client.attempts == 3,
+            within=1.5,
+            description="three attempts did not fit the configured backoff",
+        )
         writer.close()
 
     assert client.attempts == 3
@@ -326,9 +369,16 @@ def test_the_cap_stops_the_backoff_doubling_away(
         client, poll_interval=0.001, initial_backoff=0.001, max_backoff=0.002
     )
 
+    # Uncapped, the twenty-first wait alone would be 1ms doubled twenty
+    # times — around seventeen minutes — so this deadline still proves the
+    # cap is holding, with room for a slow runner.
     with caplog.at_level(logging.CRITICAL, logger="labmon.writer"):
         writer.write(1)
-        time.sleep(0.2)
+        _eventually(
+            lambda: client.attempts > 20,
+            within=2.0,
+            description="the backoff did not stay capped",
+        )
         writer.close()
 
     assert client.attempts > 20
