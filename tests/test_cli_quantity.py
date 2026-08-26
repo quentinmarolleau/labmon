@@ -2,7 +2,7 @@
 
 import pytest
 
-from labmon.cli.quantity import PLAIN_BELOW, PLAIN_FROM, show
+from labmon.cli.quantity import PLAIN_BELOW, PLAIN_FROM, quote, show
 
 
 @pytest.mark.parametrize(
@@ -61,3 +61,95 @@ def test_a_value_that_is_not_a_number_is_still_printable() -> None:
 
 def test_the_boundaries_are_ordered() -> None:
     assert 0 < PLAIN_FROM < PLAIN_BELOW
+
+
+# --------------------------------------------------------------------------
+# A mean quoted against its own deviation
+# --------------------------------------------------------------------------
+
+
+def test_the_deviation_keeps_two_significant_figures() -> None:
+    # The usual convention for a quoted spread. One figure throws away a
+    # distinction that matters; more claims a precision the spread does
+    # not have.
+    _mean, sd = quote(20.928418855218855, 0.7816002878531931)
+
+    assert sd == "0.78"
+
+
+def test_the_mean_is_rounded_to_the_deviations_place() -> None:
+    # Digits beyond the spread are noise. Printing them invites somebody
+    # to read a difference that is not there.
+    mean, _sd = quote(20.928418855218855, 0.7816002878531931)
+
+    assert mean == "20.93"
+
+
+def test_a_large_quantity_stays_scientific() -> None:
+    mean, sd = quote(2.765612998548223e14, 1.9743483157749637e06)
+
+    assert mean == "2.765612999e+14"
+    assert sd == "2.0e+06"
+
+
+def test_a_small_quantity_stays_scientific() -> None:
+    mean, sd = quote(2.8789632980733558e-08, 3.3789931656056665e-08)
+
+    assert mean == "2.9e-08"
+    assert sd == "3.4e-08"
+
+
+def test_rounding_does_not_leak_binary_error() -> None:
+    # Rounding by dividing and multiplying back gives 2.3000000000000003
+    # here, which is worse than the number it set out to shorten.
+    _mean, sd = quote(-6.552811744779804e-05, 2.2515017720791146)
+
+    assert sd == "2.3"
+
+
+def test_a_mean_swamped_by_its_spread_reads_as_zero() -> None:
+    # A beam centred at 0.0196 with a spread of 16 is centred at zero as
+    # far as anybody can tell, and saying so is the honest answer.
+    mean, sd = quote(0.019626985717538424, 16.13679456395551)
+
+    assert mean == "0"
+    assert sd == "16"
+
+
+def test_a_negative_mean_swamped_by_its_spread_has_no_minus_zero() -> None:
+    mean, _sd = quote(-0.009321994508954552, 19.105288235209112)
+
+    assert mean == "0"
+
+
+def test_a_tight_spread_keeps_the_digits_that_survive_it() -> None:
+    # A wavemeter stable to 3e-07 has a mean good to eight decimals, and
+    # rounding it to the usual few would throw the measurement away.
+    mean, sd = quote(276.56130115, 3.1167749072745227e-07)
+
+    assert mean == "276.56130115"
+    assert sd == "3.1e-07"
+
+
+def test_no_deviation_leaves_the_mean_as_it_was() -> None:
+    # One reading in the window: nothing says where to round to, so the
+    # value is shown the way any other reading would be.
+    mean, sd = quote(21.0691, None)
+
+    assert mean == "21.0691"
+    assert sd == ""
+
+
+def test_a_deviation_of_zero_is_not_a_place_to_round_to() -> None:
+    # Every reading identical — a stuck sensor. log10(0) has no answer.
+    mean, sd = quote(4.2, 0.0)
+
+    assert mean == "4.2"
+    assert sd == "0.0"
+
+
+def test_a_deviation_that_is_not_finite_is_not_rounded_against() -> None:
+    mean, sd = quote(4.2, float("nan"))
+
+    assert mean == "4.2"
+    assert sd == "nan"

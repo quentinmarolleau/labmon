@@ -10,7 +10,7 @@ from datetime import UTC, datetime, timedelta, tzinfo
 from typing import TYPE_CHECKING, cast
 
 from labmon.cli.age import Freshness, describe, freshness
-from labmon.cli.quantity import show
+from labmon.cli.quantity import quote, show
 
 if TYPE_CHECKING:
     import pyarrow as pa
@@ -136,7 +136,20 @@ def render(table: "pa.Table", limit: int = DEFAULT_LIMIT, tz: tzinfo = UTC) -> s
 # The latest reading from each sensor
 # --------------------------------------------------------------------------
 
-LATEST_COLUMNS: tuple[str, ...] = ("sensor_id", "measurement", "value", "unit", "age")
+# `mean`, `sd` and `n` are last because they are only sometimes there:
+# `render_latest` shows a column when the table carries it, so asking
+# the query for statistics is the only switch, and the view cannot
+# disagree with what was fetched.
+LATEST_COLUMNS: tuple[str, ...] = (
+    "sensor_id",
+    "measurement",
+    "value",
+    "unit",
+    "age",
+    "mean",
+    "sd",
+    "n",
+)
 
 # SGR codes rather than a styling library: this is the only colour the
 # CLI emits, and reaching for one would pull an import into a path the
@@ -165,6 +178,10 @@ def render_latest(
     Colour is applied after padding, never before. An escape code counts
     toward `len`, so a cell coloured first pads to fewer visible
     characters than its neighbours and silently shortens its column.
+
+    The window statistics appear when `table` carries them. A sensor
+    the roster remembers but the query did not return has none, and its
+    cells are left blank for the same reason its value is.
     """
     total = table.num_rows + len(silent)
     if total == 0:
@@ -179,12 +196,17 @@ def render_latest(
     present = [name for name in LATEST_COLUMNS if name == "age" or name in columns]
     entries: list[tuple[timedelta, list[str]]] = []
     for index in order:
+        # `mean` and `sd` are rounded against each other, so neither can
+        # be formatted alone — see `labmon.cli.quantity.quote`.
+        summary = _summary(columns, index)
         entries.append(
             (
                 ages[index],
                 [
                     describe(ages[index])
                     if name == "age"
+                    else summary.get(name, "")
+                    if name in summary
                     else _cell(name, columns[name][index])
                     for name in present
                 ],
@@ -228,6 +250,24 @@ def render_latest(
             + " — remembered from a previous run"
         )
     return "\n".join(lines)
+
+
+def _summary(columns: "dict[str, list[object]]", index: int) -> dict[str, str]:
+    """The `mean` and `sd` cells for one row, rounded against each other.
+
+    Empty when the table carries no statistics, which is how a result
+    fetched without them ends up showing none.
+    """
+    if "mean" not in columns:
+        return {}
+    mean = columns["mean"][index]
+    sd = columns["sd"][index]
+    if not isinstance(mean, float):
+        # No readings to average — the row came from somewhere the
+        # aggregate could not be computed.
+        return {"mean": "", "sd": ""}
+    shown, spread = quote(mean, sd if isinstance(sd, float) else None)
+    return {"mean": shown, "sd": spread}
 
 
 def _silent_cell(name: str, entry: "Known", age: timedelta) -> str:

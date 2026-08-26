@@ -73,3 +73,71 @@ def _scientific(value: float) -> str:
     # significant digits — which round-trips any float there is, so the
     # break is reached for every real value rather than fallen past.
     return text
+
+
+# Significant figures kept on a standard deviation. Two is the usual
+# convention: one throws away a distinction that matters between 0.11
+# and 0.19, and three claims a precision a spread does not have.
+DEVIATION_FIGURES = 2
+
+
+def quote(mean: float, sd: float | None) -> tuple[str, str]:
+    """A mean and its standard deviation, rounded against each other.
+
+    A stored reading is shown by `show` with nothing rounded away,
+    because the sensor already rounded it to the resolution it claims
+    and dropping digits would hide what was recorded. A mean is not a
+    stored reading. It is computed, so its shortest round-tripping form
+    runs to seventeen digits — `76.98545095398427` for readings that
+    were only ever good to four — and printing that invites somebody to
+    read a difference the measurement cannot support.
+
+    So the deviation is cut to two significant figures, and the mean is
+    cut to the same decimal place. A wavemeter stable to 3e-07 keeps
+    eleven digits; a beam centred at 0.0196 with a spread of 16 reads
+    as 0, which is what it is.
+
+    Rounded through `Decimal` rather than by dividing and multiplying
+    back: the float route turns 2.2515 into 2.3000000000000003, which is
+    worse than the number it set out to shorten.
+
+    Returns both as text, since neither can be rounded without the
+    other. An absent deviation — one reading in the window, so there is
+    nothing to round against — leaves the mean exactly as `show` would
+    give it.
+    """
+    if sd is None:
+        return show(mean), ""
+    if not math.isfinite(sd) or sd == 0.0 or not math.isfinite(mean):
+        return show(mean), show(sd)
+
+    # The decimal place of the deviation's last significant figure.
+    place = math.floor(math.log10(abs(sd))) - (DEVIATION_FIGURES - 1)
+    return _at_place(mean, place), _at_place(sd, place)
+
+
+def _at_place(value: float, place: int) -> str:
+    """`value` rounded to `10 ** place`, plain or scientific to match `show`.
+
+    `Decimal(repr(value))` rather than `Decimal(value)`: the latter
+    expands the binary float to its exact decimal value, tens of digits
+    of which are artefacts of the representation rather than of the
+    measurement.
+    """
+    from decimal import Decimal
+
+    quantised = Decimal(repr(value)).quantize(Decimal(1).scaleb(place))
+    if quantised == 0:
+        # Rounded away entirely — the value is smaller than the spread
+        # it is being quoted against. `-0` is the same statement with a
+        # sign nobody wants to read.
+        return "0"
+
+    magnitude = abs(float(quantised))
+    if PLAIN_FROM <= magnitude < PLAIN_BELOW:
+        return f"{quantised:f}"
+
+    # Digits after the point in scientific form: how far the leading
+    # digit sits above the place being rounded to.
+    leading = math.floor(math.log10(magnitude))
+    return f"{float(quantised):.{max(0, leading - place)}e}"

@@ -830,3 +830,149 @@ def test_query_help_names_its_subcommand() -> None:
 
     assert result.exit_code == 0
     assert "latest" in result.output
+
+
+# --------------------------------------------------------------------------
+# Window statistics beside the latest reading
+# --------------------------------------------------------------------------
+
+
+def _with_stats(
+    rows: list[tuple[str, str, float, str, int]],
+    stats: list[tuple[float | None, float | None, int]],
+) -> "pa.Table":
+    """`_latest`, plus the columns `fetch_latest(stats=True)` adds."""
+    table = _latest(rows)
+    return (
+        table.append_column("mean", pa.array([s[0] for s in stats], pa.float64()))
+        .append_column("sd", pa.array([s[1] for s in stats], pa.float64()))
+        .append_column("n", pa.array([s[2] for s in stats], pa.int64()))
+    )
+
+
+def test_statistics_are_shown_when_the_table_carries_them() -> None:
+    # Presence of the column is the request: the renderer takes no flag,
+    # so there is no way for it to disagree with the query.
+    table = _with_stats([("a", "temperature", 76.9, "K", 3)], [(76.85, 0.021, 900)])
+
+    rendered = render_latest(table, now=_NOW)
+
+    assert "mean" in rendered.splitlines()[0]
+    assert "sd" in rendered.splitlines()[0]
+    assert "n" in rendered.splitlines()[0]
+    assert "76.85" in rendered
+    assert "900" in rendered
+
+
+def test_no_statistics_columns_means_no_statistics_headers() -> None:
+    rendered = render_latest(_latest([("a", "temperature", 1.0, "K", 3)]), now=_NOW)
+
+    assert "mean" not in rendered
+    assert " sd" not in rendered
+
+
+def test_a_statistic_is_shown_at_a_readable_magnitude() -> None:
+    # A vacuum gauge's mean is no more readable in full decimal than its
+    # reading. The trailing zero on the mean is significant: the spread
+    # reaches a decimal place further than the mean's own digits do.
+    table = _with_stats(
+        [("vac", "pressure", 1.26e-8, "mbar", 1)], [(1.31e-8, 4.2e-10, 450)]
+    )
+
+    rendered = render_latest(table, now=_NOW)
+
+    assert "1.310e-08" in rendered
+    assert "4.2e-10" in rendered
+
+
+def test_a_single_reading_leaves_the_deviation_blank() -> None:
+    # Sample standard deviation is undefined for one reading, and the
+    # server returns NULL. "0" would claim a spread that was measured.
+    table = _with_stats([("a", "temperature", 1.0, "K", 3)], [(1.0, None, 1)])
+
+    rendered = render_latest(table, now=_NOW)
+
+    assert "1 sensor" in rendered
+    assert "nan" not in rendered.lower()
+
+
+def test_a_group_with_nothing_to_average_shows_blanks() -> None:
+    # `avg` over a window whose values are all NULL returns NULL, and
+    # the group still exists because rows are there to be grouped.
+    table = _with_stats([("a", "temperature", 1.0, "K", 3)], [(None, None, 0)])
+
+    lines = render_latest(table, now=_NOW).splitlines()
+    row = next(line for line in lines if line.startswith("a "))
+
+    assert row.split() == ["a", "temperature", "1.0", "K", "3s", "ago", "0"]
+
+
+def test_a_silent_sensor_has_no_statistics_to_show() -> None:
+    from labmon.cli.roster import Known
+
+    table = _with_stats([("a", "temperature", 1.0, "K", 3)], [(1.0, 0.5, 90)])
+    quiet = Known(
+        sensor_id="gone",
+        measurement="temperature",
+        unit="K",
+        last_seen=_NOW - timedelta(hours=4),
+    )
+
+    lines = render_latest(table, now=_NOW, silent=[quiet]).splitlines()
+    row = next(line for line in lines if line.startswith("gone"))
+
+    assert row.split() == ["gone", "temperature", "K", "4h", "ago"]
+
+
+class StatsClient(FakeClient):
+    """Answers the latest query with statistics attached."""
+
+    @override
+    def query(self, query: str, *args: object, **kwargs: object) -> pa.Table:
+        if query.startswith("SELECT '"):
+            now = datetime.now(UTC)
+            return pa.table(
+                {
+                    "measurement": pa.array(["temperature"]),
+                    "sensor_id": pa.array(["cryo-77k"]),
+                    "time": pa.array(
+                        [now - timedelta(seconds=2)], pa.timestamp("ms", tz="UTC")
+                    ),
+                    "value": pa.array([77.01]),
+                    "unit": pa.array(["K"]),
+                    "mean": pa.array([76.98]),
+                    "sd": pa.array([0.031]),
+                    "n": pa.array([1800], pa.int64()),
+                }
+            )
+        return super().query(query, *args, **kwargs)  # pyright: ignore[reportArgumentType]
+
+
+def test_the_stats_flag_asks_the_database_for_them(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("labmon.influx.get_client", StatsClient)
+
+    result = _run("query", "latest", "--stats")
+
+    assert result.exit_code == 0, result.output
+    assert "76.98" in result.output
+    assert "1800" in result.output
+
+
+def test_latest_without_the_flag_asks_for_no_statistics(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: list[str] = []
+
+    class Watching(FakeClient):
+        @override
+        def query(self, query: str, *args: object, **kwargs: object) -> pa.Table:
+            seen.append(query)
+            return super().query(query, *args, **kwargs)  # pyright: ignore[reportArgumentType]
+
+    monkeypatch.setattr("labmon.influx.get_client", Watching)
+
+    _ = _run("query", "latest")
+
+    assert not any("stddev(" in query for query in seen)

@@ -335,6 +335,52 @@ The same four selection flags apply, and they narrow the remembered
 sensors as well as the query — asking for temperatures does not list a
 silent pressure gauge.
 
+### How the window behaved, not just where it ended
+
+A latest value alone cannot say whether a sensor is holding steady or
+swinging. `--stats` adds the mean, the standard deviation and the number
+of readings over the same window:
+
+```bash
+labmon query latest --stats --since 15m
+```
+
+```
+sensor_id      measurement  value                  unit  age     mean             sd       n
+-------------  -----------  ---------------------  ----  ------  ---------------  -------  -----
+wavemeter-1    frequency    2.765612984e+14        Hz    2h ago  2.765612999e+14  2.0e+06  11136
+laser-1        power        101.77054945054947     mW    2h ago  95.0             8.8      22262
+cryo-77k       temperature  80.735                 K     2h ago  77.0             1.5      4455
+room-1         temperature  19.737                 °C    2h ago  20.93            0.78     4455
+wavemeter-thz  frequency    276.5613007            THz   3h ago  276.56130115     3.1e-07  8
+```
+
+These come from the **same grouping as the value**, in the same query —
+extra aggregate functions over rows that were being scanned anyway. On
+the demo stack a 24-hour query across six tables measured 70.8 ms
+without them and 63.5 ms with, which is to say the difference is below
+the noise. They also cannot describe a different window from the value
+they sit beside, which a second query could.
+
+`n` is worth as much as the other two. Sensors here legitimately run
+from 1 Hz to once a minute, so it is what separates "quiet because
+nothing changed" from "quiet because it stopped" — and it says how much
+the mean is standing on.
+
+**The mean and the deviation are rounded against each other**, which is
+the one place labmon does round. A stored reading is shown in full
+because the sensor already rounded it to the resolution it claims; a
+mean is computed, so its shortest round-tripping form runs to seventeen
+digits for readings that were only ever good to four. The deviation is
+therefore cut to two significant figures and the mean to the same
+decimal place. A wavemeter stable to `3.1e-07` keeps eleven digits; a
+beam centred at `0.0196` with a spread of `16` reads as `0`, which is
+where it is.
+
+A sensor with one reading in the window has no sample deviation — the
+column is left blank rather than filled with `0`, which would claim a
+spread that was never measured.
+
 ## Sensors that have gone quiet
 
 `--since` bounds how far back the query looks, so a sensor silent for
