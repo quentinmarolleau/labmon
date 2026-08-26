@@ -29,6 +29,11 @@ All four must pass before a PR is opened — this is exactly what CI (`.github/w
   admins too). Always work on a branch, open a PR.
 - Commit messages must be Conventional Commits format, verified with
   `cog verify "<message>"` before committing (cocogitto is installed).
+- Every commit must be signed. `main` has `required_signatures` enabled,
+  so an unsigned commit anywhere in a branch blocks the merge even with
+  all checks green. Verify with `git log --format='%h %G? %s' main..HEAD`
+  — your own commits must show `G` (`N` is unsigned; `E` on a GitHub
+  merge commit is fine, its key is not held locally).
 - Coverage must stay at 100% (`--cov-fail-under=100` in CI). Don't add
   `# pragma: no cover` to dodge writing a real test — only use it for
   code that's genuinely untestable in a meaningful way.

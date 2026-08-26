@@ -28,6 +28,69 @@ Common types used in this repo: `feat`, `fix`, `docs`, `test`, `ci`,
 `chore`. Write the message body around *why*, not just *what* — the diff
 already shows what changed.
 
+## Signed commits
+
+> [!CAUTION]
+> **Every commit that reaches `main` must be signed**, and this is
+> enforced rather than requested: `main` has GitHub's
+> `required_signatures` protection turned on, so an unsigned commit
+> makes the merge button refuse no matter who is merging or how green
+> the checks are.
+>
+> It applies to every commit in a pull request, not just the tip — one
+> unsigned commit five back blocks the whole branch. Set this up before
+> you start, or you will be re-signing history later.
+
+Either signing method GitHub accepts works. SSH is the shorter setup if
+you already push over SSH:
+
+```bash
+git config --global gpg.format ssh
+git config --global user.signingkey ~/.ssh/id_ed25519.pub   # your key
+git config --global commit.gpgsign true
+```
+
+Signing now works, but *checking your own* signatures locally does not
+yet — git needs to be told which keys it should trust, and with SSH
+there is no keyring to consult. Without this one extra step the check
+below reports `N`, as though nothing had been signed at all:
+
+```bash
+printf '%s %s\n' "your@email" "$(cat ~/.ssh/id_ed25519.pub)" \
+  >> ~/.config/git/allowed_signers
+git config --global gpg.ssh.allowedSignersFile ~/.config/git/allowed_signers
+```
+
+This affects only your local view. A commit signed without it is a
+properly signed commit, and GitHub verifies it either way.
+
+For GPG, see [GitHub's guide][gh-signing]. Whichever you pick, the key
+also has to be added to your GitHub account, under the **Signing keys**
+section rather than the authentication one — a key that signs locally
+but is not registered shows as *Unverified*, which counts as unsigned.
+
+Check before pushing:
+
+```bash
+git log --show-signature -1                # one commit, in detail
+git log --format='%h %G? %s' main..HEAD    # your commits on this branch
+```
+
+`G` is what you want on each of your own commits; `N` means unsigned —
+or, if you sign over SSH, that `allowed_signers` above is missing.
+`E` shows up on merge commits GitHub created, and is not a problem —
+GitHub signs those with a key your machine has no copy of, so git cannot
+check it locally even though GitHub reports it verified.
+
+If you have already committed unsigned, re-sign the whole branch rather
+than adding a new commit on top:
+
+```bash
+git rebase --exec 'git commit --amend --no-edit -S' main
+```
+
+[gh-signing]: https://docs.github.com/en/authentication/managing-commit-signature-verification
+
 ## Git hooks
 
 Optional, and worth the one command:
@@ -80,6 +143,10 @@ uv run typos
 All five must pass locally — they're exactly what CI runs. Drop
 `--check` to have the formatter apply its changes instead of reporting
 them.
+
+Check your commits are signed while you are here — see [Signed
+commits](#signed-commits). It is the one requirement no CI run reports,
+because it is the merge that refuses rather than a check that fails.
 
 With the hooks installed, pushing has already run the last three of
 these, so this list is the belt to their braces — and the one to reach
