@@ -200,15 +200,65 @@ def _latest_branch(
 ) -> str:
     """One arm of the UNION, reducing a table to a row per sensor.
 
-    `last_value(x ORDER BY time)` rather than a window function: it says
-    what is wanted in one line, and measured marginally faster than
-    `ROW_NUMBER() OVER (PARTITION BY ...)` across six tables.
+    Builds SQL text; it does not touch the database. `fetch_latest`
+    calls this once per measurement and sends the arms together as a
+    single query.
 
-    The measurement is a literal here because the tables are separate and
-    nothing in the rows says which one a reading came from. It is safe to
-    interpolate for the same reason the FROM clause is — the name was
-    matched against what the server reported, never against what a user
-    typed.
+    **`GROUP BY sensor_id` is the whole idea.** It sorts every row in
+    the table into piles, one per sensor, and yields one output row per
+    pile — twenty thousand `cryo-77k` readings become a single
+    `cryo-77k` row.
+
+    Collapsing a pile means every column has to answer "which of these
+    values do I show?", which is what the functions are for.
+    `max(time)` is the newest timestamp in the pile, and
+    `last_value(value ORDER BY time)` sorts the pile by time and takes
+    the value from the end — the reading that goes with that timestamp.
+    A bare `value` would not compile: "the value of twenty thousand
+    rows" is not a question with one answer, and SQL insists on being
+    told which one is wanted.
+
+    `last_value` was chosen over `DISTINCT ON (sensor_id)` and over
+    `ROW_NUMBER() OVER (PARTITION BY sensor_id ORDER BY time DESC)`. All
+    three plan on this server; this one is the shortest to generate and
+    measured marginally the fastest.
+
+    The `WHERE` runs before the grouping, so it shrinks the piles first
+    — only rows inside the window, and only the sensors asked for.
+
+    Three details that are not obvious:
+
+    - the measurement is selected as a constant, the same on every row.
+      Each measurement is a separate table, so once rows from several of
+      them are stacked nothing in the data says which table a row came
+      from. This stamps it on.
+    - `$since`, `$until` and `$sensor_0` are placeholders. Their values
+      travel beside the query and are never pasted into its text, so a
+      sensor named `\'; DROP TABLE` is only a sensor that does not
+      exist. The table name *is* interpolated, safe because it came from
+      `resolve_measurements` matching it against the list the server
+      itself reported.
+    - a column this table lacks is selected as `CAST(NULL AS ...)`.
+      `UNION ALL` stacks rows vertically and requires every arm to have
+      the same columns in the same order; the cast is needed because a
+      bare NULL has no type for the planner to reconcile against the arm
+      holding the real column.
+
+    What comes out, for one table with every optional column and a
+    request narrowed to one sensor::
+
+        SELECT \'temperature\' AS "measurement",
+               "sensor_id",
+               max("time")                                  AS "time",
+               last_value("value" ORDER BY "time")          AS "value",
+               last_value("unit" ORDER BY "time")           AS "unit",
+               last_value("calibration_id" ORDER BY "time") AS "calibration_id",
+               last_value("input_volts" ORDER BY "time")    AS "input_volts"
+        FROM "temperature"
+        WHERE "time" >= CAST($since AS TIMESTAMP)
+          AND "time" <  CAST($until AS TIMESTAMP)
+          AND "sensor_id" IN ($sensor_0)
+        GROUP BY "sensor_id"
     """
     columns = [
         f"'{measurement}' AS \"measurement\"",
