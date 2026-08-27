@@ -382,6 +382,24 @@ def test_an_import_failure_that_is_not_a_missing_extra_is_not_disguised(
     assert "labmon[tui]" not in result.output
 
 
+def _unboxed(text: str) -> str:
+    """`text` with Rich's box and every space taken out of it.
+
+    Typer renders a `BadParameter` inside a Rich panel wrapped to the
+    terminal width, so an interpreter path long enough to wrap arrives
+    split across two lines with box rules and padding in the middle of
+    it. A checkout under a deep directory, a CI runner or a container
+    all reach that width; this one happens not to, which is the whole
+    reason the plain substring check survived being written.
+
+    Whitespace goes rather than just newlines, since the wrap leaves
+    padding either side of the rule. Both sides of the comparison are
+    put through it, so a path that legitimately holds a space still
+    matches.
+    """
+    return "".join(text.split()).replace("\u2502", "").replace("\u2500", "")
+
+
 def test_the_missing_extra_message_names_the_interpreter(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -395,7 +413,7 @@ def test_the_missing_extra_message_names_the_interpreter(
 
     result = _run("monitor")
 
-    assert sys.executable in result.output
+    assert _unboxed(sys.executable) in _unboxed(result.output)
 
 
 # --------------------------------------------------------------------------
