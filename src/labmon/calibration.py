@@ -26,12 +26,17 @@ one, so they state their `value_unit` explicitly.
 
 Voltages are always in volts — the ADC's own output. A datasheet quoted
 in millivolts gets scaled once, visibly, when writing the config.
+
+A converted value is then rounded to the resolution the input actually
+had, so what reaches the database does not claim seventeen digits of a
+twelve-bit measurement. See `Conversion.resolution`.
 """
 
 import bisect
 import functools
 import hashlib
 import itertools
+import math
 import tomllib
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -44,6 +49,7 @@ from asteval import Interpreter
 
 from labmon import adc
 from labmon.gate import StopRecordingRule
+from labmon.quantise import quantise, to_resolution
 
 ureg: pint.UnitRegistry = pint.UnitRegistry()
 
@@ -79,6 +85,16 @@ PROBE_VOLTAGES: tuple[pint.Quantity, ...] = (
 )
 
 DEFAULT_MODE = "linear"
+
+# The key that fixes a channel's digits by hand, for a conversion whose
+# resolution cannot be derived — and for one where it can, but the
+# derived answer is wrong. Significant rather than decimal, because a
+# calibrated channel may sit anywhere on the scale.
+SIGNIFICANT_DIGITS_KEY = "significant_digits"
+
+# How precisely the affine offset is known. Only affine has an offset,
+# so the key is refused elsewhere rather than silently ignored.
+OFFSET_RESOLUTION_KEY = "offset_resolution"
 
 # Whether to store the voltage a reading was converted from alongside the
 # converted value. On by default: a conversion is not generally
@@ -177,6 +193,22 @@ class Conversion(Protocol):
 
     def apply(self, voltage: pint.Quantity, /) -> pint.Quantity: ...
 
+    def resolution(self, voltage_step: pint.Quantity, /) -> pint.Quantity | None:
+        """How finely this conversion's output is actually resolved.
+
+        `voltage_step` is what one ADC count is worth, so the answer is
+        the input's own granularity carried through the conversion — a
+        12-bit input over 3.3 V steps by 806 µV, and a factor of
+        42.5 K/V turns that into 34 mK. Anything past it is arithmetic,
+        not measurement.
+
+        `None` where the conversion has no single answer: a spline's
+        slope varies along its curve, and an expression's is unknown.
+        Those channels keep the computed value unless the file says
+        otherwise.
+        """
+        ...
+
     def fingerprint(self) -> str:
         """A canonical description of this conversion, for hashing.
 
@@ -196,6 +228,12 @@ class LinearConversion:
     def apply(self, voltage: pint.Quantity, /) -> pint.Quantity:
         return voltage * self.factor
 
+    def resolution(self, voltage_step: pint.Quantity, /) -> pint.Quantity:
+        # One factor scales the whole range, so the voltage step scales
+        # with it and nothing else enters.
+        step = self.factor * voltage_step
+        return abs(float(step.magnitude)) * step.units
+
     def fingerprint(self) -> str:
         return f"linear|{_quantity_key(self.factor)}"
 
@@ -206,11 +244,34 @@ class AffineConversion:
 
     factor: pint.Quantity
     offset: pint.Quantity
+    # How well the offset itself is known, in the value's units. None
+    # means it is taken at face value, which is the usual case: an
+    # offset read off a divider ratio is exact as far as the conversion
+    # is concerned. A fit that reported an uncertainty puts it here.
+    offset_resolution: pint.Quantity | None = None
 
     def apply(self, voltage: pint.Quantity, /) -> pint.Quantity:
         return voltage * self.factor + self.offset
 
+    def resolution(self, voltage_step: pint.Quantity, /) -> pint.Quantity:
+        # The offset shifts the whole scale rather than quantising it, so
+        # on its own it adds nothing to the step. What it can add is its
+        # own uncertainty, which is independent of the ADC's and
+        # therefore combines in quadrature.
+        step = self.factor * voltage_step
+        units = step.units
+        span = abs(float(step.magnitude))
+        if self.offset_resolution is None:
+            return span * units
+        spread = float(self.offset_resolution.to(units).magnitude)
+        return math.hypot(spread, span) * units
+
     def fingerprint(self) -> str:
+        # `offset_resolution` is deliberately absent. The id says which
+        # conversion produced a reading; how many digits survived it is
+        # a property of the board as much as the file — `--vref` and
+        # `--resolution-bits` are not recorded either — and adding a
+        # field here would re-tag every affine channel already written.
         return f"affine|{_quantity_key(self.factor)}|{_quantity_key(self.offset)}"
 
 
@@ -234,6 +295,14 @@ class InterpolatedConversion:
     def apply(self, voltage: pint.Quantity, /) -> pint.Quantity:
         return self.interpolate(voltage.to(ureg.volt).magnitude) * self.unit
 
+    def resolution(self, _voltage_step: pint.Quantity, /) -> None:
+        # The slope varies along the curve — steeply between two close
+        # measured points, gently between two far apart — so there is no
+        # one step to quote. Deriving it per reading would make a
+        # channel's precision wander with its value, which is worse than
+        # leaving it to the file.
+        return None
+
     def fingerprint(self) -> str:
         digits = FINGERPRINT_SIGNIFICANT_DIGITS
         points = ",".join(
@@ -253,6 +322,12 @@ class ExpressionConversion:
 
     def apply(self, voltage: pint.Quantity, /) -> pint.Quantity:
         return self._evaluate(voltage.to(ureg.volt).magnitude) * self.unit
+
+    def resolution(self, _voltage_step: pint.Quantity, /) -> None:
+        # An arbitrary formula has no derivative this module can read
+        # off. A Pirani gauge's is exponential, so a fixed step would be
+        # wrong across most of its range anyway.
+        return None
 
     def fingerprint(self) -> str:
         # The expression is kept verbatim: whitespace inside a formula is
@@ -290,6 +365,10 @@ class Calibration:
     # None means record everything, which is the default: a gate is a
     # deliberate decision to leave gaps in a series.
     stop_recording_when: StopRecordingRule | None = None
+    # Digits the file insists on, overriding whatever the conversion
+    # derives. None means take the derived answer, or keep the computed
+    # value where there is none.
+    significant_digits: int | None = None
 
     @functools.cached_property
     def calibration_id(self) -> str:
@@ -320,7 +399,44 @@ class Calibration:
         Uses the same probe sequence as load-time validation, so a
         conversion with a pole at one volt still reports its unit.
         """
-        return f"{probe(self.conversion).units:~}"
+        return f"{self.value_units:~}"
+
+    @functools.cached_property
+    def value_units(self) -> pint.Unit:
+        """The units a converted reading's magnitude is expressed in.
+
+        Read from the conversion rather than the file, for the same
+        reason `unit` is, and cached for the same reason: it is fixed
+        once the file is parsed.
+        """
+        return probe(self.conversion).units
+
+    def rounding(self, voltage_step: pint.Quantity) -> Callable[[float], float]:
+        """A filter dropping digits this channel's input never carried.
+
+        Built once per run and applied per reading, because the answer
+        depends on the board and the conversion — neither of which
+        changes while the loop runs — and not on the reading.
+
+        `significant_digits` in the file wins; otherwise the conversion
+        derives a step from `voltage_step`; and where it cannot, the
+        computed value is kept as it is.
+        """
+        if self.significant_digits is not None:
+            digits = self.significant_digits
+            return lambda value: quantise(value, significant_digits=digits)
+
+        derived = self.conversion.resolution(voltage_step)
+        if derived is None:
+            return _unrounded
+
+        step = float(derived.to(self.value_units).magnitude)
+        if not math.isfinite(step) or step <= 0:
+            # A zero factor, or an offset_resolution large enough to
+            # overflow. Neither describes a place to round to, and
+            # log10(0) has no answer.
+            return _unrounded
+        return lambda value: to_resolution(value, step)
 
 
 def raw_to_voltage(
@@ -339,6 +455,28 @@ def raw_to_voltage(
     # (1 << bits) - 1 is 2**bits - 1, the highest count the ADC reports.
     full_scale = (1 << resolution_bits) - 1
     return (raw_count / full_scale) * v_ref * ureg.volt
+
+
+def voltage_step(
+    resolution_bits: int = ADC_RESOLUTION_BITS,
+    v_ref: float = ADC_VREF_VOLTS,
+) -> pint.Quantity:
+    """What one ADC count is worth — the smallest difference it can show.
+
+    Expressed through `raw_to_voltage` so the two cannot drift apart:
+    one count is exactly the voltage a count of one represents.
+
+    A board averaging several conversions per reading resolves finer
+    than this, and says so by reporting a fractional count. The host
+    cannot see how many were averaged, so this stays the conservative
+    answer; a channel that wants the extra digits states them.
+    """
+    return raw_to_voltage(1.0, resolution_bits, v_ref)
+
+
+def _unrounded(value: float) -> float:
+    """Keep a reading as computed, for a conversion with no known step."""
+    return value
 
 
 def load_calibration(path: Path) -> dict[str, Calibration]:
@@ -386,6 +524,14 @@ def _parse_channel(
             + f" expected one of {', '.join(sorted(_MODE_BUILDERS))}"
         )
 
+    if mode != "affine" and OFFSET_RESOLUTION_KEY in fields:
+        # Silently ignoring it would give a setting that does nothing the
+        # exact appearance of one that works.
+        raise CalibrationError(
+            f"{where} sets '{OFFSET_RESOLUTION_KEY}' in mode {mode!r},"
+            + " which has no offset; it applies to mode 'affine' only"
+        )
+
     conversion = builder(where, fields)
     _trial_apply(where, conversion)
     return Calibration(
@@ -395,6 +541,7 @@ def _parse_channel(
         store_input=_optional_bool(where, fields, "store_input", default_store_input),
         provenance=_optional_provenance(where, fields),
         stop_recording_when=_optional_stop_rule(where, fields, conversion),
+        significant_digits=_optional_significant_digits(where, fields),
     )
 
 
@@ -442,9 +589,11 @@ def _build_linear(where: Location, fields: dict[str, object]) -> Conversion:
 
 
 def _build_affine(where: Location, fields: dict[str, object]) -> Conversion:
+    offset = _require_quantity(where, fields, "offset")
     return AffineConversion(
         factor=_require_quantity(where, fields, "conversion_factor"),
-        offset=_require_quantity(where, fields, "offset"),
+        offset=offset,
+        offset_resolution=_optional_offset_resolution(where, fields, offset),
     )
 
 
@@ -545,6 +694,44 @@ def _quantity_key(quantity: pint.Quantity) -> str:
     base = quantity.to_base_units()
     magnitude = f"{base.magnitude:.{FINGERPRINT_SIGNIFICANT_DIGITS}g}"
     return f"{magnitude} {base.units}"
+
+
+def _optional_offset_resolution(
+    where: Location, fields: dict[str, object], offset: pint.Quantity
+) -> pint.Quantity | None:
+    """Read how well the offset is known, in the offset's own dimension."""
+    if OFFSET_RESOLUTION_KEY not in fields:
+        return None
+    spread = _require_comparable(
+        where,
+        fields,
+        OFFSET_RESOLUTION_KEY,
+        offset.units,
+        f"has an offset in {offset.units:~}",
+    )
+    if float(spread.magnitude) < 0:
+        raise CalibrationError(
+            f"{where} key '{OFFSET_RESOLUTION_KEY}' is {spread:~};"
+            + " a resolution cannot be negative"
+        )
+    return spread
+
+
+def _optional_significant_digits(
+    where: Location, fields: dict[str, object]
+) -> int | None:
+    """Read the digit count a channel insists on, if it names one."""
+    if SIGNIFICANT_DIGITS_KEY not in fields:
+        return None
+    digits = fields[SIGNIFICANT_DIGITS_KEY]
+    # bool is an int in Python, and `significant_digits = true` is a
+    # mistake rather than a request for one digit.
+    if not isinstance(digits, int) or isinstance(digits, bool) or digits < 1:
+        raise CalibrationError(
+            f"{where} key '{SIGNIFICANT_DIGITS_KEY}' must be a whole number"
+            + f" of digits, at least 1, not {digits!r}"
+        )
+    return digits
 
 
 def _optional_provenance(

@@ -21,6 +21,10 @@ mode = "piecewise_linear"
 voltages = [0.50, 1.00, 1.15, 1.30]
 values = [300.0, 100.0, 40.0, 2.0]
 value_unit = "kelvin"
+# A curve has no one step to derive — its slope is steep between the
+# last two points and gentle between the first two — so the digits are
+# stated. Four covers 2 K to 300 K without claiming millikelvins.
+significant_digits = 4
 
 [channels.A0.provenance]
 date = "2026-07-14"
@@ -32,6 +36,10 @@ notes = "four points during a cooldown; clamps below 2 K by design"
 # A bipolar rail monitor: a divider maps the supply's [-15, 15] V onto
 # the Arduino's [0, 3.3] V. The factor is dimensionless, so the unit
 # comes from the offset.
+#
+# Nothing here states a resolution: the divider ratio carries the ADC's
+# 806 uV step onto 7.3 mV of rail, and that is what a reading is
+# written to.
 [channels.A1]
 sensor_id = "bias-monitor"
 measurement = "voltage"
@@ -55,6 +63,11 @@ measurement = "pressure"
 mode = "expression"
 expression = "10**(1.667*v - 11.33)"
 value_unit = "mbar"
+# Likewise: an expression's slope is unknown to the loader, and this one
+# is exponential, so no fixed step would suit both ends of the range.
+# Significant digits do, which is why they are counted rather than
+# decimals.
+significant_digits = 3
 
 [channels.A2.provenance]
 date = "2026-07-14"

@@ -1,3 +1,4 @@
+import math
 import re
 from pathlib import Path
 from typing import cast
@@ -19,6 +20,7 @@ from labmon.calibration import (
     load_calibration,
     raw_to_voltage,
     ureg,
+    voltage_step,
 )
 
 
@@ -37,6 +39,9 @@ class _CountingConversion:
     def apply(self, voltage: pint.Quantity, /) -> pint.Quantity:
         self.applications += 1
         return voltage * ureg("42.5 kelvin / volt")
+
+    def resolution(self, _voltage_step: pint.Quantity, /) -> None:
+        return None
 
     def fingerprint(self) -> str:
         self.fingerprints += 1
@@ -267,6 +272,9 @@ def test_trial_apply_wraps_an_unexpected_failure() -> None:
         def apply(self, _voltage: pint.Quantity, /) -> pint.Quantity:
             raise RuntimeError("sensor on fire")
 
+        def resolution(self, _voltage_step: pint.Quantity, /) -> None:
+            return None
+
         def fingerprint(self) -> str:
             return "broken"
 
@@ -278,6 +286,19 @@ def test_trial_apply_wraps_an_unexpected_failure() -> None:
 # --------------------------------------------------------------------------
 # Loading and validation
 # --------------------------------------------------------------------------
+
+
+def test_the_demo_file_states_digits_wherever_none_can_be_derived() -> None:
+    # The demo is what the dashboards are read off, and the two curved
+    # channels have no step to derive. Without a stated count they would
+    # be the seventeen-digit column this rounding exists to stop.
+    demo = Path(__file__).parent.parent / "demo" / "calibration.demo.toml"
+
+    channels = load_calibration(demo)
+
+    for channel in channels.values():
+        derivable = channel.conversion.resolution(voltage_step()) is not None
+        assert derivable or channel.significant_digits is not None
 
 
 def test_the_shipped_example_file_is_valid() -> None:
@@ -1380,3 +1401,419 @@ def test_the_unit_of_a_conversion_with_a_pole_is_still_derivable() -> None:
     )
 
     assert calibration.unit == "mbar"
+
+
+# --------------------------------------------------------------------------
+# What a reading is resolved to
+# --------------------------------------------------------------------------
+
+
+def test_voltage_step_is_what_one_count_is_worth() -> None:
+    # Full scale divided by the highest count the ADC reports.
+    step = voltage_step(resolution_bits=12, v_ref=3.3)
+
+    assert step.to(ureg.volt).magnitude == pytest.approx(3.3 / 4095)
+
+
+def test_voltage_step_follows_the_board_it_is_given() -> None:
+    step = voltage_step(resolution_bits=10, v_ref=5.0)
+
+    assert step.to(ureg.volt).magnitude == pytest.approx(5.0 / 1023)
+
+
+def test_a_linear_conversion_scales_the_voltage_step() -> None:
+    # 806 uV through 42.5 K/V is 34 mK, and nothing else enters.
+    conversion = LinearConversion(factor=ureg("42.5 kelvin / volt"))
+
+    resolution = conversion.resolution(voltage_step())
+
+    assert resolution.to(ureg.kelvin).magnitude == pytest.approx(42.5 * 3.3 / 4095)
+
+
+def test_a_falling_response_still_resolves_a_positive_step() -> None:
+    # A thermistor divider drops as it warms. The step is a distance,
+    # and log10 of a negative number has no answer.
+    conversion = LinearConversion(factor=ureg("-42.5 kelvin / volt"))
+
+    resolution = conversion.resolution(voltage_step())
+
+    assert resolution.to(ureg.kelvin).magnitude > 0
+
+
+def test_an_affine_offset_does_not_quantise_by_itself() -> None:
+    # The offset shifts the whole scale rather than dividing it, so an
+    # affine channel resolves exactly as the linear one behind it does.
+    factor = ureg("60 micrometer / volt")
+    step = voltage_step()
+    affine = AffineConversion(factor=factor, offset=ureg("-99 micrometer"))
+
+    assert affine.resolution(step) == LinearConversion(factor=factor).resolution(step)
+
+
+def test_an_uncertain_offset_combines_in_quadrature() -> None:
+    # The offset's uncertainty and the ADC's are independent, so they add
+    # as squares rather than end to end.
+    conversion = AffineConversion(
+        factor=ureg("60 micrometer / volt"),
+        offset=ureg("-99 micrometer"),
+        offset_resolution=ureg("0.2 micrometer"),
+    )
+
+    resolution = conversion.resolution(voltage_step())
+
+    expected = math.hypot(0.2, 60 * 3.3 / 4095)
+    assert resolution.to(ureg.micrometer).magnitude == pytest.approx(expected)
+
+
+def test_an_uncertain_offset_is_converted_before_it_is_combined() -> None:
+    # Written in nanometres against a factor in micrometres: the two
+    # terms have to reach a common unit before they are squared.
+    conversion = AffineConversion(
+        factor=ureg("60 micrometer / volt"),
+        offset=ureg("-99 micrometer"),
+        offset_resolution=ureg("200 nanometer"),
+    )
+
+    resolution = conversion.resolution(voltage_step())
+
+    assert resolution.to(ureg.micrometer).magnitude == pytest.approx(
+        math.hypot(0.2, 60 * 3.3 / 4095)
+    )
+
+
+def test_an_interpolated_conversion_has_no_single_step(tmp_path: Path) -> None:
+    # The slope varies along the curve, so there is no one answer to
+    # quote and quoting a wandering one would be worse than none.
+    [calibration] = load_calibration(
+        _write_config(
+            tmp_path,
+            """
+            [channels.A0]
+            sensor_id = "cryo-diode"
+            measurement = "temperature"
+            mode = "piecewise_linear"
+            voltages = [0.5, 1.0]
+            values = [300.0, 100.0]
+            value_unit = "kelvin"
+            """,
+        )
+    ).values()
+
+    assert calibration.conversion.resolution(voltage_step()) is None
+
+
+def test_an_expression_conversion_has_no_single_step(tmp_path: Path) -> None:
+    [calibration] = load_calibration(
+        _write_config(
+            tmp_path,
+            """
+            [channels.A0]
+            sensor_id = "pirani-1"
+            measurement = "pressure"
+            mode = "expression"
+            expression = "10**(1.667*v - 11.33)"
+            value_unit = "mbar"
+            """,
+        )
+    ).values()
+
+    assert calibration.conversion.resolution(voltage_step()) is None
+
+
+# --------------------------------------------------------------------------
+# Calibration.rounding
+# --------------------------------------------------------------------------
+
+
+def _linear_calibration(significant_digits: int | None = None) -> Calibration:
+    return Calibration(
+        sensor_id="cryo-77k",
+        measurement="temperature",
+        conversion=LinearConversion(factor=ureg("42.5 kelvin / volt")),
+        significant_digits=significant_digits,
+    )
+
+
+def test_rounding_keeps_the_places_the_derived_step_reaches() -> None:
+    # 34 mK resolves to hundredths of a kelvin.
+    rounding = _linear_calibration().rounding(voltage_step())
+
+    assert rounding(140.24999999999997) == 140.25
+
+
+def test_rounding_drops_the_digits_below_the_step() -> None:
+    rounding = _linear_calibration().rounding(voltage_step())
+
+    assert rounding(20.575123456789) == 20.58
+
+
+def test_a_declared_digit_count_wins_over_the_derived_step() -> None:
+    # The board averages, or the person knows something the file cannot
+    # derive. Either way what they wrote is what happens.
+    rounding = _linear_calibration(significant_digits=8).rounding(voltage_step())
+
+    assert rounding(20.575123456789) == 20.575123
+
+
+def test_a_conversion_with_no_step_keeps_the_computed_value(
+    tmp_path: Path,
+) -> None:
+    [calibration] = load_calibration(
+        _write_config(
+            tmp_path,
+            """
+            [channels.A0]
+            sensor_id = "pirani-1"
+            measurement = "pressure"
+            mode = "expression"
+            expression = "10**(1.667*v - 11.33)"
+            value_unit = "mbar"
+            """,
+        )
+    ).values()
+
+    rounding = calibration.rounding(voltage_step())
+
+    assert rounding(2.6348494304336958e-09) == 2.6348494304336958e-09
+
+
+def test_a_declared_digit_count_reaches_a_conversion_with_no_step(
+    tmp_path: Path,
+) -> None:
+    # The whole reason the key exists: a spline or an expression has no
+    # derivable step, so the file is the only place the answer can come
+    # from.
+    [calibration] = load_calibration(
+        _write_config(
+            tmp_path,
+            """
+            [channels.A0]
+            sensor_id = "pirani-1"
+            measurement = "pressure"
+            mode = "expression"
+            expression = "10**(1.667*v - 11.33)"
+            value_unit = "mbar"
+            significant_digits = 3
+            """,
+        )
+    ).values()
+
+    rounding = calibration.rounding(voltage_step())
+
+    assert rounding(2.6348494304336958e-09) == 2.63e-09
+
+
+def test_a_zero_factor_is_not_a_place_to_round_to() -> None:
+    # A dead channel wired to nothing. log10(0) has no answer, and the
+    # value is already whatever the conversion made of it.
+    calibration = Calibration(
+        sensor_id="dead",
+        measurement="temperature",
+        conversion=LinearConversion(factor=ureg("0 kelvin / volt")),
+    )
+
+    rounding = calibration.rounding(voltage_step())
+
+    assert rounding(0.1234567) == 0.1234567
+
+
+def test_the_value_units_are_read_from_the_conversion() -> None:
+    calibration = _linear_calibration()
+
+    assert calibration.value_units == ureg.kelvin
+
+
+def test_the_value_units_are_computed_once() -> None:
+    # Read once per reading through `rounding` and `unit`, and fixed as
+    # soon as the file is parsed.
+    conversion = _CountingConversion()
+    calibration = Calibration(
+        sensor_id="cryo-77k", measurement="temperature", conversion=conversion
+    )
+
+    _ = calibration.value_units
+    _ = calibration.value_units
+    _ = calibration.unit
+
+    assert conversion.applications == 1
+
+
+# --------------------------------------------------------------------------
+# Reading the resolution keys
+# --------------------------------------------------------------------------
+
+
+def test_load_calibration_reads_an_offset_resolution(tmp_path: Path) -> None:
+    [calibration] = load_calibration(
+        _write_config(
+            tmp_path,
+            """
+            [channels.A0]
+            sensor_id = "beam-x"
+            measurement = "position"
+            mode = "affine"
+            conversion_factor = "60 micrometer / volt"
+            offset = "-99 micrometer"
+            offset_resolution = "0.2 micrometer"
+            """,
+        )
+    ).values()
+
+    conversion = cast(AffineConversion, calibration.conversion)
+    assert conversion.offset_resolution is not None
+    assert conversion.offset_resolution.to(ureg.micrometer).magnitude == 0.2
+
+
+def test_load_calibration_defaults_to_an_exact_offset(tmp_path: Path) -> None:
+    [calibration] = load_calibration(
+        _write_config(
+            tmp_path,
+            """
+            [channels.A0]
+            sensor_id = "beam-x"
+            measurement = "position"
+            mode = "affine"
+            conversion_factor = "60 micrometer / volt"
+            offset = "-99 micrometer"
+            """,
+        )
+    ).values()
+
+    assert cast(AffineConversion, calibration.conversion).offset_resolution is None
+
+
+def test_load_calibration_rejects_an_offset_resolution_of_the_wrong_dimension(
+    tmp_path: Path,
+) -> None:
+    path = _write_config(
+        tmp_path,
+        """
+        [channels.A0]
+        sensor_id = "beam-x"
+        measurement = "position"
+        mode = "affine"
+        conversion_factor = "60 micrometer / volt"
+        offset = "-99 micrometer"
+        offset_resolution = "0.2 kelvin"
+        """,
+    )
+
+    with pytest.raises(CalibrationError, match="offset_resolution"):
+        _ = load_calibration(path)
+
+
+def test_load_calibration_rejects_a_negative_offset_resolution(
+    tmp_path: Path,
+) -> None:
+    path = _write_config(
+        tmp_path,
+        """
+        [channels.A0]
+        sensor_id = "beam-x"
+        measurement = "position"
+        mode = "affine"
+        conversion_factor = "60 micrometer / volt"
+        offset = "-99 micrometer"
+        offset_resolution = "-0.2 micrometer"
+        """,
+    )
+
+    with pytest.raises(CalibrationError, match="cannot be negative"):
+        _ = load_calibration(path)
+
+
+def test_load_calibration_rejects_an_offset_resolution_without_an_offset(
+    tmp_path: Path,
+) -> None:
+    # Only affine has an offset. Ignoring the key would give a setting
+    # that does nothing the exact appearance of one that works.
+    path = _write_config(
+        tmp_path,
+        """
+        [channels.A0]
+        sensor_id = "cryo-77k"
+        measurement = "temperature"
+        conversion_factor = "42.5 kelvin / volt"
+        offset_resolution = "0.2 kelvin"
+        """,
+    )
+
+    with pytest.raises(CalibrationError, match="has no offset"):
+        _ = load_calibration(path)
+
+
+def test_an_offset_resolution_does_not_change_the_calibration_id(
+    tmp_path: Path,
+) -> None:
+    # The id says which conversion produced a reading. How many digits
+    # survived it is as much a property of the board — `--vref` and
+    # `--resolution-bits` are not recorded either — so adding it here
+    # would re-tag every affine channel already written.
+    body = """
+        [channels.A0]
+        sensor_id = "beam-x"
+        measurement = "position"
+        mode = "affine"
+        conversion_factor = "60 micrometer / volt"
+        offset = "-99 micrometer"
+        """
+    [plain] = load_calibration(_write_config(tmp_path / "plain", body)).values()
+    [declared] = load_calibration(
+        _write_config(tmp_path / "declared", body + 'offset_resolution = "0.2 um"\n')
+    ).values()
+
+    assert plain.calibration_id == declared.calibration_id
+
+
+def test_load_calibration_reads_a_significant_digit_count(tmp_path: Path) -> None:
+    [calibration] = load_calibration(
+        _write_config(
+            tmp_path,
+            """
+            [channels.A0]
+            sensor_id = "cryo-77k"
+            measurement = "temperature"
+            conversion_factor = "42.5 kelvin / volt"
+            significant_digits = 4
+            """,
+        )
+    ).values()
+
+    assert calibration.significant_digits == 4
+
+
+def test_load_calibration_defaults_to_no_declared_digits(tmp_path: Path) -> None:
+    [calibration] = load_calibration(
+        _write_config(
+            tmp_path,
+            """
+            [channels.A0]
+            sensor_id = "cryo-77k"
+            measurement = "temperature"
+            conversion_factor = "42.5 kelvin / volt"
+            """,
+        )
+    ).values()
+
+    assert calibration.significant_digits is None
+
+
+@pytest.mark.parametrize("written", ["0", '"4"', "true", "4.5", "-2"])
+def test_load_calibration_rejects_a_digit_count_that_is_not_one(
+    tmp_path: Path, written: str
+) -> None:
+    # `true` included on purpose: bool is an int in Python, so it would
+    # otherwise be read as a request for one digit.
+    path = _write_config(
+        tmp_path,
+        f"""
+        [channels.A0]
+        sensor_id = "cryo-77k"
+        measurement = "temperature"
+        conversion_factor = "42.5 kelvin / volt"
+        significant_digits = {written}
+        """,
+    )
+
+    with pytest.raises(CalibrationError, match="significant_digits"):
+        _ = load_calibration(path)

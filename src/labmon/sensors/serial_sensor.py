@@ -16,6 +16,7 @@ from labmon.calibration import (
     Calibration,
     raw_to_voltage,
     ureg,
+    voltage_step,
 )
 from labmon.gate import RecordingGate
 from labmon.influx import influx_database
@@ -129,6 +130,15 @@ def run(
         if calibration.stop_recording_when is not None
     }
 
+    # One rounding filter per channel, built here because it depends on
+    # the board's resolution as well as the channel's conversion, and
+    # the board is only known once the command line has been read.
+    step = voltage_step(resolution_bits, v_ref)
+    rounding = {
+        channel: calibration.rounding(step)
+        for channel, calibration in calibrations.items()
+    }
+
     while True:
         # `finally`, so the summary runs whatever this iteration did. Every
         # path below can `continue` — a read timeout, an uncalibrated
@@ -163,6 +173,12 @@ def run(
 
             voltage = raw_to_voltage(reading.raw_count, resolution_bits, v_ref)
             value = calibration.conversion.apply(voltage)
+            # Rounded before anything looks at it, so the gate compares
+            # against the number that will actually be stored and the
+            # log line quotes it too. `input_volts` below is left whole:
+            # it is what a corrected calibration would be re-applied to,
+            # and rounding it would make that irrecoverable.
+            value = rounding[reading.channel](value.magnitude) * value.units
 
             # Before the gate, which compares against bounds: every comparison
             # with a NaN is False, so a gate would admit it and a gate-less

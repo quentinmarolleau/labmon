@@ -39,6 +39,7 @@ measurement = "voltage" # remapping the [0, 3.3]V Arduino input range onto the [
 mode = "affine"
 conversion_factor = "9.0909091"
 offset = "-15 V"
+# offset_resolution = "5 mV"           # see "how many digits" below
 
 # --- spline: a cubic through measured points ----------------------------
 # For a curved response characterised by calibration measurements.
@@ -77,6 +78,39 @@ measurement = "pressure"
 mode = "expression"
 expression = "10**(1.667*v - 11.33)"       # a typical Pirani gauge curve
 value_unit = "mbar"
+
+# --- how many digits a reading keeps ------------------------------------
+# A converted value is rounded to the resolution the input actually had,
+# so what lands in InfluxDB does not claim seventeen digits of a 12-bit
+# measurement. Nothing above needs to say so: the step comes from
+# --resolution-bits and --vref, carried through the conversion. A 12-bit
+# input over 3.3 V steps by 806 uV, and channel A0's 50 mW/V turns that
+# into 40 uW, so its readings are written to two decimals of a milliwatt.
+#
+# Only `linear` and `affine` have one step across their whole range. A
+# spline's slope varies along its curve and an expression's is unknown,
+# so those channels keep the computed value unless told otherwise:
+#
+#   significant_digits = 4
+#
+# Significant rather than decimal places, because a calibrated channel
+# may sit anywhere on the scale — three decimals is far too coarse for
+# channel A4's 1e-8 mbar and far too fine for a room thermometer. It
+# overrides the derived step wherever it is set, which is also how a
+# board that averages several conversions per reading claims the extra
+# resolution that buys: the host sees only a fractional count, not how
+# many were averaged, so the derived step stays conservative.
+#
+# `offset_resolution` says how well an affine offset is itself known,
+# for one that came out of a fit rather than a divider ratio. It is
+# independent of the ADC's own step, so the two combine in quadrature.
+# The offset otherwise shifts the scale without dividing it, and adds
+# nothing.
+#
+# Rounding happens once, on the way in, and applies to `value` only.
+# `input_volts` keeps every digit it had — it is what a corrected
+# calibration would be re-applied to, and rounding it would make that
+# irrecoverable.
 
 # --- stop_recording_when: take a channel out of service while its -------
 # --- instrument is off --------------------------------------------------

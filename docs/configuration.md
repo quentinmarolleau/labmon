@@ -143,6 +143,11 @@ Reads a real board. Full description in
 don't need to be: both scale the recorded voltage linearly, so getting
 either wrong stays correctable with a query.
 
+They do decide how finely `value` is rounded — see
+[How many digits a reading keeps](#how-many-digits-a-reading-keeps) —
+and digits dropped on the way in do not come back. `input_volts` keeps
+all of its own, which is what makes the correction possible.
+
 ## The calibration file
 
 One `[channels.<name>]` section per channel the board streams.
@@ -158,8 +163,48 @@ explains the choices between them.
 | `store_input` | `true` | Every channel; also settable file-wide at top level |
 | `conversion_factor` | *(required)* | `linear`, `affine` |
 | `offset` | *(required)* | `affine` |
+| `offset_resolution` | *(exact)* | `affine` |
+| `significant_digits` | *(derived)* | Every channel |
 | `voltages`, `values`, `value_unit` | *(required)* | `spline`, `piecewise_linear` |
 | `expression`, `value_unit` | *(required)* | `expression` |
+
+### How many digits a reading keeps
+
+A converted value is rounded to the resolution its input actually had,
+so a stored reading does not claim seventeen digits of a twelve-bit
+measurement. The step comes from `--resolution-bits` and `--vref`,
+carried through the conversion: a 12-bit input over 3.3 V steps by
+806 µV, and a factor of `42.5 kelvin / volt` turns that into 34 mK, so
+that channel is written to hundredths of a kelvin.
+
+Only `linear` and `affine` have one step across their whole range. A
+spline's slope varies along its curve and an expression's is unknown to
+the loader, so those channels keep the computed value unless the file
+names `significant_digits`.
+
+`significant_digits` overrides the derived step wherever it is set.
+Significant rather than decimal places, because a calibrated channel may
+sit anywhere on the scale — three decimals is far too coarse for a gauge
+reading 1e-8 mbar and far too fine for a room thermometer.
+
+`offset_resolution` says how well an affine offset is itself known, for
+one that came out of a fit rather than a divider ratio. It is
+independent of the ADC's own step, so the two combine in quadrature. An
+offset otherwise shifts the scale without dividing it, and adds nothing.
+The key is rejected on the other modes rather than ignored, since none
+of them has an offset.
+
+Rounding happens once, on the way in, and reaches `value` only.
+`input_volts` keeps every digit it had: it is what a corrected
+calibration would be re-applied to, and rounding it would make that
+irrecoverable. The `calibration_id` tag does not change either — it says
+which conversion produced a reading, and how many digits survived is as
+much a property of the board, which is not recorded.
+
+A board that averages several conversions per reading resolves finer
+than one ADC step and says so by reporting a fractional count. The host
+cannot see how many were averaged, so the derived step stays
+conservative; a channel that wants those digits states them.
 
 Two optional sub-tables per channel:
 
