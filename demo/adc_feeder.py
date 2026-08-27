@@ -24,7 +24,7 @@ import socket
 import sys
 import time
 from datetime import UTC, datetime
-from typing import cast, override
+from typing import Protocol, cast, override
 
 # Loopback by default, so running this directly on a workstation cannot
 # expose the feeder to the network. The demo container overrides it with
@@ -50,11 +50,26 @@ def _counts(volts: float) -> float:
     return round(clamped / VREF * FULL_SCALE, 2)
 
 
-class Channel:
-    """One analog input, as a voltage the board would see.
+class Signal(Protocol):
+    """One analog input, as a voltage the board would see."""
 
-    Each channel is a slow drift plus noise, shaped so a few minutes of
-    data has something to look at rather than a flat line.
+    name: str
+
+    def volts_at(self, elapsed: float, /) -> float:
+        """The voltage for this tick.
+
+        Called exactly once per channel per tick, which is what lets an
+        implementation carry state from one call to the next.
+        """
+        ...
+
+
+class Channel:
+    """A slow periodic drift plus noise.
+
+    Shaped so a few minutes of data has something to look at rather than
+    a flat line, for a quantity that really does come back to where it
+    was — a room warming and cooling, a chamber pumped down and vented.
     """
 
     def __init__(
@@ -73,17 +88,48 @@ class Channel:
         # Stagger the channels so they don't all peak together.
         self._phase: float = random.uniform(0, 2 * math.pi)
 
-    def volts_at(self, elapsed: float) -> float:
+    def volts_at(self, elapsed: float, /) -> float:
         drift = self._swing * math.sin(
             2 * math.pi * elapsed / self._period + self._phase
         )
         return self._centre + drift + random.gauss(0, self._noise)
 
 
+class Wander:
+    """A mean-reverting random walk, for a signal with no period to it.
+
+    Each tick kicks the voltage by a Gaussian step and pulls it a little
+    of the way back towards `centre`. Without the pull it is a plain
+    random walk, which has no stationary spread and eventually leaves
+    the ADC's range for good; with it, excursions decay over roughly
+    `1 / pull` ticks and the walk keeps a stationary standard deviation
+    of about `noise / sqrt(2 * pull)`.
+
+    The same shape `labmon.sensors.mock_sensor.RandomWalk` uses, spelled
+    out again because this file is stdlib-only and imports nothing from
+    the package.
+
+    `elapsed` is ignored: where the walk goes depends on where it has
+    been, not on the clock.
+    """
+
+    def __init__(self, name: str, centre: float, noise: float, pull: float) -> None:
+        self.name: str = name
+        self._centre: float = centre
+        self._noise: float = noise
+        self._pull: float = pull
+        self._volts: float = centre
+
+    def volts_at(self, _elapsed: float, /) -> float:
+        self._volts += (self._centre - self._volts) * self._pull
+        self._volts += random.gauss(0, self._noise)
+        return self._volts
+
+
 # Wired to the channels in demo/calibration.demo.toml. The voltages here
 # are what the *sensor* puts out; what they mean is the calibration
 # file's business, which is the whole point of the split.
-CHANNELS = (
+CHANNELS: tuple[Signal, ...] = (
     # A silicon diode on a cryostat cold finger: high voltage when cold.
     Channel("A0", centre=1.20, swing=0.06, period_seconds=420, noise=0.0015),
     # A bipolar supply rail monitor, scaled onto the board's 0-3.3V range.
@@ -94,10 +140,26 @@ CHANNELS = (
     # A photodiode watching a laser that drifts as the room warms.
     Channel("A3", centre=1.90, swing=0.25, period_seconds=300, noise=0.006),
     # The two difference signals of a quadrant photodiode watching a beam
-    # wander. The periods are deliberately incommensurate, so the beam
-    # traces a slowly drifting loop rather than a straight line.
-    Channel("A4", centre=1.65, swing=0.45, period_seconds=137, noise=0.008),
-    Channel("A5", centre=1.65, swing=0.38, period_seconds=89, noise=0.008),
+    # wander. Random rather than periodic: a beam drifts with whatever
+    # the mounts and the air are doing, and two sine waves would trace a
+    # tidy Lissajous figure that no real detector has ever seen. The pull
+    # stands for the alignment the beam was set up on, which it wanders
+    # around without ever leaving.
+    #
+    # 1.65 V is mid-scale, which the calibration's -99 um offset puts at
+    # the origin, so the pull drags the beam back towards zero position.
+    #
+    # The noise terms are solved backwards from the spread wanted rather
+    # than picked: 0.183 V and 0.217 V stationary, which through
+    # 60 um/V is 11 um in x and 13 um in y. The +/-40 um the calibration
+    # calls linear is then 3.6 and 3.1 standard deviations out, so the
+    # beam stays inside it except for the occasional brief excursion.
+    #
+    # A pull of 0.05 decays an excursion to 1/e in 20 readings, 20
+    # seconds here. Weaker recall lets the walk sit far from centre for
+    # minutes at a time, which is what pushes the tails past +/-40 um.
+    Wander("A4", centre=1.65, noise=0.0572, pull=0.05),
+    Wander("A5", centre=1.65, noise=0.0677, pull=0.05),
 )
 
 
