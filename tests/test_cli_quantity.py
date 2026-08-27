@@ -5,7 +5,7 @@ import pytest
 from labmon.cli.quantity import (
     PLAIN_BELOW,
     PLAIN_FROM,
-    at_the_precision_of,
+    for_display,
     quote,
     show,
 )
@@ -218,18 +218,108 @@ def test_a_deviation_that_is_not_finite_is_not_rounded_against() -> None:
     assert sd == "nan"
 
 
-def test_a_reading_can_be_shown_at_the_precision_of_its_spread() -> None:
-    # A beam position whose spread over the window is 16 µm has two
-    # meaningful characters, not nineteen.
-    assert at_the_precision_of(-7.441802197802218, 16.13679456395551) == "-7"
-    assert at_the_precision_of(99.76556776556775, 8.847037339748116) == "99.8"
-    assert at_the_precision_of(76.923, 2.3) == "76.9"
+def test_a_reading_is_never_rounded_against_its_own_spread() -> None:
+    # A deviation says how far a quantity moved while nobody was
+    # looking, which is no statement about how well the instrument
+    # measured it. Only the average is rounded against it.
+    assert for_display(-7.441802197802218) == "-7.441802197802218"
+    assert for_display(99.76556776556775) == "99.76556776556775"
 
 
-def test_a_reading_with_nothing_to_round_against_says_so() -> None:
-    # `None` rather than a guess, so the caller falls back to showing
-    # the reading in full rather than inventing a precision.
-    assert at_the_precision_of(76.923, None) is None
-    assert at_the_precision_of(76.923, 0.0) is None
-    assert at_the_precision_of(76.923, float("inf")) is None
-    assert at_the_precision_of(float("nan"), 1.0) is None
+def test_a_reading_that_is_not_finite_is_shown_as_it_is() -> None:
+    # nan and inf have no precision to be displayed at, and both print
+    # fine as they are.
+    assert for_display(float("nan")) == "nan"
+    assert for_display(float("inf"), precision=3) == "inf"
+
+
+def test_a_precision_gives_exactly_that_many_decimals() -> None:
+    # Including the trailing zeros: somebody who wrote `precision = 3`
+    # is saying the instrument resolves that far.
+    assert for_display(76.85, precision=3) == "76.850"
+
+
+def test_a_forced_style_overrides_the_magnitude_rule() -> None:
+    assert for_display(76.85, style="scientific") == "7.685e+01"
+    assert for_display(2.765e14, style="plain") == "276500000000000.0"
+
+
+def test_no_instruction_at_all_falls_back_to_the_plain_rule() -> None:
+    # No precision and no style: shown the way any other reading is.
+    assert for_display(76.85) == "76.85"
+
+
+# --------------------------------------------------------------------------
+# An average is never quoted finer than its deviation
+# --------------------------------------------------------------------------
+
+
+def _place(text: str) -> int:
+    """The decimal place of the last digit `text` actually prints.
+
+    `Decimal` reads it off the written form rather than the value, which
+    is the whole question here: `76.85` resolves to 1e-2 and `2.7e+05`
+    to 1e+04, however close the two happen to be as numbers.
+    """
+    from decimal import Decimal
+
+    return int(Decimal(text).as_tuple().exponent)
+
+
+@pytest.mark.parametrize(
+    ("mean", "sd"),
+    [
+        # Shapes taken from a running lab: a wavemeter at 276 THz, a
+        # vacuum gauge, a cryostat, a beam wandering further than its
+        # own reading, and room temperature.
+        (276561299886778.84, 1534893.1913595975),
+        (1.4720792215568853e-07, 2.732690203837357e-08),
+        (3.8761035995250994e-08, 3.598960146214997e-08),
+        (4.252718562874251, 0.17668588580785222),
+        (-0.13543827463249214, 19.070777954794192),
+        (20.78907185628743, 0.901774826760567),
+        (95.55741999054412, 8.932080162400563),
+    ],
+)
+def test_the_average_is_never_printed_finer_than_the_deviation(
+    mean: float, sd: float
+) -> None:
+    # The two are rounded against each other, so the average can be
+    # coarser — a reading smaller than its own spread is cut to a single
+    # figure — but never finer, which would claim a precision the spread
+    # denies. The one exception is the floor below, which only applies
+    # where the spread is wider than the average it is quoted against.
+    shown, deviation = quote(mean, sd)
+
+    if abs(mean) < abs(sd):
+        return
+    assert _place(shown) >= _place(deviation)
+
+
+def test_an_average_smaller_than_its_spread_is_allowed_to_be_coarser() -> None:
+    # Cut to the one figure the floor keeps, which is far coarser than
+    # the average's own seventeen digits and says the quantity is smaller
+    # than the noise it was measured in.
+    shown, _deviation = quote(0.0001, 0.019)
+
+    assert shown == "1e-04"
+
+
+def test_an_average_swamped_by_its_spread_keeps_one_figure() -> None:
+    # Rounding it to the spread's place gives a bare `0`, which throws
+    # away the sign and the magnitude both. The deviation beside it
+    # already says how soft the number is.
+    shown, deviation = quote(-0.13543827463249214, 19.070777954794192)
+
+    assert shown == "-0.1"
+    assert deviation == "19"
+    assert _place(shown) < _place(deviation)
+
+
+def test_a_precision_in_scientific_style_counts_significant_figures() -> None:
+    # Decimal places are the wrong question for a vacuum gauge:
+    # `precision = 2` on 1.02e-07 would ask for `0.00`.
+    assert for_display(1.0215499803546169e-07, precision=2, style="scientific") == (
+        "1.02e-07"
+    )
+    assert for_display(76.85, precision=3, style="scientific") == "7.685e+01"

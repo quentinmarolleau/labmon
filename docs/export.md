@@ -349,21 +349,21 @@ silent pressure gauge.
 ### How the window behaved, not just where it ended
 
 A latest value alone cannot say whether a sensor is holding steady or
-swinging. `--stats` adds the mean, the standard deviation and the number
-of readings over the same window:
+swinging. `--stats` adds the average, the standard deviation and the
+number of readings over the same window:
 
 ```bash
 labmon query latest --stats --since 24h
 ```
 
 ```
-measurement  sensor_id      value                  unit  age     mean             sd       n    
------------  -------------  ---------------------  ----  ------  ---------------  -------  -----
-frequency    wavemeter-1    2.765612976e+14        Hz    2s ago  2.765612998e+14  2.0e+06  13101
-frequency    wavemeter-thz  276.5613007            THz   4h ago  276.56130115     3.1e-07  8
-position     beam-x         6.462197802197792      µm    2s ago  0                19       26189
-position     beam-y         21.799340659340643     µm    2s ago  0                16       26189
-power        laser-1        90.24996336996337      mW    2s ago  95.0             8.8      26189
+measurement  sensor_id      value                  unit  age      average          σ        N    
+-----------  -------------  ---------------------  ----  -------  ---------------  -------  -----
+frequency    wavemeter-1    2.765613011e+14        Hz    0s ago   2.765612998e+14  1.9e+06  17392
+frequency    wavemeter-thz  276.5613007            THz   19h ago  276.56130115     3.1e-07  8
+position     beam-x         22.932219780219782     µm    2s ago   0                19       34765
+position     beam-y         -22.199692307692317    µm    2s ago   0                16       34765
+power        laser-1        89.18703296703298      mW    2s ago   95.0             8.8      34765
 ```
 
 These come from the **same grouping as the value**, in the same query —
@@ -373,27 +373,28 @@ without them and 63.5 ms with, which is to say the difference is below
 the noise. They also cannot describe a different window from the value
 they sit beside, which a second query could.
 
-`n` is worth as much as the other two. Sensors here legitimately run
+`N` is worth as much as the other two. Sensors here legitimately run
 from 1 Hz to once a minute, so it is what separates "quiet because
 nothing changed" from "quiet because it stopped" — and it says how much
-the mean is standing on.
+the average is standing on.
 
-**The mean and the deviation are rounded against each other**, which is
-the one place labmon does round. A stored reading is shown in full
-because the sensor already rounded it to the resolution it claims; a
-mean is computed, so its shortest round-tripping form runs to seventeen
-digits for readings that were only ever good to four. The deviation is
-therefore cut to two significant figures and the mean to the same
+**The average and the deviation are rounded against each other**, which
+is the one place labmon does round. A stored reading is shown in full
+because the sensor already rounded it to the resolution it claims; an
+average is computed, so its shortest round-tripping form runs to
+seventeen digits for readings that were only ever good to four. The
+deviation is cut to two significant figures and the average to the same
 decimal place, but never past one significant figure of its own. A
 wavemeter stable to `3.1e-07` keeps eleven digits; a beam centred at
 `0.0196` with a spread of `16` reads as `0.02`.
 
-The floor matters where the spread is the wider of the two. Rounding
-that beam to the spread's place gives a bare `0`, which states the one
-thing already visible from the deviation beside it — that the centre
-lies somewhere inside ±16 — while discarding the centring itself, sign
-and all. One figure is enough to recover both, and a second would only
-sharpen a number the deviation beside it has already called soft.
+So **the average is not printed to a finer resolution than σ**, except
+where σ is the wider of the two and would otherwise take the whole
+average with it. Rounding that beam to σ's place gives a bare `0`,
+which states the one thing already visible from the deviation beside
+it — that the centre lies somewhere inside ±16 — while discarding the
+centring itself, sign and all. One figure is enough to recover both,
+and a second would only sharpen a number σ has already called soft.
 
 A sensor with one reading in the window has no sample deviation — the
 column is left blank rather than filled with `0`, which would claim a
@@ -410,19 +411,25 @@ labmon therefore remembers the sensors it has seen, and unions that list
 into the result:
 
 ```
-sensor_id   measurement  value   unit  age
-----------  -----------  ------  ----  -------
-cryo-diode  temperature  17.1    K     1s ago
-room-1      temperature  20.518  °C    2s ago
-probe-158   temperature          K     1h ago
+sensor_id   measurement  value    unit  age
+----------  -----------  -------  ----  -------
+cryo-diode  temperature  17.1     K     1s ago
+room-1      temperature  20.518   °C    2s ago
+probe-158   temperature  21.0691  K     1h ago
 
 6 sensors
 1 of them reported nothing in this window — remembered from a previous run
 ```
 
-`probe-158` reported nothing inside the window. Its **value is left
-blank rather than filled with the last reading it ever sent**: printed
-beside a fresh number from another sensor, an old one reads as current.
+`probe-158` reported nothing inside the window. Its value is **the last
+reading the roster saw**, not one from this window — what an instrument
+was reading when it went quiet is usually the question being asked of
+it, and a cryostat that stopped at 4 K is a different morning from one
+that stopped at 300 K. The `age` column sits beside it in every view and
+says the number is an hour old.
+
+A roster written before readings were remembered has none to show, so
+those rows keep a blank value until the sensor is seen again.
 
 The rule the cache follows is that **it may only add sensors, never
 replace or filter them.** Used as a union a stale cache is harmless, and

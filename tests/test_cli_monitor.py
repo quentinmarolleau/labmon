@@ -5,13 +5,16 @@ import io
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import cast
+from typing import cast, override
 
 import pyarrow as pa
 import pytest
+from textual.widgets import OptionList
 
 from labmon.cli import monitor
+from labmon.cli.age import Freshness
 from labmon.cli.main import build_app
+from labmon.config import Display, Panel
 from tests.cli_runner import Invocation, invoke
 
 _NOW = datetime(2026, 8, 26, 12, 0, tzinfo=UTC)
@@ -287,6 +290,8 @@ def test_the_flags_reach_the_panel(monkeypatch: pytest.MonkeyPatch) -> None:
             "sensor_ids": ["cryo-77k"],
             "window": "1h",
             "refresh": 5.0,
+            "panels": (),
+            "display": (),
             "tz": UTC,
         }
     ]
@@ -317,19 +322,148 @@ def test_the_configuration_supplies_the_defaults(
     assert built[0]["window"] == "6h"
 
 
-def test_r_refreshes_without_waiting(monkeypatch: pytest.MonkeyPatch) -> None:
+def _prompts(offered: OptionList) -> list[str]:
+    """Every choice the menu shows, in the order it shows them.
+
+    Stripped of the padding that centres each rate under the heading.
+    """
+    return [
+        str(offered.get_option_at_index(index).prompt).strip()
+        for index in range(offered.option_count)
+    ]
+
+
+def test_r_opens_the_rate_menu_on_the_rate_in_force(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The panel refreshes itself, so a key that forces one early buys
+    # nothing. Changing how often it happens is the thing somebody
+    # standing at the bench actually wants.
+    monkeypatch.setattr("labmon.influx.get_client", PanelClient)
+    from labmon.cli.tui import Panel, Rate
+
+    async def scenario() -> None:
+        app = Panel(measurements=None, sensor_ids=None, window="15m", refresh=10.0)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("r")
+            await pilot.pause()
+
+            assert isinstance(app.screen, Rate)
+            offered = app.screen.query_one(OptionList)
+            assert _prompts(offered) == [
+                "1s",
+                "2s",
+                "5s",
+                "10s",
+                "30s",
+                "60s",
+            ]
+            # Opened on the cadence the panel is running at, so the menu
+            # says what it is doing as well as what it could do.
+            assert offered.highlighted == 3
+
+    _drive(scenario)
+
+
+def test_choosing_a_rate_from_the_menu_adopts_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("labmon.influx.get_client", PanelClient)
+    from labmon.cli.tui import Panel, Rate
+
+    async def scenario() -> None:
+        app = Panel(measurements=None, sensor_ids=None, window="15m", refresh=2.0)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("r")
+            await pilot.pause()
+            await pilot.press("down", "down", "enter")
+            await pilot.pause()
+
+            assert app.refresh_rate == 10.0
+            assert not isinstance(app.screen, Rate)
+
+    _drive(scenario)
+
+
+def test_leaving_the_rate_menu_changes_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("labmon.influx.get_client", PanelClient)
+    from labmon.cli.tui import Panel, Rate
+
+    async def scenario() -> None:
+        app = Panel(measurements=None, sensor_ids=None, window="15m", refresh=2.0)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("r")
+            await pilot.pause()
+            await pilot.press("escape")
+            await pilot.pause()
+
+            assert app.refresh_rate == 2.0
+            assert not isinstance(app.screen, Rate)
+            assert app.is_running
+
+    _drive(scenario)
+
+
+def test_the_configured_rate_is_on_the_menu(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A cadence nobody would have picked from a list of round numbers is
+    # still the one written in the file, so it has to be offered.
     monkeypatch.setattr("labmon.influx.get_client", PanelClient)
     from labmon.cli.tui import Panel
 
     async def scenario() -> None:
-        app = Panel(measurements=None, sensor_ids=None, window="15m", refresh=3600.0)
+        app = Panel(measurements=None, sensor_ids=None, window="15m", refresh=3.0)
         async with app.run_test() as pilot:
             await pilot.pause()
-            first = app.latest.taken
             await pilot.press("r")
             await pilot.pause()
+
+            assert "3s" in _prompts(app.screen.query_one(OptionList))
+
+    _drive(scenario)
+
+
+def test_changing_the_rate_says_so_without_re_querying(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A cadence is not a reading. Re-querying to redraw a status line
+    # would put a database round trip behind a keystroke for nothing.
+    monkeypatch.setattr("labmon.influx.get_client", PanelClient)
+    from labmon.cli.tui import Panel
+
+    async def scenario() -> None:
+        app = Panel(measurements=None, sensor_ids=None, window="15m", refresh=2.0)
+        async with app.run_test() as pilot:
             await pilot.pause()
-            assert app.latest.taken >= first
+            taken = app.latest.taken
+
+            calls: list[object] = []
+
+            def counted(*args: object, **kwargs: object) -> monitor.Snapshot:
+                # Recorded rather than raised: this runs on a worker
+                # thread, where an exception would be logged and the
+                # test would pass regardless.
+                calls.append((args, kwargs))
+                return monitor.Snapshot(taken=datetime.now(UTC))
+
+            monkeypatch.setattr("labmon.cli.tui.take", counted)
+            await pilot.press("r")
+            await pilot.pause()
+            await pilot.press("down", "enter")
+            await pilot.pause()
+
+            assert not calls
+            assert app.refresh_rate == 5.0
+            assert app.latest.taken == taken
+            assert "every 5s" in monitor.status(
+                app.latest, window="15m", refresh=app.refresh_rate
+            )
 
     _drive(scenario)
 
@@ -353,7 +487,7 @@ def test_a_failed_refresh_keeps_the_last_good_table(
                 return monitor.Snapshot(taken=datetime.now(UTC), error="unreachable")
 
             monkeypatch.setattr("labmon.cli.tui.take", fail)
-            await pilot.press("r")
+            app.refresh_now()
             await pilot.pause()
             await pilot.pause()
 
@@ -453,12 +587,18 @@ def test_the_missing_extra_message_names_the_interpreter(
 
 def _drawn(snapshot: "monitor.Snapshot", width: int = 100) -> str:
     """The panel rendered to plain text, without starting an app."""
-    from rich.console import Console
 
     from labmon.cli.tui import panel
 
+    return _to_text(panel(snapshot, window="15m", refresh=2.0), width=width)
+
+
+def _to_text(renderable: object, width: int) -> str:
+    """Anything Rich can draw, as the plain text it draws to."""
+    from rich.console import Console, RenderableType
+
     console = Console(width=width, record=True, file=io.StringIO())
-    console.print(panel(snapshot, window="15m", refresh=2.0))
+    console.print(cast("RenderableType", renderable))
     return console.export_text()
 
 
@@ -516,18 +656,18 @@ def test_nothing_is_ever_ellipsised(
     assert "…" not in drawn
 
 
-def test_readings_are_rounded_for_a_glance(
+def test_readings_are_shown_exactly_as_stored(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # The panel is read from across a room. `labmon query latest` is the
-    # one that promises the value exactly as stored.
+    # A reading is recorded, not computed. Only the average and the
+    # deviation are rounded, and only against each other — a sensor
+    # whose full reading is too long to glance at is given a precision.
     monkeypatch.setattr("labmon.influx.get_client", PanelClient)
 
     taken = monitor.take(None, None, "15m", now=_NOW)
     values = [row.cells[taken.columns.index("value")] for row in taken.rows]
 
-    assert "77.01" not in values
-    assert "77.010" in values
+    assert "77.01" in values
 
 
 def test_the_status_line_counts_the_sensors_that_have_gone_quiet(
@@ -580,3 +720,757 @@ def test_the_table_is_centred_on_a_wide_terminal(
             assert region.x + region.width < app.size.width
 
     _drive(scenario)
+
+
+# --------------------------------------------------------------------------
+# Tiles
+# --------------------------------------------------------------------------
+
+
+def _taken(monkeypatch: pytest.MonkeyPatch) -> "monitor.Snapshot":
+    # Real `now`, because PanelClient stamps its rows relative to the
+    # real clock: pinning one side and not the other makes a sensor that
+    # stopped three hours ago look like one reporting from the future.
+    monkeypatch.setattr("labmon.influx.get_client", PanelClient)
+    return monitor.take(None, None, "15m")
+
+
+def test_a_tile_is_made_for_each_panel_in_the_order_written(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    taken = _taken(monkeypatch)
+    panels = (Panel(sensor_id="abandoned"), Panel(sensor_id="cryo-77k"))
+
+    made = monitor.tiles(taken, panels)
+
+    assert [tile.heading for tile in made] == ["abandoned", "cryo-77k"]
+
+
+def test_a_title_replaces_the_sensor_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    taken = _taken(monkeypatch)
+
+    made = monitor.tiles(taken, (Panel(sensor_id="cryo-77k", title="Cold finger"),))
+
+    assert made[0].heading == "Cold finger"
+
+
+def test_a_tile_always_says_which_measurement_it_settled_on(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # `measurement` is optional in the file, so what is on screen must
+    # not be ambiguous even when the configuration was.
+    taken = _taken(monkeypatch)
+
+    made = monitor.tiles(taken, (Panel(sensor_id="cryo-77k"),))
+
+    assert made[0].measurement == "temperature"
+
+
+def test_a_panel_naming_a_sensor_that_is_not_reporting_still_gets_a_tile(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Silently dropping it is the failure this whole feature exists to
+    # prevent: the tile you configured is the one you are watching for.
+    taken = _taken(monkeypatch)
+
+    made = monitor.tiles(taken, (Panel(sensor_id="nowhere"),))
+
+    assert made[0].found is False
+    assert made[0].reading == ""
+
+
+def test_precision_wins_over_the_automatic_rounding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    taken = _taken(monkeypatch)
+
+    made = monitor.tiles(taken, (Panel(sensor_id="cryo-77k", precision=3),))
+
+    assert made[0].reading == "77.010"
+
+
+def test_a_format_forces_scientific(monkeypatch: pytest.MonkeyPatch) -> None:
+    taken = _taken(monkeypatch)
+
+    made = monitor.tiles(taken, (Panel(sensor_id="cryo-77k", format="scientific"),))
+
+    assert "e+" in made[0].reading
+
+
+def test_a_reading_above_the_threshold_raises_the_alarm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    taken = _taken(monkeypatch)
+
+    made = monitor.tiles(taken, (Panel(sensor_id="cryo-77k", warn_above=70.0),))
+
+    assert made[0].alarm is not None
+    assert "70" in made[0].alarm
+
+
+def test_a_reading_below_the_threshold_raises_the_alarm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    taken = _taken(monkeypatch)
+
+    made = monitor.tiles(taken, (Panel(sensor_id="cryo-77k", warn_below=80.0),))
+
+    assert made[0].alarm is not None
+
+
+def test_a_reading_between_the_thresholds_is_quiet(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    taken = _taken(monkeypatch)
+
+    made = monitor.tiles(
+        taken, (Panel(sensor_id="cryo-77k", warn_above=80.0, warn_below=70.0),)
+    )
+
+    assert made[0].alarm is None
+
+
+def test_a_sensor_that_is_not_reporting_raises_no_alarm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # There is no reading to be out of range, and "nothing is arriving"
+    # is a different thing to say than "it is too hot".
+    taken = _taken(monkeypatch)
+
+    made = monitor.tiles(taken, (Panel(sensor_id="nowhere", warn_above=1.0),))
+
+    assert made[0].alarm is None
+    assert made[0].found is False
+
+
+def _quiet(
+    monkeypatch: pytest.MonkeyPatch, value: float | None = 4.2
+) -> "monitor.Snapshot":
+    """A snapshot whose roster remembers a sensor the query did not return."""
+    from labmon.cli.roster import Known, cache_path, merge, save
+
+    save(
+        cache_path(),
+        merge(
+            {},
+            [
+                Known(
+                    sensor_id="departed",
+                    measurement="temperature",
+                    unit="K",
+                    last_seen=datetime.now(UTC) - timedelta(days=3),
+                    value=value,
+                )
+            ],
+        ),
+    )
+    monkeypatch.setattr("labmon.influx.get_client", PanelClient)
+    return monitor.take(None, None, "15m")
+
+
+def test_a_quiet_tile_shows_what_the_sensor_was_last_reading(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # An empty tile answers none of the questions asked of an instrument
+    # that stopped. What it was reading when it stopped answers most.
+    taken = _quiet(monkeypatch)
+
+    made = monitor.tiles(taken, (Panel(sensor_id="departed", title="Gone"),))
+
+    assert made[0].reading == "4.2"
+    assert made[0].unit == "K"
+    assert "ago" in made[0].age
+
+
+def test_a_quiet_tile_is_still_marked_as_not_reporting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # It carries a number, so something has to say the number is not
+    # current — that is what `found` drives on screen.
+    taken = _quiet(monkeypatch)
+
+    made = monitor.tiles(taken, (Panel(sensor_id="departed"),))
+
+    assert made[0].found is False
+
+
+def test_a_remembered_reading_never_raises_the_alarm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A threshold is a claim about the experiment right now, and a
+    # three-day-old number cannot support one. The tile is already
+    # marked as not reporting, which is the accurate alarm to raise.
+    taken = _quiet(monkeypatch)
+
+    made = monitor.tiles(taken, (Panel(sensor_id="departed", warn_above=1.0),))
+
+    assert made[0].alarm is None
+    assert made[0].reading == "4.2"
+
+
+def test_a_quiet_sensor_with_nothing_remembered_shows_no_reading(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A roster written before readings were remembered.
+    taken = _quiet(monkeypatch, value=None)
+
+    made = monitor.tiles(taken, (Panel(sensor_id="departed"),))
+
+    assert made[0].reading == ""
+    assert made[0].found is False
+
+
+def test_a_tile_carries_its_age_and_freshness(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    taken = _taken(monkeypatch)
+
+    made = monitor.tiles(taken, (Panel(sensor_id="abandoned"),))
+
+    assert "ago" in made[0].age
+    assert made[0].state is Freshness.STALE
+
+
+# --------------------------------------------------------------------------
+# Tiles on screen
+# --------------------------------------------------------------------------
+
+_LAYOUT = """
+window = "15m"
+
+[[panels]]
+sensor_id = "cryo-77k"
+title = "Cold finger"
+precision = 3
+warn_above = 70.0
+
+[[panels]]
+sensor_id = "nowhere"
+title = "Missing"
+"""
+
+
+def _layout(tmp_path: Path) -> Path:
+    path = tmp_path / "bakeout.toml"
+    _ = path.write_text(_LAYOUT)
+    return path
+
+
+def test_a_layout_draws_tiles_instead_of_the_table(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr("labmon.influx.get_client", PanelClient)
+    from labmon.cli.tui import Panel, Stat
+    from labmon.config import load_monitor
+
+    settings = load_monitor(_layout(tmp_path))
+
+    async def scenario() -> None:
+        app = Panel(
+            measurements=None,
+            sensor_ids=None,
+            window=settings.window,
+            refresh=3600.0,
+            panels=settings.panels,
+        )
+        async with app.run_test(size=(110, 34)) as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            drawn = list(app.query(Stat))
+            assert len(drawn) == 2
+            # A table would have been mounted instead.
+            assert not app.query("#table")
+
+    _drive(scenario)
+
+
+def test_every_tile_has_a_width_to_be_read_at(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # A grid whose columns are `auto` collapses its children to zero
+    # width, which mounts six tiles nobody can see.
+    monkeypatch.setattr("labmon.influx.get_client", PanelClient)
+    from labmon.cli.tui import Panel, Stat
+    from labmon.config import load_monitor
+
+    settings = load_monitor(_layout(tmp_path))
+
+    async def scenario() -> None:
+        app = Panel(
+            measurements=None,
+            sensor_ids=None,
+            window=settings.window,
+            refresh=3600.0,
+            panels=settings.panels,
+        )
+        async with app.run_test(size=(110, 34)) as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            for tile in app.query(Stat):
+                assert tile.region.width > 10
+                assert tile.region.height > 4
+
+    _drive(scenario)
+
+
+def test_a_tile_over_its_threshold_is_marked(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr("labmon.influx.get_client", PanelClient)
+    from labmon.cli.tui import Panel, Stat
+    from labmon.config import load_monitor
+
+    settings = load_monitor(_layout(tmp_path))
+
+    async def scenario() -> None:
+        app = Panel(
+            measurements=None,
+            sensor_ids=None,
+            window=settings.window,
+            refresh=3600.0,
+            panels=settings.panels,
+        )
+        async with app.run_test(size=(110, 34)) as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            classes = [tile.classes for tile in app.query(Stat)]
+            assert "alarm" in classes[0]
+            assert "missing" in classes[1]
+
+    _drive(scenario)
+
+
+def test_the_config_flag_supplies_the_layout(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    built: list[dict[str, object]] = []
+
+    class Recording:
+        def __init__(self, **kwargs: object) -> None:
+            built.append(kwargs)
+
+        def run(self) -> None:
+            return None
+
+    monkeypatch.setattr("labmon.cli.tui.Panel", Recording)
+
+    result = _run("monitor", "--config", str(_layout(tmp_path)))
+
+    assert result.exit_code == 0, result.output
+    assert built[0]["window"] == "15m"
+    panels = cast(tuple[Panel, ...], built[0]["panels"])
+    assert [panel.sensor_id for panel in panels] == ["cryo-77k", "nowhere"]
+
+
+def test_a_layout_file_that_is_not_there_is_reported(tmp_path: Path) -> None:
+    result = _run("monitor", "--config", str(tmp_path / "nope.toml"))
+
+    assert result.exit_code != 0
+    assert "Traceback" not in result.output
+
+
+def test_a_tile_naming_its_measurement_takes_that_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # How a probe that writes both a temperature and a pressure says
+    # which of the two this tile is for.
+    taken = _taken(monkeypatch)
+
+    made = monitor.tiles(
+        taken, (Panel(sensor_id="cryo-77k", measurement="temperature"),)
+    )
+
+    assert made[0].measurement == "temperature"
+    assert made[0].found is True
+
+
+def test_a_tile_naming_a_measurement_that_sensor_does_not_write_is_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    taken = _taken(monkeypatch)
+
+    made = monitor.tiles(taken, (Panel(sensor_id="cryo-77k", measurement="pressure"),))
+
+    assert made[0].found is False
+
+
+def test_a_tile_told_nothing_shows_the_reading_as_stored(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The same treatment the fallback table gives.
+    taken = _taken(monkeypatch)
+
+    made = monitor.tiles(taken, (Panel(sensor_id="cryo-77k"),))
+
+    assert made[0].reading == "77.01"
+
+
+def test_a_tile_shows_its_reading_without_any_statistics(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A result fetched without `--stats` carries no average or deviation
+    # at all, and the reading is unaffected either way.
+    class NoStats(PanelClient):
+        @override
+        def query(self, query: str, *args: object, **kwargs: object) -> pa.Table:
+            table = super().query(query, *args, **kwargs)  # pyright: ignore[reportArgumentType]
+            if "sd" in table.column_names:
+                return table.drop_columns(["mean", "sd", "n"])
+            return table
+
+    monkeypatch.setattr("labmon.influx.get_client", NoStats)
+    taken = monitor.take(None, None, "15m")
+
+    made = monitor.tiles(taken, (Panel(sensor_id="cryo-77k"),))
+
+    assert made[0].reading == "77.01"
+
+
+def test_a_fresh_tile_carries_no_state_class(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Colouring everything colours nothing; a healthy tile is plain.
+    monkeypatch.setattr("labmon.influx.get_client", PanelClient)
+    from labmon.cli.tui import Panel as App
+    from labmon.cli.tui import Stat
+
+    layout = tmp_path / "plain.toml"
+    _ = layout.write_text('[[panels]]\nsensor_id = "cryo-77k"\n')
+    from labmon.config import load_monitor
+
+    settings = load_monitor(layout)
+
+    async def scenario() -> None:
+        app = App(
+            measurements=None,
+            sensor_ids=None,
+            window="15m",
+            refresh=3600.0,
+            panels=settings.panels,
+        )
+        async with app.run_test(size=(110, 20)) as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            tile = next(iter(app.query(Stat)))
+            assert "alarm" not in tile.classes
+            assert "missing" not in tile.classes
+            assert "stale" not in tile.classes
+
+    _drive(scenario)
+
+
+def test_a_stale_tile_is_marked_without_being_an_alarm(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr("labmon.influx.get_client", PanelClient)
+    from labmon.cli.tui import Panel as App
+    from labmon.cli.tui import Stat
+
+    layout = tmp_path / "old.toml"
+    _ = layout.write_text('[[panels]]\nsensor_id = "abandoned"\n')
+    from labmon.config import load_monitor
+
+    settings = load_monitor(layout)
+
+    async def scenario() -> None:
+        app = App(
+            measurements=None,
+            sensor_ids=None,
+            window="15m",
+            refresh=3600.0,
+            panels=settings.panels,
+        )
+        async with app.run_test(size=(110, 20)) as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            tile = next(iter(app.query(Stat)))
+            assert "stale" in tile.classes
+            assert "alarm" not in tile.classes
+
+    _drive(scenario)
+
+
+def test_a_tile_for_a_sensor_with_one_reading_still_draws(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A single sample in the window gives a NULL sample deviation, which
+    # renders as a blank cell. Everything downstream has to cope with
+    # that rather than take the tick down.
+    class OneSample(PanelClient):
+        @override
+        def query(self, query: str, *args: object, **kwargs: object) -> pa.Table:
+            table = super().query(query, *args, **kwargs)  # pyright: ignore[reportArgumentType]
+            if "sd" not in table.column_names:
+                return table
+            return table.drop_columns(["sd"]).append_column(
+                "sd", pa.array([None, None], pa.float64())
+            )
+
+    monkeypatch.setattr("labmon.influx.get_client", OneSample)
+    taken = monitor.take(None, None, "15m")
+
+    made = monitor.tiles(taken, (Panel(sensor_id="cryo-77k"),))
+
+    assert made[0].reading == "77.01"
+
+
+# --------------------------------------------------------------------------
+# Keys
+# --------------------------------------------------------------------------
+
+
+def test_the_cadence_ladder_carries_the_configured_rate() -> None:
+    assert 3.0 in monitor.cadences(3.0)
+    assert monitor.cadences(2.0) == monitor.RATES
+
+
+def test_the_menu_is_in_order_and_free_of_duplicates() -> None:
+    offered = monitor.cadences(5.0)
+
+    assert list(offered) == sorted(set(offered))
+
+
+def test_the_keys_list_is_built_from_the_bindings() -> None:
+    # Written out by hand it would drift from the bindings the moment
+    # one of them changed, which is exactly when it is read.
+    from labmon.cli.tui import Panel as App
+    from labmon.cli.tui import keys_table
+
+    rendered = _to_text(keys_table(App.BINDINGS), width=80)
+
+    assert "?" in rendered
+    assert "Menu" not in rendered  # the tooltip, not the terse footer label
+    assert "command palette" in rendered
+
+
+def test_a_binding_written_as_a_tuple_is_still_listed() -> None:
+    from labmon.cli.tui import keys_table
+
+    rendered = _to_text(keys_table([("z", "zap", "Zap")]), width=80)
+
+    assert "z" in rendered
+    assert "Zap" in rendered
+
+
+def test_question_mark_opens_the_keys_and_escape_closes_them(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Textual's own help panel has no binding to close it: opened from
+    # the menu it can only be dismissed from the menu.
+    monkeypatch.setattr("labmon.influx.get_client", PanelClient)
+    from labmon.cli.tui import Keys
+    from labmon.cli.tui import Panel as App
+
+    async def scenario() -> None:
+        app = App(measurements=None, sensor_ids=None, window="15m", refresh=3600.0)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("?")
+            await pilot.pause()
+            assert isinstance(app.screen, Keys)
+
+            await pilot.press("escape")
+            await pilot.pause()
+            assert not isinstance(app.screen, Keys)
+
+    _drive(scenario)
+
+
+def test_q_closes_the_keys_rather_than_the_panel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Quitting to get a help screen off the panel is the failure this
+    # replaces, so the most obvious key has to dismiss it.
+    monkeypatch.setattr("labmon.influx.get_client", PanelClient)
+    from labmon.cli.tui import Keys
+    from labmon.cli.tui import Panel as App
+
+    async def scenario() -> None:
+        app = App(measurements=None, sensor_ids=None, window="15m", refresh=3600.0)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("?")
+            await pilot.pause()
+            await pilot.press("q")
+            await pilot.pause()
+
+            assert not isinstance(app.screen, Keys)
+            assert app.is_running
+
+    _drive(scenario)
+
+
+def test_the_footer_offers_the_panels_own_keys(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("labmon.influx.get_client", PanelClient)
+    from labmon.cli.tui import Panel as App
+
+    async def scenario() -> None:
+        app = App(measurements=None, sensor_ids=None, window="15m", refresh=3600.0)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            shown = {
+                active.binding.key: active.binding.description
+                for active in app.screen.active_bindings.values()
+                if active.binding.show
+            }
+
+            assert shown == {
+                "q": "Quit",
+                "r": "Change refresh rate",
+                "m": "Menu",
+                "question_mark": "Keys",
+            }
+
+    _drive(scenario)
+
+
+# --------------------------------------------------------------------------
+# Per-sensor display rules
+# --------------------------------------------------------------------------
+
+
+def _valued(snapshot: "monitor.Snapshot", sensor: str) -> str:
+    """One sensor's value cell, as the panel writes it."""
+    at = snapshot.columns.index("value")
+    row = next(row for row in snapshot.rows if row.sensor_id == sensor)
+    return row.cells[at]
+
+
+def test_a_display_rule_fixes_the_digits_in_the_table(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # `cryo-77k` reads 77.01 against a spread of 0.031, so the automatic
+    # rule quotes it to three decimals. A rule saying one wins.
+    monkeypatch.setattr("labmon.influx.get_client", PanelClient)
+
+    taken = monitor.take(
+        None, None, "15m", display=(Display(sensor_id="cryo-77k", precision=1),)
+    )
+
+    assert _valued(taken, "cryo-77k") == "77.0"
+
+
+def test_a_display_rule_can_force_scientific_notation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("labmon.influx.get_client", PanelClient)
+
+    taken = monitor.take(
+        None,
+        None,
+        "15m",
+        display=(Display(sensor_id="cryo-77k", format="scientific"),),
+    )
+
+    assert "e+" in _valued(taken, "cryo-77k")
+
+
+def test_a_display_rule_leaves_other_sensors_alone(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("labmon.influx.get_client", PanelClient)
+
+    taken = monitor.take(
+        None, None, "15m", display=(Display(sensor_id="cryo-77k", precision=1),)
+    )
+
+    assert _valued(taken, "abandoned") == "4.2"
+
+
+def test_a_display_rule_saying_nothing_changes_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A rule naming only a sensor is how somebody starts writing one.
+    # It must not quietly become `precision = 0`.
+    monkeypatch.setattr("labmon.influx.get_client", PanelClient)
+
+    plain = monitor.take(None, None, "15m")
+    ruled = monitor.take(None, None, "15m", display=(Display(sensor_id="cryo-77k"),))
+
+    assert _valued(ruled, "cryo-77k") == _valued(plain, "cryo-77k")
+
+
+def test_a_display_rule_reaches_a_quiet_sensor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The rule is about the instrument, not about the window, so it
+    # applies to a reading the roster remembered.
+    from labmon.cli.roster import Known, cache_path, merge, save
+
+    save(
+        cache_path(),
+        merge(
+            {},
+            [
+                Known(
+                    sensor_id="departed",
+                    measurement="temperature",
+                    unit="K",
+                    last_seen=datetime.now(UTC) - timedelta(days=3),
+                    value=4.196,
+                )
+            ],
+        ),
+    )
+    monkeypatch.setattr("labmon.influx.get_client", PanelClient)
+
+    taken = monitor.take(
+        None, None, "15m", display=(Display(sensor_id="departed", precision=1),)
+    )
+
+    assert _valued(taken, "departed") == "4.2"
+
+
+def test_a_tile_precision_wins_over_the_sensor_rule(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The rule says how the instrument is worth reading everywhere; the
+    # tile says how this one tile wants it.
+    taken = _taken(monkeypatch)
+
+    made = monitor.tiles(
+        taken,
+        (Panel(sensor_id="cryo-77k", precision=4),),
+        (Display(sensor_id="cryo-77k", precision=1),),
+    )
+
+    assert made[0].reading == "77.0100"
+
+
+def test_a_tile_without_a_precision_takes_the_sensor_rule(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    taken = _taken(monkeypatch)
+
+    made = monitor.tiles(
+        taken,
+        (Panel(sensor_id="cryo-77k"),),
+        (Display(sensor_id="cryo-77k", precision=1),),
+    )
+
+    assert made[0].reading == "77.0"
+
+
+def test_the_plain_table_ignores_display_rules() -> None:
+    # `labmon query latest` promises the reading exactly as stored, and
+    # is the escape hatch the panel's rounding points at. A rule under
+    # [monitor] must not close it.
+    from labmon.cli.render import latest_rows
+
+    table = pa.table(
+        {
+            "measurement": pa.array(["temperature"]),
+            "sensor_id": pa.array(["cryo-77k"]),
+            "time": pa.array([_NOW], pa.timestamp("ms", tz="UTC")),
+            "value": pa.array([77.0123456]),
+            "unit": pa.array(["K"]),
+        }
+    )
+
+    columns, rows = latest_rows(
+        table, _NOW, display=(Display(sensor_id="cryo-77k", precision=1),)
+    )
+
+    assert rows[0].cells[columns.index("value")] == "77.0123456"

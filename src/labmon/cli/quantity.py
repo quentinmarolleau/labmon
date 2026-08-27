@@ -156,21 +156,48 @@ def _for_mean(mean: float, place: int) -> int:
     return min(place, math.floor(math.log10(abs(mean))) - (MEAN_FIGURES - 1))
 
 
-def at_the_precision_of(value: float, sd: float | None) -> str | None:
-    """`value` rounded to where `sd` says its digits stop meaning anything.
+def for_display(
+    value: float, *, precision: int | None = None, style: str = "auto"
+) -> str:
+    """A reading written the way a sensor was told to write it.
 
-    For a panel read at a glance rather than a table read carefully.
-    `-7.441802197802218 µm` on a beam whose spread over the window is
-    16 µm is nineteen characters of which two carry information, and it
-    crowds out the rest of the row.
+    `precision` wins over everything: somebody who wrote `precision = 3`
+    wants three decimal places, including the trailing zeros that say
+    the instrument resolves that far.
 
-    Returns `None` when there is nothing to round against, so the caller
-    can fall back to showing the reading in full.
+    `style` forces plain or scientific where the automatic choice reads
+    badly for one particular sensor — a wavemeter whose digits all
+    matter, a gauge that never leaves the exponent.
+
+    Together they mean significant figures. Decimal places are the wrong
+    question for a vacuum gauge — `precision = 2` on `1.02e-07` asks for
+    `0.00` — so where a sensor is shown in scientific notation the same
+    number counts digits after the point of the mantissa instead. That
+    is what somebody asking for two digits of a pressure means.
+
+    `auto`, the default, is `show`: the reading exactly as stored.
+
+    Deliberately not rounded against the deviation of its own window.
+    That was tried, and it is the wrong statistic for the job — a
+    deviation says how far a quantity *moved* while nobody was looking,
+    not how well the instrument measured it. A beam wandering 19 µm
+    across half an hour had its position quoted to whole µm, and the
+    detector resolves far better than that. Rounding against the spread
+    stays where it belongs, on the average, which is computed from the
+    same window it describes. A sensor whose full reading is too long to
+    read at a glance is given a `precision`.
     """
-    if sd is None or not math.isfinite(sd) or sd == 0.0 or not math.isfinite(value):
-        return None
-    place = math.floor(math.log10(abs(sd))) - (DEVIATION_FIGURES - 1)
-    return _at_place(value, place)
+    if not math.isfinite(value):
+        return repr(value)
+    if precision is not None:
+        if style == "scientific":
+            return f"{value:.{precision}e}"
+        return f"{value:.{precision}f}"
+    if style == "scientific":
+        return _scientific(value)
+    if style == "plain":
+        return repr(value)
+    return show(value)
 
 
 def _at_place(value: float, place: int) -> str:

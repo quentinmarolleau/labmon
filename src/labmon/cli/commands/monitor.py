@@ -1,5 +1,6 @@
 """`labmon monitor` — a panel to leave open beside the experiment."""
 
+from pathlib import Path
 from typing import Annotated
 
 import typer
@@ -18,12 +19,14 @@ HELP = (
     + "\n\n"
     + "Shows what [bold]labmon query latest --stats[/bold] shows, drawn"
     + " again every couple of seconds. [bold]q[/bold] quits,"
-    + " [bold]r[/bold] refreshes without waiting."
+    + " [bold]r[/bold] changes the refresh rate, [bold]?[/bold] lists"
+    + " the keys."
     + "\n\n"
     + "Needs the [bold]tui[/bold] extra: pip install 'labmon[tui]'"
     + "\n\n"
     + "[bold]Examples[/bold]\n\n"
     + "    labmon monitor\n"
+    + "    labmon monitor --config bakeout.toml\n"
     + "    labmon monitor --since 1h --refresh 5s\n"
     + "    labmon monitor --measurement temperature"
 )
@@ -35,6 +38,17 @@ Refresh = Annotated[
         help="How often to redraw, as a duration (2s, 500ms is not a unit;"
         + " use 1s). Default: the configuration file, else 2s",
         metavar="EVERY",
+        show_default=False,
+    ),
+]
+
+Layout = Annotated[
+    Path | None,
+    typer.Option(
+        "--config",
+        help="A layout file for one procedure, overriding the [monitor]"
+        + " section of the user configuration",
+        metavar="FILE",
         show_default=False,
     ),
 ]
@@ -52,6 +66,7 @@ Window = Annotated[
 
 
 def monitor(
+    config: Layout = None,
     measurement: Measurements = None,
     sensor_id: SensorIds = None,
     since: Window = None,
@@ -59,12 +74,18 @@ def monitor(
     log_level: LogLevelOption = "INFO",  # pyright: ignore[reportArgumentType]
 ) -> None:
     """Watch current sensor values in the terminal, refreshing in place."""
-    from labmon.config import load
+    from labmon.config import load, load_monitor
     from labmon.export.window import WindowError, parse_duration, parse_instant
 
     configure(log_level)
-    config = load()
-    settings = config.monitor
+    # The user configuration, read once: it carries the reader's zone as
+    # well as the [monitor] defaults, and the panel needs both.
+    settings_file = load()
+
+    # A layout named on the command line replaces the [monitor] section
+    # whole. Merging the two would leave somebody unable to say "just
+    # these tiles" without first editing the file they were avoiding.
+    settings = load_monitor(config) if config is not None else settings_file.monitor
 
     cadence = settings.refresh
     if refresh is not None:
@@ -113,5 +134,7 @@ def monitor(
         sensor_ids=sensor_id,
         window=window,
         refresh=cadence,
-        tz=config.timezone,
+        panels=settings.panels,
+        display=settings.sensors,
+        tz=settings_file.timezone,
     ).run()

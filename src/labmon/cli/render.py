@@ -11,12 +11,14 @@ from datetime import UTC, datetime, timedelta, tzinfo
 from typing import TYPE_CHECKING, cast
 
 from labmon.cli.age import Freshness, describe, freshness
-from labmon.cli.quantity import at_the_precision_of, quote, show
+from labmon.cli.quantity import for_display, quote, show
+from labmon.config import display_for
 
 if TYPE_CHECKING:
     import pyarrow as pa
 
     from labmon.cli.roster import Known
+    from labmon.config import Display
 
 # Columns worth a terminal's width, in reading order. `calibration_id` and
 # `input_volts` are deliberately absent: they are provenance, they are in
@@ -157,6 +159,26 @@ LATEST_COLUMNS: tuple[str, ...] = (
     "n",
 )
 
+# What a column is called on screen, where that differs from the name
+# the database gives it. `σ` and `N` are how a spread and a sample size
+# are written on paper, and a panel beside an experiment is read by
+# somebody who writes them that way; `average` is spelled out because
+# `mean` beside `min` and `max` in a lab is a different word.
+#
+# Shared with the panel so the two views cannot label the same number
+# differently.
+LATEST_HEADINGS: dict[str, str] = {
+    "mean": "average",
+    "sd": "σ",
+    "n": "N",
+}
+
+
+def heading(name: str) -> str:
+    """What `name` is called on screen."""
+    return LATEST_HEADINGS.get(name, name)
+
+
 # SGR codes rather than a styling library: this is the only colour the
 # CLI emits, and reaching for one would pull an import into a path the
 # startup work deliberately keeps clear.
@@ -181,6 +203,20 @@ class LatestRow:
     cells: tuple[str, ...]
     age: timedelta
     state: Freshness
+    # What a tile needs and a table does not: the row's identity, and
+    # its reading as a number rather than as text. A threshold has to be
+    # compared against a float, and formatting it first only to parse it
+    # back would be a second place for the rounding rules to live.
+    sensor_id: str = ""
+    measurement: str = ""
+    unit: str = ""
+    reading: float | None = None
+    # True when this row came from the roster rather than the window —
+    # the sensor reported nothing, and `reading` is what it was last
+    # heard saying. Kept separate from `reading is None` because the two
+    # mean different things to a caller: a threshold must not fire on a
+    # remembered value, but a tile should still print it.
+    silent: bool = False
 
 
 def latest_rows(
@@ -188,7 +224,7 @@ def latest_rows(
     now: datetime,
     *,
     silent: "Sequence[Known]" = (),
-    round_values: bool = False,
+    display: "Sequence[Display]" = (),
 ) -> tuple[tuple[str, ...], list[LatestRow]]:
     """The columns worth showing, and one row per sensor, in order.
 
@@ -202,14 +238,22 @@ def latest_rows(
 
     A sensor the roster remembers but the query did not return sorts
     among the others rather than at the end. It is remembered, not
-    exiled, and its blank value already says what it is.
+    exiled, and its age says what it is.
 
-    `round_values` shows each reading at the precision its own deviation
-    over the window justifies. It is off for `labmon query latest`,
-    which promises the reading exactly as stored, and on for the panel,
-    which is read at a glance from across a room and where nineteen
-    digits of a beam position crowd out the rest of the row. Nothing is
-    lost: the exact value is one `labmon query latest` away.
+    Such a row carries the last reading the roster saw rather than a
+    blank. A blank answers none of the questions asked of a sensor that
+    has stopped — the useful one is what it was reading when it did, and
+    a cryostat that went quiet at 4 K is a different morning from one
+    that went quiet at 300 K. The age sits beside it in every view and
+    the colour marks it, so the number is never presented as current.
+
+    **A reading is shown exactly as stored** unless `display` says
+    otherwise. Only the average and the deviation are rounded, and only
+    against each other: a deviation says how far a quantity moved while
+    nobody was looking, which is no statement at all about how well the
+    instrument measured it. `display` is how a sensor whose full reading
+    is too long to read at a glance is given a precision — see
+    `labmon.config.Display`.
     """
     columns = {name: table.column(name).to_pylist() for name in table.column_names}
     present = tuple(name for name in LATEST_COLUMNS if name == "age" or name in columns)
@@ -219,7 +263,11 @@ def latest_rows(
         age = now - _as_datetime(columns["time"][index])
         # `mean` and `sd` are rounded against each other, so neither can
         # be formatted alone — see `labmon.cli.quantity.quote`.
-        summary = _summary(columns, index, round_values=round_values)
+        measurement = str(_at(columns, "measurement", index))
+        sensor = str(columns["sensor_id"][index])
+        summary = _summary(
+            columns, index, rule=display_for(display, sensor, measurement)
+        )
         cells = tuple(
             describe(age)
             if name == "age"
@@ -228,29 +276,40 @@ def latest_rows(
             else _cell(name, columns[name][index])
             for name in present
         )
+        reading = columns["value"][index]
         rows.append(
             (
-                (
-                    str(_at(columns, "measurement", index)),
-                    str(columns["sensor_id"][index]),
+                (measurement, sensor),
+                LatestRow(
+                    cells=cells,
+                    age=age,
+                    state=freshness(age),
+                    sensor_id=sensor,
+                    measurement=measurement,
+                    unit=str(_at(columns, "unit", index)),
+                    reading=reading if isinstance(reading, float) else None,
                 ),
-                LatestRow(cells=cells, age=age, state=freshness(age)),
             )
         )
 
     # Sensors the query returned nothing for, carried in from the roster.
-    # Their value column is left blank rather than filled with the last
-    # reading they ever sent: printed beside a fresh number from another
-    # sensor, an old one reads as current.
     for entry in silent:
         age = now - entry.last_seen
+        rule = display_for(display, entry.sensor_id, entry.measurement)
         rows.append(
             (
                 (entry.measurement, entry.sensor_id),
                 LatestRow(
-                    cells=tuple(_silent_cell(name, entry, age) for name in present),
+                    cells=tuple(
+                        _silent_cell(name, entry, age, rule) for name in present
+                    ),
                     age=age,
                     state=freshness(age),
+                    sensor_id=entry.sensor_id,
+                    measurement=entry.measurement,
+                    unit=entry.unit,
+                    reading=entry.value,
+                    silent=True,
                 ),
             )
         )
@@ -291,14 +350,18 @@ def render_latest(
     present, entries = latest_rows(table, now, silent=silent)
     rows = [row.cells for row in entries]
 
+    # Measured on the heading actually printed, not on the column name:
+    # `sd` is two characters and `σ` is one, so sizing by the internal
+    # name would leave the column a character wider than anything in it.
+    headings = [heading(name) for name in present]
     widths = [
-        max(len(name), *(len(row[position]) for row in rows))
-        for position, name in enumerate(present)
+        max(len(heading_text), *(len(row[position]) for row in rows))
+        for position, heading_text in enumerate(headings)
     ]
 
     lines = [
         "  ".join(
-            name.ljust(width) for name, width in zip(present, widths, strict=True)
+            name.ljust(width) for name, width in zip(headings, widths, strict=True)
         ),
         "  ".join("-" * width for width in widths),
     ]
@@ -321,7 +384,7 @@ def render_latest(
 
 
 def _summary(
-    columns: "dict[str, list[object]]", index: int, *, round_values: bool = False
+    columns: "dict[str, list[object]]", index: int, *, rule: "Display | None" = None
 ) -> dict[str, str]:
     """The cells one row's statistics decide, rounded against each other.
 
@@ -340,17 +403,27 @@ def _summary(
     shown, deviation = quote(mean, spread)
     cells = {"mean": shown, "sd": deviation}
 
-    if round_values:
-        reading = columns["value"][index]
-        if isinstance(reading, float):
-            matched = at_the_precision_of(reading, spread)
-            if matched is not None:
-                cells["value"] = matched
+    reading = columns["value"][index]
+    if rule is not None and isinstance(reading, float):
+        cells["value"] = _reading(reading, rule)
     return cells
 
 
-def _silent_cell(name: str, entry: "Known", age: timedelta) -> str:
-    """One cell for a sensor the query returned no reading for."""
+def _reading(value: float, rule: "Display") -> str:
+    """A reading written the way its sensor's display rule asks."""
+    return for_display(value, precision=rule.precision, style=rule.format)
+
+
+def _silent_cell(
+    name: str, entry: "Known", age: timedelta, rule: "Display | None" = None
+) -> str:
+    """One cell for a sensor the query returned no reading for.
+
+    The value is the one the roster remembers, shown exactly as a live
+    reading would be — it *was* a live reading, just not in this window.
+    The statistics are blank, because those describe a window this
+    sensor contributed nothing to and there is nothing to compute.
+    """
     if name == "age":
         return describe(age)
     if name == "sensor_id":
@@ -359,7 +432,10 @@ def _silent_cell(name: str, entry: "Known", age: timedelta) -> str:
         return entry.measurement
     if name == "unit":
         return entry.unit
-    # `value` and anything else: nothing was read, so nothing is shown.
+    if name == "value" and entry.value is not None:
+        return _reading(entry.value, rule) if rule is not None else show(entry.value)
+    # `mean`, `sd`, `n`, and a roster written before readings were
+    # remembered: nothing to show.
     return ""
 
 

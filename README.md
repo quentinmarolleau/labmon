@@ -317,7 +317,7 @@ labmon --install-completion
 
 `labmon query latest` answers the other question — what every sensor
 reads right now, and how long ago each last spoke, so a silent one shows
-up instead of quietly disappearing.
+up with the last reading it sent instead of quietly disappearing.
 
 [`docs/export.md`](docs/export.md) covers the formats, the time window
 spellings, completion for bash and zsh, and why the unit is a column
@@ -339,33 +339,44 @@ labmon monitor
 ```
 
 ```
-                                               labmon                                               
-╭─────────────┬───────────────┬─────────────────┬──────┬────────┬─────────────────┬─────────┬──────╮
-│ measurement │ sensor        │           value │ unit │ age    │            mean │      sd │    n │
-├─────────────┼───────────────┼─────────────────┼──────┼────────┼─────────────────┼─────────┼──────┤
-│ frequency   │ wavemeter-1   │ 2.765612976e+14 │ Hz   │ 2s ago │ 2.765613000e+14 │ 1.9e+06 │  899 │
-│ frequency   │ wavemeter-thz │                 │ THz  │ 4h ago │                 │         │      │
-│ position    │ beam-x        │               4 │ µm   │ 2s ago │               0 │      19 │ 1797 │
-│ position    │ beam-y        │              22 │ µm   │ 2s ago │               0 │      16 │ 1797 │
-│ power       │ laser-1       │            90.8 │ mW   │ 2s ago │            95.0 │     8.9 │ 1797 │
-│ pressure    │ chamber-1     │        1.40e-07 │ mbar │ 3s ago │        1.34e-07 │ 2.1e-08 │  360 │
-│ pressure    │ dual-probe    │                 │ mbar │ 6h ago │                 │         │      │
-│ pressure    │ pirani-1      │           9e-09 │ mbar │ 2s ago │         2.9e-08 │ 3.4e-08 │ 1797 │
-│ temperature │ cryo-4k       │            4.06 │ K    │ 3s ago │            4.26 │    0.24 │  360 │
-│ temperature │ cryo-77k      │            78.6 │ K    │ 3s ago │            76.8 │     1.7 │  360 │
-│ temperature │ cryo-diode    │              41 │ K    │ 2s ago │              28 │      11 │ 1797 │
-│ temperature │ dual-probe    │                 │ K    │ 6h ago │                 │         │      │
-│ temperature │ probe-158     │                 │ K    │ 8h ago │                 │         │      │
-│ temperature │ room-1        │           20.69 │ °C   │ 3s ago │           21.18 │    0.60 │  360 │
-│ temperature │ room-2        │           22.68 │ °C   │ 3s ago │           22.41 │    0.70 │  360 │
-│ voltage     │ bias-monitor  │            -3.1 │ V    │ 2s ago │               0 │     2.2 │ 1797 │
-╰─────────────┴───────────────┴─────────────────┴──────┴────────┴─────────────────┴─────────┴──────╯
-                       16 sensors, 4 quiet · window 30m · every 2s · 19:17:06
+                                               labmon
+╭─────────────┬───────────────┬─────────────────┬──────┬─────────┬─────────────────┬─────────┬──────╮
+│ measurement │ sensor        │           value │ unit │ age     │         average │       σ │    N │
+├─────────────┼───────────────┼─────────────────┼──────┼─────────┼─────────────────┼─────────┼──────┤
+│ frequency   │ wavemeter-1   │ 2.765613016e+14 │ Hz   │ 1s ago  │ 2.765612997e+14 │ 1.6e+06 │  900 │
+│ frequency   │ wavemeter-thz │     276.5613007 │ THz  │ 19h ago │                 │         │      │
+│ position    │ beam-x        │            5.98 │ µm   │ 2s ago  │               0 │      19 │ 1797 │
+│ position    │ beam-y        │           22.65 │ µm   │ 2s ago  │               0 │      16 │ 1797 │
+│ power       │ laser-1       │           100.1 │ mW   │ 2s ago  │            95.0 │     8.8 │ 1797 │
+│ pressure    │ chamber-1     │     1.80064e-07 │ mbar │ 2s ago  │        1.40e-07 │ 1.3e-08 │  360 │
+│ pressure    │ dual-probe    │     6.84648e-07 │ mbar │ 21h ago │                 │         │      │
+│ pressure    │ pirani-1      │        2.03e-08 │ mbar │ 2s ago  │         2.9e-08 │ 3.4e-08 │ 1797 │
+│ temperature │ cryo-4k       │           4.301 │ K    │ 2s ago  │            4.08 │    0.31 │  360 │
+│ temperature │ cryo-77k      │          74.807 │ K    │ 2s ago  │            77.6 │     1.3 │  360 │
+│ temperature │ cryo-diode    │           43.39 │ K    │ 2s ago  │              28 │      11 │ 1797 │
+│ temperature │ dual-probe    │         20.8026 │ K    │ 21h ago │                 │         │      │
+│ temperature │ probe-158     │         21.0691 │ K    │ 23h ago │                 │         │      │
+│ temperature │ room-1        │          20.996 │ °C   │ 2s ago  │           21.35 │    0.83 │  360 │
+│ temperature │ room-2        │           21.66 │ °C   │ 2s ago  │           22.27 │    0.45 │  360 │
+│ voltage     │ bias-monitor  │           2.847 │ V    │ 2s ago  │               0 │     2.2 │ 1797 │
+╰─────────────┴───────────────┴─────────────────┴──────┴─────────┴─────────────────┴─────────┴──────╯
+                       16 sensors, 4 quiet · window 30m · every 2s · 10:24:11
 ```
 
 Redraws in place, colours a sensor amber then red as it goes quiet, and
 keeps the last good table on screen when the database is briefly
 unreachable rather than tearing down the terminal.
+
+Name the handful of things you actually care about and it becomes a grid
+of tiles instead, each with the value large enough to read across the
+room, its unit, how long ago it arrived, and a colour change when it
+leaves the range you set:
+
+```bash
+labmon monitor --config monitor.example.toml
+```
+
+[`monitor.example.toml`](monitor.example.toml) works through every key;
 [`docs/monitor.md`](docs/monitor.md) has the rest.
 
 ## Running it across the lab

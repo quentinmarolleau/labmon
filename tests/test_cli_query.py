@@ -714,11 +714,47 @@ def test_a_sensor_silent_beyond_the_window_is_still_listed(
     assert "2d ago" in result.output
 
 
-def test_a_silent_sensor_shows_no_value_rather_than_a_stale_one(
+def test_a_silent_sensor_shows_what_it_was_last_reading(
     monkeypatch: pytest.MonkeyPatch, roster: "Path"
 ) -> None:
-    # Printing the last value it ever sent, next to a fresh reading from
-    # another sensor, would read as current.
+    # What an instrument was reading when it went quiet is usually the
+    # question being asked of it. The age sits in the same row and says
+    # the number is not current.
+    from labmon.cli.roster import Known, merge, save
+
+    save(
+        roster,
+        merge(
+            {},
+            [
+                Known(
+                    sensor_id="abandoned",
+                    measurement="temperature",
+                    unit="K",
+                    last_seen=datetime.now(UTC) - timedelta(days=2),
+                    value=4.2,
+                )
+            ],
+        ),
+    )
+    monkeypatch.setattr("labmon.influx.get_client", QuietClient)
+
+    line = next(
+        line
+        for line in _run("query", "latest").output.splitlines()
+        if " abandoned " in line
+    )
+
+    assert "4.2" in line
+    assert "2d ago" in line
+
+
+def test_a_roster_entry_with_no_remembered_value_shows_none(
+    monkeypatch: pytest.MonkeyPatch, roster: "Path"
+) -> None:
+    # A roster written before readings were remembered still lists its
+    # sensors, which is the whole point of the cache — it just has
+    # nothing to put in the value column for them.
     from labmon.cli.roster import Known, merge, save
 
     save(
@@ -743,7 +779,7 @@ def test_a_silent_sensor_shows_no_value_rather_than_a_stale_one(
         if " abandoned " in line
     )
 
-    assert "77.01" not in line
+    assert line.split() == ["temperature", "abandoned", "K", "2d", "ago"]
 
 
 def test_a_live_sensor_is_remembered_for_next_time(
@@ -784,6 +820,39 @@ def test_a_missing_unit_column_is_remembered_as_blank() -> None:
     )
 
     assert selection.known_from(table)[0].unit == ""
+
+
+def test_the_roster_remembers_the_reading_that_was_current() -> None:
+    table = pa.table(
+        {
+            "sensor_id": pa.array(["a"]),
+            "measurement": pa.array(["temperature"]),
+            "time": pa.array([datetime.now(UTC)], pa.timestamp("ms", tz="UTC")),
+            "value": pa.array([4.2]),
+            "unit": pa.array(["K"]),
+        }
+    )
+
+    assert selection.known_from(table)[0].value == 4.2
+
+
+def test_a_row_with_no_reading_is_remembered_without_one() -> None:
+    # The sensor is still worth remembering: the roster's job is knowing
+    # that it exists and has gone quiet, not what it last said.
+    table = pa.table(
+        {
+            "sensor_id": pa.array(["a"]),
+            "measurement": pa.array(["temperature"]),
+            "time": pa.array([datetime.now(UTC)], pa.timestamp("ms", tz="UTC")),
+            "value": pa.array([None], pa.float64()),
+            "unit": pa.array(["K"]),
+        }
+    )
+
+    entry = selection.known_from(table)[0]
+
+    assert entry.value is None
+    assert entry.sensor_id == "a"
 
 
 def test_an_unwritable_cache_does_not_fail_the_command(
@@ -899,9 +968,13 @@ def test_statistics_are_shown_when_the_table_carries_them() -> None:
 
     rendered = render_latest(table, now=_NOW)
 
-    assert "mean" in rendered.splitlines()[0]
-    assert "sd" in rendered.splitlines()[0]
-    assert "n" in rendered.splitlines()[0]
+    header = rendered.splitlines()[0]
+
+    # Named as a physicist writes them, and named identically in the
+    # panel — the two share one table of headings.
+    assert "average" in header
+    assert "σ" in header
+    assert "N" in header
     assert "76.85" in rendered
     assert "900" in rendered
 
@@ -909,8 +982,9 @@ def test_statistics_are_shown_when_the_table_carries_them() -> None:
 def test_no_statistics_columns_means_no_statistics_headers() -> None:
     rendered = render_latest(_latest([("a", "temperature", 1.0, "K", 3)]), now=_NOW)
 
-    assert "mean" not in rendered
-    assert " sd" not in rendered
+    assert "average" not in rendered
+    assert "σ" not in rendered
+    assert "N" not in rendered
 
 
 def test_a_statistic_is_shown_at_a_readable_magnitude() -> None:
@@ -958,12 +1032,15 @@ def test_a_silent_sensor_has_no_statistics_to_show() -> None:
         measurement="temperature",
         unit="K",
         last_seen=_NOW - timedelta(hours=4),
+        value=9.5,
     )
 
     lines = render_latest(table, now=_NOW, silent=[quiet]).splitlines()
     row = next(line for line in lines if " gone " in line)
 
-    assert row.split() == ["temperature", "gone", "K", "4h", "ago"]
+    # The reading it left behind, and no mean, sd or n: those describe a
+    # window this sensor contributed nothing to.
+    assert row.split() == ["temperature", "gone", "9.5", "K", "4h", "ago"]
 
 
 class StatsClient(FakeClient):
@@ -1020,9 +1097,10 @@ def test_latest_without_the_flag_asks_for_no_statistics(
     assert not any("stddev(" in query for query in seen)
 
 
-def test_a_reading_is_shown_exactly_as_stored_by_default() -> None:
-    # `labmon query latest` promises the value as recorded. Rounding it
-    # is the panel's choice, not this view's.
+def test_a_reading_is_shown_exactly_as_stored() -> None:
+    # A reading is recorded, not computed: the sensor already rounded it
+    # to the resolution it claims. Only the average and the deviation
+    # are rounded, and only against each other.
     table = _with_stats(
         [("beam-x", "position", -7.441802197802218, "µm", 2)], [(0.0196, 16.136, 900)]
     )
@@ -1032,27 +1110,21 @@ def test_a_reading_is_shown_exactly_as_stored_by_default() -> None:
     assert "-7.441802197802218" in rows[0].cells
 
 
-def test_a_reading_can_be_rounded_to_the_precision_of_its_spread() -> None:
-    # For a panel read at a glance: nineteen digits of a beam position
-    # crowd out the rest of the row and two of them carry information.
+def test_a_wide_spread_does_not_shorten_the_reading_beside_it() -> None:
+    # The beam wandered 16 µm across the window, which says nothing
+    # about how well the detector reads its position. Rounding the
+    # reading against that spread quoted it to whole µm, which was the
+    # wrong statistic applied to the wrong number.
     table = _with_stats(
         [("beam-x", "position", -7.441802197802218, "µm", 2)], [(0.0196, 16.136, 900)]
     )
 
-    _present, rows = latest_rows(table, _NOW, round_values=True)
+    present, rows = latest_rows(table, _NOW)
 
-    assert "-7" in rows[0].cells
-    assert "-7.441802197802218" not in rows[0].cells
-
-
-def test_rounding_a_reading_needs_a_spread_to_round_against() -> None:
-    # No statistics at all: the reading is shown in full, because
-    # nothing says where its digits stop meaning anything.
-    table = _latest([("beam-x", "position", -7.441802197802218, "µm", 2)])
-
-    _present, rows = latest_rows(table, _NOW, round_values=True)
-
-    assert "-7.441802197802218" in rows[0].cells
+    assert rows[0].cells[present.index("value")] == "-7.441802197802218"
+    # The average, computed from that same window, is rounded against it,
+    # down to the single figure the floor keeps.
+    assert rows[0].cells[present.index("mean")] == "0.02"
 
 
 def test_the_measurement_leads_so_the_ordering_is_visible() -> None:
