@@ -244,6 +244,25 @@ def test_a_forced_style_overrides_the_magnitude_rule() -> None:
     assert for_display(2.765e14, style="plain") == "276500000000000.0"
 
 
+def test_plain_is_plain_over_the_range_anyone_would_ask_for_it() -> None:
+    # `repr` turns to scientific notation below 1e-4 and at 1e16, which
+    # is most of the range where somebody would bother to write
+    # `format = "plain"` at all — a gauge reading 5e-05 got the exponent
+    # it had just asked not to have.
+    assert for_display(5e-05, style="plain") == "0.00005"
+    assert for_display(1.0215499803546169e-07, style="plain") == (
+        "0.00000010215499803546169"
+    )
+    assert for_display(1e16, style="plain") == "10000000000000000"
+
+
+def test_plain_still_rounds_nothing_away() -> None:
+    # The notation changes, the value does not: every digit that
+    # survived storage survives the rendering.
+    for value in (5e-05, 1.0215499803546169e-07, 76.85, 2.765e14):
+        assert float(for_display(value, style="plain")) == value
+
+
 def test_no_instruction_at_all_falls_back_to_the_plain_rule() -> None:
     # No precision and no style: shown the way any other reading is.
     assert for_display(76.85) == "76.85"

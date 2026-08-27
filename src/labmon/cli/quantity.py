@@ -196,8 +196,26 @@ def for_display(
     if style == "scientific":
         return _scientific(value)
     if style == "plain":
-        return repr(value)
+        return _plain(value)
     return show(value)
+
+
+def _plain(value: float) -> str:
+    """`value` in positional notation, whatever its magnitude.
+
+    `repr` is not that: it turns to scientific below 1e-4 and again at
+    1e16, which is most of the range where somebody would bother to ask
+    for plain at all. A gauge reading 5e-05 got back the exponent it had
+    just said it did not want.
+
+    `Decimal(repr(value))` rather than `f"{value:f}"`, which fixes six
+    decimals and so rounds 1.02e-07 away to `0.000000`. Reading the
+    shortest round-tripping form and re-spelling it keeps every digit
+    that survived storage and adds none that did not.
+    """
+    from decimal import Decimal
+
+    return f"{Decimal(repr(value)):f}"
 
 
 def _at_place(value: float, place: int) -> str:

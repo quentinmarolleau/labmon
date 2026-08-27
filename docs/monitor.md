@@ -182,7 +182,10 @@ than "it is too hot".
 `precision` gives exactly that many decimal places, trailing zeros
 included: somebody who wrote `precision = 3` is saying the instrument
 resolves that far. `format` forces `plain` or `scientific` where the
-automatic choice reads badly for one particular sensor.
+automatic choice reads badly for one particular sensor. `plain` is
+positional notation at every magnitude, so a gauge reading `5e-05` is
+written `0.00005`; it shortens nothing, it only spells the number
+differently.
 
 With neither, a tile shows the reading exactly as stored, the same as
 the fallback table.
@@ -247,7 +250,7 @@ precision = 2
 | `sensor_id` | Which sensor. Required. |
 | `measurement` | Which of its tables, for a sensor that writes to two. Optional; a rule naming it wins over one that does not. |
 | `precision` | Decimal places, trailing zeros included. |
-| `format` | `auto`, `plain` or `scientific`. |
+| `format` | `auto`, `plain` or `scientific`. `plain` never uses an exponent, whatever the magnitude. |
 
 These are display rules, not tiles: they carry no title and no
 threshold, and they apply to sensors that have no tile at all. A rule
