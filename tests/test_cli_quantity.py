@@ -107,19 +107,56 @@ def test_rounding_does_not_leak_binary_error() -> None:
     assert sd == "2.3"
 
 
-def test_a_mean_swamped_by_its_spread_reads_as_zero() -> None:
-    # A beam centred at 0.0196 with a spread of 16 is centred at zero as
-    # far as anybody can tell, and saying so is the honest answer.
+def test_a_mean_swamped_by_its_spread_still_says_where_it_sits() -> None:
+    # A beam centred at 0.0196 with a spread of 16 rounds to a bare `0`
+    # at the spread's place, which says the beam is somewhere within
+    # +/-16 and nothing about where. One figure says both.
     mean, sd = quote(0.019626985717538424, 16.13679456395551)
 
-    assert mean == "0"
+    assert mean == "0.02"
     assert sd == "16"
 
 
-def test_a_negative_mean_swamped_by_its_spread_has_no_minus_zero() -> None:
+def test_a_negative_mean_swamped_by_its_spread_keeps_its_sign() -> None:
+    # Rounding this away gave `0` — and the sign, which is the one thing
+    # a reader wants from a centring, went with it.
     mean, _sd = quote(-0.009321994508954552, 19.105288235209112)
 
+    assert mean == "-0.009"
+
+
+def test_the_floor_does_not_add_digits_a_tight_spread_already_allows() -> None:
+    # The spread is far finer than two figures of the mean, so it stays
+    # in charge and the mean keeps every digit that survives it.
+    mean, _sd = quote(276.56130115, 3.1167749072745227e-07)
+
+    assert mean == "276.56130115"
+
+
+def test_the_floor_never_coarsens_a_mean() -> None:
+    # One figure is a minimum, not a target: where the spread's place is
+    # finer, the spread wins.
+    mean, _sd = quote(20.928418855218855, 0.7816002878531931)
+
+    assert mean == "20.93"
+
+
+def test_a_swamped_mean_below_the_plain_range_stays_scientific() -> None:
+    # The floor picks a decimal place; the magnitude still decides the
+    # form the number is written in.
+    mean, sd = quote(2.04e-05, 16.13679456395551)
+
+    assert mean == "2e-05"
+    assert sd == "16"
+
+
+def test_a_mean_of_exactly_zero_has_no_figure_to_keep() -> None:
+    # log10(0) has no answer, and a centring of exactly zero is already
+    # the whole statement.
+    mean, sd = quote(0.0, 16.13679456395551)
+
     assert mean == "0"
+    assert sd == "16"
 
 
 def test_a_tight_spread_keeps_the_digits_that_survive_it() -> None:

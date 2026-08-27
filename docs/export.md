@@ -373,9 +373,16 @@ because the sensor already rounded it to the resolution it claims; a
 mean is computed, so its shortest round-tripping form runs to seventeen
 digits for readings that were only ever good to four. The deviation is
 therefore cut to two significant figures and the mean to the same
-decimal place. A wavemeter stable to `3.1e-07` keeps eleven digits; a
-beam centred at `0.0196` with a spread of `16` reads as `0`, which is
-where it is.
+decimal place, but never past one significant figure of its own. A
+wavemeter stable to `3.1e-07` keeps eleven digits; a beam centred at
+`0.0196` with a spread of `16` reads as `0.02`.
+
+The floor matters where the spread is the wider of the two. Rounding
+that beam to the spread's place gives a bare `0`, which states the one
+thing already visible from the deviation beside it — that the centre
+lies somewhere inside ±16 — while discarding the centring itself, sign
+and all. One figure is enough to recover both, and a second would only
+sharpen a number the deviation beside it has already called soft.
 
 A sensor with one reading in the window has no sample deviation — the
 column is left blank rather than filled with `0`, which would claim a

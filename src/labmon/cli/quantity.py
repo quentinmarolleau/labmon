@@ -80,6 +80,14 @@ def _scientific(value: float) -> str:
 # and 0.19, and three claims a precision a spread does not have.
 DEVIATION_FIGURES = 2
 
+# Significant figures a mean keeps however wide its spread. A spread
+# wider than the mean rounds it to a bare `0`, which states the one
+# thing already known — that the centre lies somewhere inside the
+# spread — and discards the centring itself, sign included. One figure
+# is enough to recover both; a second would only sharpen a number the
+# spread has already said is soft.
+MEAN_FIGURES = 1
+
 
 def quote(mean: float, sd: float | None) -> tuple[str, str]:
     """A mean and its standard deviation, rounded against each other.
@@ -93,9 +101,10 @@ def quote(mean: float, sd: float | None) -> tuple[str, str]:
     read a difference the measurement cannot support.
 
     So the deviation is cut to two significant figures, and the mean is
-    cut to the same decimal place. A wavemeter stable to 3e-07 keeps
-    eleven digits; a beam centred at 0.0196 with a spread of 16 reads
-    as 0, which is what it is.
+    cut to the same decimal place — but never past one figure of its
+    own. A wavemeter stable to 3e-07 keeps eleven digits; a beam centred
+    at 0.0196 with a spread of 16 reads as 0.02, holding on to a
+    centring the spread would otherwise have rounded away.
 
     Rounded through `Decimal` rather than by dividing and multiplying
     back: the float route turns 2.2515 into 2.3000000000000003, which is
@@ -113,7 +122,23 @@ def quote(mean: float, sd: float | None) -> tuple[str, str]:
 
     # The decimal place of the deviation's last significant figure.
     place = math.floor(math.log10(abs(sd))) - (DEVIATION_FIGURES - 1)
-    return _at_place(mean, place), _at_place(sd, place)
+    return _at_place(mean, _for_mean(mean, place)), _at_place(sd, place)
+
+
+def _for_mean(mean: float, place: int) -> int:
+    """`place`, or finer where rounding there would leave the mean bare.
+
+    One figure is a floor rather than a target, so a spread finer than
+    the mean stays in charge and the digits it supports are all kept. It
+    only bites the other way round, where the spread is the wider of the
+    two and would otherwise take the whole mean with it.
+
+    A mean of exactly zero has no significant figures to keep and no
+    logarithm to find them with, and is already the entire statement.
+    """
+    if mean == 0.0:
+        return place
+    return min(place, math.floor(math.log10(abs(mean))) - (MEAN_FIGURES - 1))
 
 
 def _at_place(value: float, place: int) -> str:
@@ -128,9 +153,9 @@ def _at_place(value: float, place: int) -> str:
 
     quantised = Decimal(repr(value)).quantize(Decimal(1).scaleb(place))
     if quantised == 0:
-        # Rounded away entirely — the value is smaller than the spread
-        # it is being quoted against. `-0` is the same statement with a
-        # sign nobody wants to read.
+        # Only a mean of exactly zero reaches this, since every other
+        # value keeps a figure of itself. `-0` is the same statement
+        # with a sign nobody wants to read.
         return "0"
 
     magnitude = abs(float(quantised))
