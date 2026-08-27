@@ -185,6 +185,26 @@ def test_a_deviation_of_zero_is_not_a_place_to_round_to() -> None:
     assert sd == "0.0"
 
 
+def test_a_flat_line_does_not_bloom_to_the_width_of_the_float() -> None:
+    # `avg()` over identical readings need not give the reading back bit
+    # for bit, and the stuck sensor is exactly the row being stared at.
+    # Seventeen digits beside a deviation of `0.0` is the wrong answer to
+    # the wrong question.
+    mean, sd = quote(4.200000000000001, 0.0)
+
+    assert mean == "4.2"
+    assert sd == "0.0"
+
+
+def test_a_flat_line_keeps_the_digits_a_measurement_could_carry() -> None:
+    # The trim trades away float summation noise, not measurement. A
+    # wavemeter reading is eleven significant digits and every one of
+    # them survives.
+    mean, _sd = quote(276.56130115, 0.0)
+
+    assert mean == "276.56130115"
+
+
 def test_a_deviation_that_is_not_finite_is_not_rounded_against() -> None:
     mean, sd = quote(4.2, float("nan"))
 

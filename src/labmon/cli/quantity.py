@@ -88,6 +88,14 @@ DEVIATION_FIGURES = 2
 # spread has already said is soft.
 MEAN_FIGURES = 1
 
+# Significant digits a mean keeps when its deviation is exactly zero.
+# Every reading in the window was identical, so the only thing between
+# `avg()` and that reading is the error of the sum. A float64 carries
+# close to sixteen digits and averaging spends a few of them, so twelve
+# keeps every digit a measurement could have while dropping the
+# arithmetic's own leavings.
+IDENTICAL_DIGITS = 12
+
 
 def quote(mean: float, sd: float | None) -> tuple[str, str]:
     """A mean and its standard deviation, rounded against each other.
@@ -117,8 +125,15 @@ def quote(mean: float, sd: float | None) -> tuple[str, str]:
     """
     if sd is None:
         return show(mean), ""
-    if not math.isfinite(sd) or sd == 0.0 or not math.isfinite(mean):
+    if not math.isfinite(sd) or not math.isfinite(mean):
         return show(mean), show(sd)
+    if sd == 0.0:
+        # A flat line, which is a stuck sensor and so the row most
+        # likely to be stared at. There is no spread to round against,
+        # but `avg()` over identical readings is not obliged to give the
+        # reading back exactly, and the difference is the sum's rather
+        # than the instrument's.
+        return show(float(f"{mean:.{IDENTICAL_DIGITS}g}")), show(sd)
 
     # The decimal place of the deviation's last significant figure.
     place = math.floor(math.log10(abs(sd))) - (DEVIATION_FIGURES - 1)
