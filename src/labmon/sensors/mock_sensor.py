@@ -13,56 +13,16 @@ import math
 import random
 import time
 from datetime import UTC, datetime
-from decimal import ROUND_HALF_EVEN, Decimal
 
 from influxdb_client_3 import Point
 
 from labmon.influx import influx_database
-from labmon.sensors import constants
+from labmon.quantise import DEFAULT_SIGNIFICANT_DIGITS, quantise
 from labmon.sensors.loop import DEFAULT_SUMMARY_INTERVAL_SECONDS, SensorLoop
 
 logger: logging.Logger = logging.getLogger(__name__)
 
-# How many digits a reading carries when no absolute step is given.
-# Significant digits rather than decimal places because a mock sensor may
-# sit anywhere on the scale: the demo alone spans 4 K and 1.5e-7 mbar, and
-# a fixed number of decimals reports one of those as zero.
-DEFAULT_SIGNIFICANT_DIGITS = constants.DEFAULT_SIGNIFICANT_DIGITS
-
-
-def quantise(
-    value: float,
-    resolution: float | None = None,
-    significant_digits: int = DEFAULT_SIGNIFICANT_DIGITS,
-) -> float:
-    """Round a reading to the precision the simulated instrument has.
-
-    A walk in floating point produces sixteen digits, and writing them
-    claims a precision no instrument has — someone reading the exported
-    column cannot tell simulated jitter from a real millikelvin.
-
-    `resolution` is an absolute step in the reading's own units, which is
-    how an instrument with a fixed least-significant digit is specified
-    (a thermometer resolving 0.001 K). Without one, the value is rounded
-    to `significant_digits` instead, which stays meaningful at any
-    magnitude — the safe default, since an absolute step large enough for
-    a thermometer reports a vacuum gauge as zero.
-
-    Stepping is done in Decimal rather than as `round(value / step) *
-    step`: the arithmetic form puts back the noise it is removing, giving
-    76.85000000000001 where the decimal form gives 76.85.
-    """
-    if not math.isfinite(value):
-        # `polling` refuses a non-finite value before it becomes a field;
-        # rounding should not be the thing that raises first.
-        return value
-    if resolution is not None:
-        step = Decimal(str(resolution))
-        return float(
-            (Decimal(repr(value)) / step).quantize(Decimal(1), rounding=ROUND_HALF_EVEN)
-            * step
-        )
-    return float(f"{value:.{significant_digits}g}")
+__all__ = ["DEFAULT_SIGNIFICANT_DIGITS", "quantise", "run"]
 
 
 class RandomWalk:
