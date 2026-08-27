@@ -49,14 +49,17 @@ class ConfigError(Exception):
     """
 
 
+# How a tile may be told to write its number. `auto` is the reading
+# exactly as stored, its notation chosen by magnitude; `plain` and
+# `scientific` force one or the other for a sensor the rule reads badly
+# for. None of the three rounds anything away — a reading is shortened
+# only by an explicit `precision`.
+FORMATS: frozenset[str] = frozenset({"auto", "plain", "scientific"})
+
 # What `labmon monitor` does when the file says nothing. Two seconds is
 # fast enough that a value looks live and slow enough that a 14 ms query
 # is nowhere near the duty cycle; fifteen minutes of history is enough
 # for a trend without being enough to wait for.
-# How a tile may be told to write its number. `auto` rounds it against
-# the spread of its own window, which is what the fallback table does.
-FORMATS: frozenset[str] = frozenset({"auto", "plain", "scientific"})
-
 DEFAULT_REFRESH = "2s"
 DEFAULT_WINDOW = "15m"
 
