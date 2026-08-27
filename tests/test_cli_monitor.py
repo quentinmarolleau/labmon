@@ -1453,10 +1453,24 @@ def test_a_tile_without_a_precision_takes_the_sensor_rule(
     assert made[0].reading == "77.0"
 
 
-def test_the_plain_table_ignores_display_rules() -> None:
+def test_the_plain_table_is_never_offered_display_rules() -> None:
     # `labmon query latest` promises the reading exactly as stored, and
-    # is the escape hatch the panel's rounding points at. A rule under
-    # [monitor] must not close it.
+    # is the escape hatch the panel's rounding points at. That promise is
+    # kept by never handing rules to the renderer at all, rather than by
+    # the renderer declining to apply the ones it was given — a signature
+    # that cannot carry them cannot be made to close the hatch by accident.
+    import inspect
+
+    from labmon.cli.render import render_latest
+
+    assert "display" not in inspect.signature(render_latest).parameters
+
+
+def test_a_display_rule_reaches_live_rows_without_statistics() -> None:
+    # The rule used to be applied from inside `_summary`, which returns
+    # early on a table carrying no `mean`. A stats-less table given rules
+    # therefore formatted its silent rows and not its live ones, writing
+    # one sensor two ways in the same table.
     from labmon.cli.render import latest_rows
 
     table = pa.table(
@@ -1473,4 +1487,41 @@ def test_the_plain_table_ignores_display_rules() -> None:
         table, _NOW, display=(Display(sensor_id="cryo-77k", precision=1),)
     )
 
-    assert rows[0].cells[columns.index("value")] == "77.0123456"
+    assert rows[0].cells[columns.index("value")] == "77.0"
+
+
+def test_a_live_row_and_a_silent_one_are_written_the_same_way() -> None:
+    # The two cells come from different code paths, and the rule is the
+    # same fact about the same instrument in both.
+    from labmon.cli.render import latest_rows
+    from labmon.cli.roster import Known
+
+    table = pa.table(
+        {
+            "measurement": pa.array(["temperature"]),
+            "sensor_id": pa.array(["cryo-77k"]),
+            "time": pa.array([_NOW], pa.timestamp("ms", tz="UTC")),
+            "value": pa.array([77.0123456]),
+            "unit": pa.array(["K"]),
+        }
+    )
+    gone = Known(
+        sensor_id="cryo-4k",
+        measurement="temperature",
+        unit="K",
+        last_seen=_NOW - timedelta(hours=3),
+        value=4.0987654,
+    )
+
+    columns, rows = latest_rows(
+        table,
+        _NOW,
+        silent=(gone,),
+        display=(
+            Display(sensor_id="cryo-77k", precision=1),
+            Display(sensor_id="cryo-4k", precision=1),
+        ),
+    )
+
+    written = {row.sensor_id: row.cells[columns.index("value")] for row in rows}
+    assert written == {"cryo-77k": "77.0", "cryo-4k": "4.1"}

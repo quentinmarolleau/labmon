@@ -265,9 +265,11 @@ def latest_rows(
         # be formatted alone — see `labmon.cli.quantity.quote`.
         measurement = str(_at(columns, "measurement", index))
         sensor = str(columns["sensor_id"][index])
-        summary = _summary(
-            columns, index, rule=display_for(display, sensor, measurement)
-        )
+        summary = _summary(columns, index)
+        reading = columns["value"][index]
+        rule = display_for(display, sensor, measurement)
+        if rule is not None and isinstance(reading, float):
+            summary["value"] = _reading(reading, rule)
         cells = tuple(
             describe(age)
             if name == "age"
@@ -276,7 +278,6 @@ def latest_rows(
             else _cell(name, columns[name][index])
             for name in present
         )
-        reading = columns["value"][index]
         rows.append(
             (
                 (measurement, sensor),
@@ -383,13 +384,17 @@ def render_latest(
     return "\n".join(lines)
 
 
-def _summary(
-    columns: "dict[str, list[object]]", index: int, *, rule: "Display | None" = None
-) -> dict[str, str]:
+def _summary(columns: "dict[str, list[object]]", index: int) -> dict[str, str]:
     """The cells one row's statistics decide, rounded against each other.
 
     Empty when the table carries no statistics, which is how a result
     fetched without them ends up showing none.
+
+    Statistics only. The value cell is formatted by the caller even
+    though a display rule reaches both, because tying it to this
+    function tied it to `mean` being present: a stats-less table given
+    rules would have formatted its silent rows and not its live ones,
+    writing one sensor two ways in a single table.
     """
     if "mean" not in columns:
         return {}
@@ -401,12 +406,7 @@ def _summary(
         return {"mean": "", "sd": ""}
     spread = sd if isinstance(sd, float) else None
     shown, deviation = quote(mean, spread)
-    cells = {"mean": shown, "sd": deviation}
-
-    reading = columns["value"][index]
-    if rule is not None and isinstance(reading, float):
-        cells["value"] = _reading(reading, rule)
-    return cells
+    return {"mean": shown, "sd": deviation}
 
 
 def _reading(value: float, rule: "Display") -> str:
