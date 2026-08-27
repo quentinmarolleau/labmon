@@ -20,10 +20,13 @@ means lives on the host, where it can be changed without reflashing:
    `--resolution-bits` and `--vref`.
 3. That voltage is converted to a physical quantity by the channel's
    entry in the calibration file (see the modes below).
-4. The result is written as a point, tagged with the channel's
+4. The result is rounded to the resolution the input actually had, so a
+   twelve-bit measurement is not stored to seventeen digits (see
+   [How many digits a reading keeps](#how-many-digits-a-reading-keeps)).
+5. The result is written as a point, tagged with the channel's
    `sensor_id`, its `unit`, and the `calibration_id` that produced it, in
    a `value` field — alongside an `input_volts` field holding the voltage
-   from step 2 (see
+   from step 2, unrounded (see
    [Keeping the conversion's input](#keeping-the-conversions-input)).
 
 A malformed line, or a channel with no calibration entry, is logged and
@@ -110,7 +113,88 @@ and won't pick up the new field unless asked.
 
 Note that `--vref` and `--resolution-bits` are *not* recorded. They don't
 need to be — both scale the stored voltage linearly, so getting either
-wrong stays correctable with a query.
+wrong stays correctable with a query. They do decide how finely `value`
+is rounded, though, and that part is not: see
+[how many digits a reading keeps](#how-many-digits-a-reading-keeps).
+
+### How many digits a reading keeps
+
+Floating point hands back seventeen digits whatever went into it. Left
+alone, an exported column reads:
+
+```
+cryo-diode   14.56589010989012
+cryo-diode   14.741460317460326
+cryo-diode   14.159628815628857
+```
+
+which claims a precision the hardware does not have, and leaves whoever
+opens the file unable to tell a physical millikelvin from an artefact of
+the conversion arithmetic.
+
+The resolution is derivable, so it is derived rather than guessed. A
+12-bit input over 3.3 V steps by 806 µV; a factor of
+`42.5 kelvin / volt` carries that onto 34 mK; and the reading is written
+to the decimal place that step reaches — hundredths of a kelvin. Change
+`--resolution-bits` or `--vref` and the digits follow.
+
+It is not put on a grid of whole steps. A derived step is not a round
+number, and stepping a reading onto multiples of 0.0342 K produces
+`14.555860805860807` where the honest answer is `14.57`.
+
+**Two modes derive nothing.** A spline's slope varies along its curve —
+steep between two close measured points, gentle between two far apart —
+and an expression's is unknown to the loader. Quoting a step that
+wandered with the reading would be worse than quoting none, so those
+channels keep the computed value until the file says otherwise:
+
+```toml
+[channels.A0]
+sensor_id = "cryo-diode"
+measurement = "temperature"
+mode = "piecewise_linear"
+voltages = [0.50, 1.00, 1.15, 1.30]
+values = [300.0, 100.0, 40.0, 2.0]
+value_unit = "kelvin"
+significant_digits = 4       # 2 K to 300 K, without claiming millikelvins
+```
+
+Significant digits rather than decimal places, because a calibrated
+channel may sit anywhere on the scale: three decimals is far too coarse
+for a gauge reading 1e-8 mbar and far too fine for a room thermometer.
+The key works on any channel and overrides the derived step wherever it
+is set.
+
+**An offset that came out of a fit** has an uncertainty of its own,
+which is independent of the ADC's and combines with it in quadrature:
+
+```toml
+[channels.A1]
+sensor_id = "beam-x"
+measurement = "position"
+mode = "affine"
+conversion_factor = "60 micrometer / volt"
+offset = "-99 micrometer"
+offset_resolution = "0.2 micrometer"
+```
+
+Without it the offset shifts the scale without dividing it, and adds
+nothing — an affine channel then resolves exactly as the linear one
+behind it does. `offset_resolution` is rejected on the other modes
+rather than ignored, since none of them has an offset.
+
+**Averaging is not accounted for.** A board reporting the mean of a
+burst of conversions resolves below one ADC step, and says so by sending
+a fractional count — but not how many it averaged, so the derived answer
+stays the conservative one. A channel on an averaging board states its
+own `significant_digits`.
+
+**Only `value` is rounded.** `input_volts` keeps every digit it had: it
+is what a corrected calibration would be re-applied to, and rounding it
+would make that irrecoverable. The `calibration_id` tag does not move
+either — it says which conversion produced a reading, and how many
+digits survived is as much a property of the board, which is not
+recorded at all.
 
 ### Recording which calibration produced a reading
 

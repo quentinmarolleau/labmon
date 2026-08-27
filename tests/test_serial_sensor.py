@@ -88,6 +88,9 @@ class _UndefinedBelowMidscale:
         volts = voltage.to(ureg.volt).magnitude
         return (float("nan") if volts < 1.65 else 42.5 * volts) * ureg.kelvin
 
+    def resolution(self, _voltage_step: pint.Quantity, /) -> None:
+        return None
+
     def fingerprint(self) -> str:
         return "test|undefined-below-midscale"
 
@@ -679,3 +682,118 @@ def test_each_channel_gets_its_own_gate_state(
 
     [batch] = fake_client.batches
     assert len(batch) == 1
+
+
+# --------------------------------------------------------------------------
+# What reaches the database
+# --------------------------------------------------------------------------
+
+
+def test_a_stored_reading_carries_only_the_digits_the_input_had(
+    fake_client: FakeInfluxClient, registered_handlers: dict[int, SignalHandler]
+) -> None:
+    # 70.14212454212455 K claims seventeen digits of a twelve-bit
+    # measurement. The input steps by 806 uV, which through 42.5 K/V is
+    # 34 mK, so hundredths of a kelvin is what was actually measured.
+    source = FakeRawSource([RawReading(channel="A0", raw_count=2048)])
+
+    with pytest.raises(_StopLoop):
+        run(source=source, calibrations={"A0": _temperature_calibration()})
+
+    with pytest.raises(SystemExit):
+        registered_handlers[signal.SIGINT](signal.SIGINT, None)
+
+    [batch] = fake_client.batches
+    [point] = batch
+    assert "value=70.14 " in point.to_line_protocol()
+
+
+def test_the_conversion_input_keeps_every_digit_it_had(
+    fake_client: FakeInfluxClient, registered_handlers: dict[int, SignalHandler]
+) -> None:
+    # `input_volts` is what a corrected calibration would be re-applied
+    # to. Rounding it would make that irrecoverable, which is the whole
+    # reason the field is stored.
+    source = FakeRawSource([RawReading(channel="A0", raw_count=2048)])
+
+    with pytest.raises(_StopLoop):
+        run(source=source, calibrations={"A0": _temperature_calibration()})
+
+    with pytest.raises(SystemExit):
+        registered_handlers[signal.SIGINT](signal.SIGINT, None)
+
+    [batch] = fake_client.batches
+    [point] = batch
+    assert "input_volts=1.6504029304029304" in point.to_line_protocol()
+
+
+def test_a_coarser_board_stores_coarser_readings(
+    fake_client: FakeInfluxClient, registered_handlers: dict[int, SignalHandler]
+) -> None:
+    # Ten bits over 5 V steps by 4.9 mV, which through 42.5 K/V is
+    # 0.21 K — a whole decimal place coarser than the 12-bit default.
+    source = FakeRawSource([RawReading(channel="A0", raw_count=512)])
+
+    with pytest.raises(_StopLoop):
+        run(
+            source=source,
+            calibrations={"A0": _temperature_calibration()},
+            resolution_bits=10,
+            v_ref=5.0,
+        )
+
+    with pytest.raises(SystemExit):
+        registered_handlers[signal.SIGINT](signal.SIGINT, None)
+
+    [batch] = fake_client.batches
+    [point] = batch
+    assert "value=106.4 " in point.to_line_protocol()
+
+
+def test_a_channel_may_state_its_own_digits(
+    fake_client: FakeInfluxClient, registered_handlers: dict[int, SignalHandler]
+) -> None:
+    # A board averaging a burst of conversions resolves below one ADC
+    # step, and the host cannot see how many it averaged.
+    calibration = Calibration(
+        sensor_id="cryo-77k",
+        measurement="temperature",
+        conversion=LinearConversion(factor=ureg("42.5 kelvin / volt")),
+        significant_digits=7,
+    )
+    source = FakeRawSource([RawReading(channel="A0", raw_count=2048)])
+
+    with pytest.raises(_StopLoop):
+        run(source=source, calibrations={"A0": calibration})
+
+    with pytest.raises(SystemExit):
+        registered_handlers[signal.SIGINT](signal.SIGINT, None)
+
+    [batch] = fake_client.batches
+    [point] = batch
+    assert "value=70.14212 " in point.to_line_protocol()
+
+
+def test_the_gate_compares_against_the_reading_that_will_be_stored(
+    fake_client: FakeInfluxClient, registered_handlers: dict[int, SignalHandler]
+) -> None:
+    # 70.14212454212455 K rounds to 70.14, which is under the bound the
+    # unrounded value sits over. A gate reading one number while the
+    # database keeps another would be unexplainable from the data.
+    calibration = Calibration(
+        sensor_id="cryo-77k",
+        measurement="temperature",
+        conversion=LinearConversion(factor=ureg("42.5 kelvin / volt")),
+        stop_recording_when=StopRecordingRule(above=ureg("70.141 kelvin")),
+    )
+    source = FakeRawSource([RawReading(channel="A0", raw_count=2048)])
+
+    with pytest.raises(_StopLoop):
+        run(source=source, calibrations={"A0": calibration})
+
+    with pytest.raises(SystemExit):
+        registered_handlers[signal.SIGINT](signal.SIGINT, None)
+
+    [batch] = fake_client.batches
+    [point] = batch
+    assert "value=70.14 " in point.to_line_protocol()

@@ -346,11 +346,11 @@ labmon therefore remembers the sensors it has seen, and unions that list
 into the result:
 
 ```
-sensor_id   measurement  value               unit  age
-----------  -----------  ------------------  ----  -------
-cryo-diode  temperature  17.097367521367556  K     1s ago
-room-1      temperature  20.518              °C    2s ago
-probe-158   temperature                      K     1h ago
+sensor_id   measurement  value   unit  age
+----------  -----------  ------  ----  -------
+cryo-diode  temperature  17.1    K     1s ago
+room-1      temperature  20.518  °C    2s ago
+probe-158   temperature          K     1h ago
 
 6 sensors
 1 of them reported nothing in this window — remembered from a previous run
