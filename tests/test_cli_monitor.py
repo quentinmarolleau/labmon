@@ -136,6 +136,35 @@ def test_the_status_line_names_the_window_and_the_cadence(
     assert "2 sensors" in line
 
 
+def test_the_status_line_clock_follows_the_readers_zone() -> None:
+    # Textual's own header clock shows local time three lines above this
+    # one, so a UTC clock here puts two clocks on one screen disagreeing
+    # by whole hours — and #170 exists so terminal output follows the
+    # person rather than the storage.
+    from zoneinfo import ZoneInfo
+
+    taken = datetime(2026, 8, 28, 22, 30, 15, tzinfo=UTC)
+
+    line = monitor.status(
+        monitor.Snapshot(taken=taken),
+        window="15m",
+        refresh=2.0,
+        tz=ZoneInfo("Asia/Tokyo"),
+    )
+
+    assert line.endswith("07:30:15")
+
+
+def test_the_status_line_clock_defaults_to_utc() -> None:
+    # Nothing configured is the overwhelmingly common case, and it has to
+    # stay the behaviour it always was.
+    taken = datetime(2026, 8, 28, 22, 30, 15, tzinfo=UTC)
+
+    line = monitor.status(monitor.Snapshot(taken=taken), window="15m", refresh=2.0)
+
+    assert line.endswith("22:30:15")
+
+
 def test_the_status_line_leads_with_the_failure_when_there_is_one() -> None:
     line = monitor.status(
         monitor.Snapshot(taken=_NOW, error="database unreachable"),
@@ -258,6 +287,7 @@ def test_the_flags_reach_the_panel(monkeypatch: pytest.MonkeyPatch) -> None:
             "sensor_ids": ["cryo-77k"],
             "window": "1h",
             "refresh": 5.0,
+            "tz": UTC,
         }
     ]
 

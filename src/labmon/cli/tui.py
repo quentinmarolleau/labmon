@@ -10,7 +10,7 @@ lives behind the `tui` extra and pulls Rich and a tree of its own
 dependencies. Nothing that merely writes readings should pay for that.
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, tzinfo
 from typing import ClassVar, final, override
 
 from rich import box
@@ -60,7 +60,9 @@ _STATE_STYLE: dict[Freshness, str] = {
 }
 
 
-def panel(snapshot: Snapshot, *, window: str, refresh: float) -> RenderableType:
+def panel(
+    snapshot: Snapshot, *, window: str, refresh: float, tz: tzinfo = UTC
+) -> RenderableType:
     """One tick, as something Rich can draw.
 
     Separate from the widget so it can be rendered to text and asserted
@@ -81,7 +83,9 @@ def panel(snapshot: Snapshot, *, window: str, refresh: float) -> RenderableType:
         border_style="dim",
         header_style="bold",
         title=Text("labmon", style="bold"),
-        caption=Text(status(snapshot, window=window, refresh=refresh), style="dim"),
+        caption=Text(
+            status(snapshot, window=window, refresh=refresh, tz=tz), style="dim"
+        ),
         expand=False,
     )
     for name in snapshot.columns:
@@ -140,12 +144,14 @@ class Panel(App[None]):
         sensor_ids: list[str] | None,
         window: str,
         refresh: float,
+        tz: tzinfo = UTC,
     ) -> None:
         super().__init__()
         self._measurements: list[str] | None = measurements
         self._sensor_ids: list[str] | None = sensor_ids
         self._window: str = window
         self._refresh: float = refresh
+        self._tz: tzinfo = tz
         # The last snapshot, kept so a failed tick can leave the previous
         # table on screen rather than blanking it. Public because it is
         # what the tests assert against.
@@ -191,5 +197,10 @@ class Panel(App[None]):
                 error=snapshot.error,
             )
         self.query_one("#table", Static).update(
-            panel(self.latest, window=self._window, refresh=self._refresh)
+            panel(
+                self.latest,
+                window=self._window,
+                refresh=self._refresh,
+                tz=self._tz,
+            )
         )

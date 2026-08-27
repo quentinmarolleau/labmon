@@ -19,7 +19,7 @@ next tick is simply correct, with no gap to detect or backfill.
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, tzinfo
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -94,12 +94,17 @@ def take(
     return Snapshot(taken=moment, columns=columns, rows=tuple(rows), quiet=len(silent))
 
 
-def status(snapshot: Snapshot, *, window: str, refresh: float) -> str:
+def status(snapshot: Snapshot, *, window: str, refresh: float, tz: tzinfo = UTC) -> str:
     """The line under the table: what is being shown, and how often.
 
     A failure leads, because it is the one thing on the line that
     changes what the numbers above it mean — they are now stale, and
     nothing else on screen says so.
+
+    The refresh time is moved into the reader's zone for the same reason
+    a `time` column is. Textual's own header clock is already showing
+    local time three lines above this one, so a UTC wall clock here puts
+    two clocks on one screen disagreeing by whole hours.
     """
     cadence = f"window {window} · every {_seconds(refresh)}"
     if snapshot.error is not None:
@@ -108,7 +113,8 @@ def status(snapshot: Snapshot, *, window: str, refresh: float) -> str:
     counted = f"{snapshot.sensors} sensor{'s' if snapshot.sensors != 1 else ''}"
     if snapshot.quiet:
         counted += f", {snapshot.quiet} quiet"
-    return f"{counted} · {cadence} · {snapshot.taken.strftime('%H:%M:%S')}"
+    clock = snapshot.taken.astimezone(tz).strftime("%H:%M:%S")
+    return f"{counted} · {cadence} · {clock}"
 
 
 def _seconds(value: float) -> str:

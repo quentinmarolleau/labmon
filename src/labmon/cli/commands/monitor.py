@@ -63,7 +63,8 @@ def monitor(
     from labmon.export.window import WindowError, parse_duration, parse_instant
 
     configure(log_level)
-    settings = load().monitor
+    config = load()
+    settings = config.monitor
 
     cadence = settings.refresh
     if refresh is not None:
@@ -112,4 +113,5 @@ def monitor(
         sensor_ids=sensor_id,
         window=window,
         refresh=cadence,
+        tz=config.timezone,
     ).run()
