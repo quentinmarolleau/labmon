@@ -665,8 +665,8 @@
         "defaults": {
           "unit": "suffix:\u00b5m",
           "decimals": 1,
-          "min": -45,
-          "max": 45,
+          "min": -50,
+          "max": 50,
           "custom": {
             "show": "points+lines",
             "pointSize": {
