@@ -138,6 +138,7 @@ def known_from(table: "pa.Table") -> "list[Known]":
         raw = columns["time"][index]
         if sensor is None or raw is None:
             continue
+        reading = _at(columns, "value", index)
         # `to_pylist` is typed as returning objects; the column is a
         # timestamp, and a column with no zone is UTC because that is
         # what the latest query stamps in.
@@ -148,6 +149,7 @@ def known_from(table: "pa.Table") -> "list[Known]":
                 measurement=str(_at(columns, "measurement", index)),
                 unit=str(_at(columns, "unit", index)),
                 last_seen=stamp if stamp.tzinfo else stamp.replace(tzinfo=UTC),
+                value=reading if isinstance(reading, float) else None,
             )
         )
     return entries

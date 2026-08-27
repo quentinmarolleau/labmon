@@ -48,11 +48,31 @@ class Known:
     measurement: str
     unit: str
     last_seen: datetime
+    # The reading that was current when the sensor was last heard from.
+    # Remembered so a sensor that has since gone quiet can still show
+    # what it was reading, which is usually the question being asked of
+    # it: an experiment that stopped reporting was doing *something* at
+    # the moment it stopped. Optional, because a roster written before
+    # this existed has none, and an entry is still worth keeping without
+    # one.
+    value: float | None = None
 
     @property
     def key(self) -> tuple[str, str]:
         """What identifies this entry in the roster."""
         return (self.sensor_id, self.measurement)
+
+
+def _as_float(value: object) -> float | None:
+    """A remembered reading, or `None` when there is not a usable one.
+
+    Hand-edited and older roster files both reach here, so anything that
+    is not a number is dropped rather than refused: the entry is still
+    worth keeping for its identity and its timestamp.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
 
 
 def cache_path() -> Path:
@@ -88,6 +108,7 @@ def load(path: Path) -> dict[tuple[str, str], Known]:
                 measurement=str(fields["measurement"]),
                 unit=str(fields["unit"]),
                 last_seen=datetime.fromisoformat(str(fields["last_seen"])),
+                value=_as_float(fields.get("value")),
             )
         except (KeyError, ValueError):
             continue
@@ -111,12 +132,13 @@ def save(path: Path, known: Mapping[tuple[str, str], Known]) -> None:
     filesystem, so a reader sees either the old roster or the new one.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = [
+    payload: list[dict[str, object]] = [
         {
             "sensor_id": entry.sensor_id,
             "measurement": entry.measurement,
             "unit": entry.unit,
             "last_seen": entry.last_seen.astimezone(UTC).isoformat(),
+            "value": entry.value,
         }
         for entry in sorted(known.values(), key=lambda item: item.key)
     ]
