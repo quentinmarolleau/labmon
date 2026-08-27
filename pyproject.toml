@@ -98,6 +98,13 @@ extend-select = [
 # asserts something other than it appears to. Marking the deliberate ones
 # raw makes the accidental ones visible.
 
+# `RUF001`-`RUF003` catch a character that looks like ASCII and is not,
+# which is worth catching in an identifier and wrong for a unit or a
+# symbol. Every entry here is notation a physicist writes by hand, and
+# spelling them `\u03c3` in the source to satisfy a linter would make the
+# code harder to read than the problem the linter is guarding against.
+allowed-confusables = ["\u00b5", "\u03c3", "\u2212", "\u00b0"]
+
 [tool.basedpyright]
 include = ["src", "tests", "scripts", "demo", "templates"]
 stubPath = "typings"

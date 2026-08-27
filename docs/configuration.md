@@ -171,6 +171,35 @@ timezone = "Europe/Paris"
 | `timezone` | `"UTC"` | Zone the `time` column is printed in. An IANA name, or `"local"` for the machine's own zone |
 | `monitor.refresh` | `"2s"` | How often `labmon monitor` redraws |
 | `monitor.window` | `"15m"` | How much history the panel's statistics cover |
+| `[[monitor.panels]]` | *(none)* | A tile per entry. With none, the panel shows a table of every sensor |
+| `[[monitor.sensors]]` | *(none)* | How many digits one sensor is worth, in the table and in any tile |
+
+Each `[[monitor.panels]]` entry takes:
+
+| Key | Default | Purpose |
+|---|---|---|
+| `sensor_id` | *(required)* | Which sensor the tile shows |
+| `measurement` | *(the sensor's only one)* | Which table, for a sensor that writes to more than one |
+| `title` | *(the sensor id)* | What to write above the number |
+| `precision` | *(the sensor's rule, else as stored)* | Decimal places, trailing zeros included |
+| `format` | `"auto"` | `auto`, `plain` or `scientific` |
+| `warn_above`, `warn_below` | *(none)* | Colour the tile when the reading leaves this range |
+
+Each `[[monitor.sensors]]` entry takes a subset — a display rule has no
+title and no threshold, because it governs sensors that have no tile:
+
+| Key | Default | Purpose |
+|---|---|---|
+| `sensor_id` | *(required)* | Which sensor the rule governs |
+| `measurement` | *(all of them)* | Which table, for a sensor that writes to more than one. A rule naming it wins over one that does not |
+| `precision` | *(as stored)* | Decimal places, trailing zeros included |
+| `format` | `"auto"` | `auto`, `plain` or `scientific` |
+
+A tile that names its own `precision` or `format` overrides the sensor's
+rule for that tile. Readings are otherwise shown exactly as stored:
+only the average and the deviation are rounded, and only against each
+other. These rules live under `[monitor]`, so `labmon query latest` is
+unaffected.
 
 ```toml
 timezone = "Europe/Paris"
@@ -178,7 +207,23 @@ timezone = "Europe/Paris"
 [monitor]
 refresh = "2s"
 window  = "15m"
+
+[[monitor.sensors]]
+sensor_id = "beam-x"
+precision = 2
+
+[[monitor.panels]]
+sensor_id = "cryo-77k"
+title = "Cold finger"
+precision = 3
+warn_above = 80.0
 ```
+
+A layout can also live in a file of its own, passed with
+`labmon monitor --config bakeout.toml`. That file has the same shape
+minus the `monitor.` prefix, and **replaces** this section rather than
+merging with it — see [`monitor.example.toml`](../monitor.example.toml)
+and [`docs/monitor.md`](monitor.md).
 
 Durations are spelled the way `--since` spells them — `2s`, `90m`,
 `24h`, `7d`, `1w` — because one parser serves both. A bare number is
