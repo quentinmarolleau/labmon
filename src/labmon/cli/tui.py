@@ -10,7 +10,7 @@ lives behind the `tui` extra and pulls Rich and a tree of its own
 dependencies. Nothing that merely writes readings should pay for that.
 """
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, tzinfo
 from typing import ClassVar, final, override
 
@@ -71,14 +71,55 @@ _STATE_STYLE: dict[Freshness, str] = {
 }
 
 
+def stretched(widths: Mapping[str, int], snapshot: Snapshot) -> dict[str, int]:
+    """`widths`, widened wherever this tick needs more room.
+
+    A column sized to whatever it happens to hold changes width whenever
+    a reading gains or loses a digit — and every column right of it, and
+    the centred table itself, shifts with it. Redrawn every two seconds
+    that is a table which twitches, and a number somebody is watching is
+    never quite where they last read it.
+
+    Never narrowed, which is why the running total is kept outside the
+    renderer: a column that shrinks back at the next tick is the same
+    jitter in the other direction. It settles within a few ticks at the
+    widest each column has genuinely needed, and a panel left open all
+    day pays a couple of columns' worth of width for a table that stays
+    still.
+
+    A new mapping rather than an edit in place, so a caller holding the
+    old one still has what it had.
+    """
+    grown = dict(widths)
+    for position, name in enumerate(snapshot.columns):
+        needed = max(
+            [
+                len(_HEADINGS.get(name, name)),
+                *(len(row.cells[position]) for row in snapshot.rows),
+            ]
+        )
+        grown[name] = max(grown.get(name, 0), needed)
+    return grown
+
+
 def panel(
-    snapshot: Snapshot, *, window: str, refresh: float, tz: tzinfo = UTC
+    snapshot: Snapshot,
+    *,
+    window: str,
+    refresh: float,
+    tz: tzinfo = UTC,
+    widths: Mapping[str, int] | None = None,
 ) -> RenderableType:
     """One tick, as something Rich can draw.
 
     Separate from the widget so it can be rendered to text and asserted
     against without starting an application.
+
+    `widths` are floors, not sizes: a column still grows to hold
+    something longer than the panel has seen. Without them each column
+    is sized to this tick alone — see `stretched`.
     """
+    held = widths or {}
     if not snapshot.rows:
         return Align.center(
             Text(
@@ -105,7 +146,12 @@ def panel(
             # Right-aligned so digits line up under each other, and
             # never wrapped: a reading split across two lines is a
             # reading nobody can compare against the one above it.
-            table.add_column(heading, justify="right", no_wrap=True)
+            table.add_column(
+                heading,
+                justify="right",
+                no_wrap=True,
+                min_width=held.get(name),
+            )
         else:
             # Folded rather than ellipsised when the terminal is too
             # narrow. `wavemeter-1` and `wavemeter-thz` both truncate to
@@ -117,6 +163,7 @@ def panel(
                 justify="left",
                 style="dim" if name == "unit" else "",
                 overflow="fold",
+                min_width=held.get(name),
             )
 
     for row, cells, ends in _grouped(snapshot.columns, snapshot.rows):
@@ -452,6 +499,9 @@ class Panel(App[None]):
         # own and overriding it with a tuple breaks the framework.
         self._rules: tuple[DisplaySpec, ...] = display
         self._tz: tzinfo = tz
+        # The widest each column has had to be, so the table stops
+        # changing size under a reading that gained a digit.
+        self._widths: dict[str, int] = {}
         # The last snapshot, kept so a failed tick can leave the previous
         # table on screen rather than blanking it. Public because it is
         # what the tests assert against.
@@ -562,12 +612,14 @@ class Panel(App[None]):
         if self._panels:
             self._draw_tiles()
             return
+        self._widths = stretched(self._widths, self.latest)
         self.query_one("#table", Static).update(
             panel(
                 self.latest,
                 window=self._window,
                 refresh=self._refresh,
                 tz=self._tz,
+                widths=self._widths,
             )
         )
 

@@ -40,6 +40,13 @@ rule between one group and the next. The rows are sorted by measurement,
 so repeating it on every line spends the width of a column saying what
 the line above has already said.
 
+Every column is held at the widest it has had to be. Sized to whatever
+one tick happens to hold, a column changes width as soon as a reading
+gains or loses a digit — and every column right of it, and the centred
+table itself, moves with it. Twice a second that is a table which
+twitches, and a number never quite where it was last read. The widths
+settle within a few ticks and never narrow again.
+
 | Key | Does |
 |---|---|
 | `q` | Quit |

@@ -585,12 +585,18 @@ def test_the_missing_extra_message_names_the_interpreter(
 # --------------------------------------------------------------------------
 
 
-def _drawn(snapshot: "monitor.Snapshot", width: int = 100) -> str:
+def _drawn(
+    snapshot: "monitor.Snapshot",
+    width: int = 100,
+    widths: "dict[str, int] | None" = None,
+) -> str:
     """The panel rendered to plain text, without starting an app."""
 
     from labmon.cli.tui import panel
 
-    return _to_text(panel(snapshot, window="15m", refresh=2.0), width=width)
+    return _to_text(
+        panel(snapshot, window="15m", refresh=2.0, widths=widths), width=width
+    )
 
 
 def _to_text(renderable: object, width: int) -> str:
@@ -773,6 +779,101 @@ def test_the_status_line_counts_the_sensors_that_have_gone_quiet(
     )
 
     assert "3 sensors, 1 quiet" in line
+
+
+def _readings(
+    value: float, mean: float = 77.0, sd: float = 0.031
+) -> "monitor.Snapshot":
+    """One sensor's row, with statistics, at whatever width the numbers take."""
+    return _snapshot(
+        pa.table(
+            {
+                "measurement": pa.array(["temperature"]),
+                "sensor_id": pa.array(["cryo-77k"]),
+                "time": pa.array([_NOW], pa.timestamp("ms", tz="UTC")),
+                "value": pa.array([value]),
+                "unit": pa.array(["K"]),
+                "mean": pa.array([mean]),
+                "sd": pa.array([sd]),
+                "n": pa.array([1800], pa.int64()),
+            }
+        )
+    )
+
+
+def _box(drawn: str) -> int:
+    """How wide the drawn table is, measured on its top border."""
+    return max(len(line.strip()) for line in drawn.splitlines() if "\u256d" in line)
+
+
+def test_a_column_is_never_narrowed_by_a_shorter_reading() -> None:
+    # A column sized to whatever this tick happens to hold changes width
+    # whenever a reading gains or loses a digit, and every column right
+    # of it — and the centred table itself — shifts with it. On a panel
+    # redrawing every two seconds that is the whole table twitching.
+    from labmon.cli.tui import stretched
+
+    wide = stretched({}, _readings(77.0123456))
+
+    assert stretched(wide, _readings(4.2)) == wide
+
+
+def test_a_column_is_widened_by_a_longer_reading() -> None:
+    from labmon.cli.tui import stretched
+
+    held = stretched(stretched({}, _readings(4.2)), _readings(77.0123456))
+
+    assert held["value"] == len("77.0123456")
+
+
+def test_a_column_is_at_least_as_wide_as_its_heading() -> None:
+    # `measurement` is a longer word than most of what goes under it.
+    from labmon.cli.tui import stretched
+
+    assert stretched({}, _readings(4.2))["measurement"] == len("measurement")
+
+
+def test_the_table_is_drawn_at_the_widths_it_is_given() -> None:
+    from labmon.cli.tui import stretched
+
+    held = stretched({}, _readings(77.0123456))
+    wide = _drawn(_readings(77.0123456), widths=held)
+
+    assert _box(_drawn(_readings(4.2), widths=held)) == _box(wide)
+
+
+def test_the_table_holds_its_width_when_the_readings_shrink(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The whole point of the running widths, at the level somebody sees
+    # it: the box does not twitch when a digit goes away.
+    from textual.widgets import Static
+
+    from labmon.cli.tui import Panel
+
+    coming = [_readings(77.0123456), _readings(4.2)]
+
+    def next_tick(*args: object, **kwargs: object) -> "monitor.Snapshot":
+        _ = (args, kwargs)
+        return coming.pop(0) if len(coming) > 1 else coming[0]
+
+    monkeypatch.setattr("labmon.cli.tui.take", next_tick)
+
+    async def scenario() -> None:
+        app = Panel(measurements=None, sensor_ids=None, window="15m", refresh=3600.0)
+        async with app.run_test(size=(160, 30)) as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            first = app.query_one("#table", Static).region.width
+
+            app.refresh_now()
+            await pilot.pause()
+            await pilot.pause()
+
+            assert app.latest.rows[0].cells[app.latest.columns.index("value")] == "4.2"
+            assert app.query_one("#table", Static).region.width == first
+
+    _drive(scenario)
 
 
 def test_the_table_is_centred_on_a_wide_terminal(
