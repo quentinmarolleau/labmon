@@ -252,6 +252,23 @@ def status(snapshot: Snapshot, *, window: str, refresh: float, tz: tzinfo = UTC)
     return f"{counted} · {cadence} · {clock}"
 
 
+def source() -> str:
+    """Which database the readings come from, and where it lives.
+
+    A panel is left open for hours, and "labmon" alone cannot say which
+    of two stacks on the same machine it is watching: a demo compose
+    file beside the real one shows the same sixteen sensors either way,
+    and a reading from the wrong one is the sort of mistake that is only
+    noticed after somebody has acted on it.
+
+    Read per call, and through the same functions the client is built
+    from, so the title cannot name a database the query is not using.
+    """
+    from labmon.influx import influx_database, influx_host
+
+    return f"{influx_database()} @ {influx_host()}"
+
+
 def seconds(value: float) -> str:
     """A refresh interval, without a trailing `.0` on a whole number."""
     return f"{value:g}s"

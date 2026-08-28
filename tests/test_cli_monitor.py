@@ -589,13 +589,15 @@ def _drawn(
     snapshot: "monitor.Snapshot",
     width: int = 100,
     widths: "dict[str, int] | None" = None,
+    source: str = "",
 ) -> str:
     """The panel rendered to plain text, without starting an app."""
 
     from labmon.cli.tui import panel
 
     return _to_text(
-        panel(snapshot, window="15m", refresh=2.0, widths=widths), width=width
+        panel(snapshot, window="15m", refresh=2.0, widths=widths, source=source),
+        width=width,
     )
 
 
@@ -872,6 +874,76 @@ def test_the_table_holds_its_width_when_the_readings_shrink(
 
             assert app.latest.rows[0].cells[app.latest.columns.index("value")] == "4.2"
             assert app.query_one("#table", Static).region.width == first
+
+    _drive(scenario)
+
+
+def test_the_source_names_the_database_and_the_host(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("INFLUXDB_DATABASE", "cryostat")
+    monkeypatch.setenv("INFLUXDB_HOST", "http://kelvin:8181")
+
+    assert monitor.source() == "cryostat @ http://kelvin:8181"
+
+
+def test_the_source_falls_back_to_the_defaults_the_client_would_use(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A title naming a database the panel is not reading would be worse
+    # than no title at all.
+    monkeypatch.delenv("INFLUXDB_DATABASE", raising=False)
+    monkeypatch.delenv("INFLUXDB_HOST", raising=False)
+
+    from labmon.influx import influx_database, influx_host
+
+    assert monitor.source() == f"{influx_database()} @ {influx_host()}"
+
+
+def test_the_title_says_which_database_is_being_read() -> None:
+    # A panel is left open for hours, and "labmon" alone cannot say
+    # which of two stacks on the same machine it is watching — a demo
+    # compose file beside the real one shows the same sensors either way.
+    drawn = _drawn(_readings(77.01), source="cryostat @ http://kelvin:8181")
+
+    assert "labmon" in drawn
+    assert _unboxed("cryostat @ http://kelvin:8181") in _unboxed(drawn)
+
+
+def test_the_title_is_just_labmon_when_there_is_nothing_to_add() -> None:
+    drawn = _drawn(_readings(77.01))
+
+    assert "labmon" in drawn
+    assert "@" not in drawn
+
+
+def test_the_panel_tells_the_table_which_database_it_is_reading(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("labmon.influx.get_client", PanelClient)
+    monkeypatch.setenv("INFLUXDB_DATABASE", "cryostat")
+    monkeypatch.setenv("INFLUXDB_HOST", "http://kelvin:8181")
+
+    from labmon.cli import tui
+
+    drawn: list[object] = []
+    real = tui.panel
+
+    def spy(*args: object, **kwargs: object) -> object:
+        drawn.append(kwargs.get("source"))
+        return real(*args, **kwargs)  # pyright: ignore[reportArgumentType]
+
+    monkeypatch.setattr("labmon.cli.tui.panel", spy)
+
+    async def scenario() -> None:
+        app = tui.Panel(
+            measurements=None, sensor_ids=None, window="15m", refresh=3600.0
+        )
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.pause()
+
+            assert drawn == ["cryostat @ http://kelvin:8181"]
 
     _drive(scenario)
 

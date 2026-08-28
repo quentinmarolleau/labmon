@@ -47,6 +47,11 @@ table itself, moves with it. Twice a second that is a table which
 twitches, and a number never quite where it was last read. The widths
 settle within a few ticks and never narrow again.
 
+The title names the database being read and the host it lives on.
+`labmon` alone cannot say which of two stacks on the same machine a panel
+is watching, and a demo compose file running beside the real one shows
+the same sensors either way.
+
 | Key | Does |
 |---|---|
 | `q` | Quit |

@@ -34,6 +34,7 @@ from labmon.cli.monitor import (
     Tile,
     cadences,
     seconds,
+    source,
     status,
     take,
     tiles,
@@ -109,6 +110,7 @@ def panel(
     refresh: float,
     tz: tzinfo = UTC,
     widths: Mapping[str, int] | None = None,
+    source: str = "",
 ) -> RenderableType:
     """One tick, as something Rich can draw.
 
@@ -118,6 +120,10 @@ def panel(
     `widths` are floors, not sizes: a column still grows to hold
     something longer than the panel has seen. Without them each column
     is sized to this tick alone — see `stretched`.
+
+    `source` is the database being read and the host it lives on, which
+    joins the title rather than the status line: it is the one thing on
+    screen that does not change from tick to tick.
     """
     held = widths or {}
     if not snapshot.rows:
@@ -134,7 +140,7 @@ def panel(
         box=box.ROUNDED,
         border_style="dim",
         header_style="bold",
-        title=Text("labmon", style="bold"),
+        title=Text(f"labmon · {source}" if source else "labmon", style="bold"),
         caption=Text(
             status(snapshot, window=window, refresh=refresh, tz=tz), style="dim"
         ),
@@ -502,6 +508,10 @@ class Panel(App[None]):
         # The widest each column has had to be, so the table stops
         # changing size under a reading that gained a digit.
         self._widths: dict[str, int] = {}
+        # Read once. The environment behind it does not change while the
+        # panel is running, and re-reading it every two seconds would
+        # put an import on the redraw path for an answer already known.
+        self._source: str = source()
         # The last snapshot, kept so a failed tick can leave the previous
         # table on screen rather than blanking it. Public because it is
         # what the tests assert against.
@@ -620,6 +630,7 @@ class Panel(App[None]):
                 refresh=self._refresh,
                 tz=self._tz,
                 widths=self._widths,
+                source=self._source,
             )
         )
 
