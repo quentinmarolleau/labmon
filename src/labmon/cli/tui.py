@@ -38,7 +38,7 @@ from labmon.cli.monitor import (
     take,
     tiles,
 )
-from labmon.cli.render import LATEST_HEADINGS
+from labmon.cli.render import LATEST_HEADINGS, LatestRow
 
 # Aliased: `Panel` here is the application, and a `[[monitor.panels]]`
 # entry is the specification for one tile inside it.
@@ -119,10 +119,50 @@ def panel(
                 overflow="fold",
             )
 
-    for row in snapshot.rows:
-        table.add_row(*row.cells, style=_STATE_STYLE[row.state])
+    for row, cells, ends in _grouped(snapshot.columns, snapshot.rows):
+        table.add_row(*cells, style=_STATE_STYLE[row.state], end_section=ends)
 
     return Align.center(table)
+
+
+def _grouped(
+    columns: Sequence[str], rows: Sequence[LatestRow]
+) -> list[tuple[LatestRow, tuple[str, ...], bool]]:
+    """Each row, its cells, and whether a rule follows it.
+
+    The rows arrive sorted by measurement, so the column repeats a word
+    the row above has already said — five or six names down sixteen
+    rows, in a column as wide as the longest of them. Written once per
+    group it reads as a heading for the rows underneath, which is what
+    it has been all along, and the rule is what says where one group
+    stops: blanked repeats with nothing between them leave two groups
+    touching.
+
+    The last group is not ruled off. Its rule would land against the
+    bottom border of the table, drawing a line to separate the rows from
+    nothing.
+
+    A table without a measurement column is left alone rather than
+    special-cased downstream, which is what keeps `panel` free of the
+    question.
+    """
+    if "measurement" not in columns:
+        return [(row, row.cells, False) for row in rows]
+
+    at = columns.index("measurement")
+    laid: list[tuple[LatestRow, tuple[str, ...], bool]] = []
+    for position, row in enumerate(rows):
+        name = row.cells[at]
+        repeated = position > 0 and rows[position - 1].cells[at] == name
+        following = rows[position + 1].cells[at] if position + 1 < len(rows) else name
+        laid.append(
+            (
+                row,
+                (*row.cells[:at], "" if repeated else name, *row.cells[at + 1 :]),
+                following != name,
+            )
+        )
+    return laid
 
 
 @final

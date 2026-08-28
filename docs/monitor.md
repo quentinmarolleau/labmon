@@ -35,6 +35,11 @@ labmon monitor --measurement temperature
                        16 sensors, 4 quiet · window 30m · every 2s · 10:24:11
 ```
 
+The measurement is written once for the group of rows it covers, with a
+rule between one group and the next. The rows are sorted by measurement,
+so repeating it on every line spends the width of a column saying what
+the line above has already said.
+
 | Key | Does |
 |---|---|
 | `q` | Quit |

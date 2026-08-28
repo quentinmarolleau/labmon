@@ -628,6 +628,81 @@ def test_the_panel_names_the_sensor_column_something_shorter(
     assert "sensor" in drawn
 
 
+def _snapshot(table: "pa.Table") -> "monitor.Snapshot":
+    """A snapshot of exactly these readings, without a database."""
+    from labmon.cli.render import latest_rows
+
+    columns, rows = latest_rows(table, _NOW)
+    return monitor.Snapshot(taken=_NOW, columns=columns, rows=tuple(rows))
+
+
+def _two_measurements() -> "monitor.Snapshot":
+    """A pressure and two temperatures, as the panel orders them."""
+    return _snapshot(
+        pa.table(
+            {
+                "measurement": pa.array(["pressure", "temperature", "temperature"]),
+                "sensor_id": pa.array(["chamber-1", "cryo-4k", "cryo-77k"]),
+                "time": pa.array([_NOW] * 3, pa.timestamp("ms", tz="UTC")),
+                "value": pa.array([1.8e-07, 4.301, 77.01]),
+                "unit": pa.array(["mbar", "K", "K"]),
+            }
+        )
+    )
+
+
+def test_a_measurement_is_written_once_for_the_rows_it_covers() -> None:
+    # The rows are sorted by measurement, so the column repeats a word
+    # the row above has already said — width spent on nothing.
+    drawn = _drawn(_two_measurements())
+
+    assert drawn.count("temperature") == 1
+    assert drawn.count("pressure") == 1
+
+
+def test_a_rule_separates_one_measurement_from_the_next() -> None:
+    # Blanking the repeats alone would leave two groups touching, with
+    # nothing to say where one stops. The rule is what makes the
+    # grouping readable rather than merely shorter.
+    drawn = _drawn(_two_measurements())
+
+    ruled = [line for line in drawn.splitlines() if "\u251c" in line]
+    assert len(ruled) == 2
+
+
+def test_a_table_with_no_measurement_column_is_drawn_as_it_comes() -> None:
+    # A column is shown when the result carries it, so a measurement-less
+    # table is a shape the panel has to be able to draw — with nothing to
+    # group by, and nothing to rule off.
+    drawn = _drawn(
+        _snapshot(
+            pa.table(
+                {
+                    "sensor_id": pa.array(["cryo-77k"]),
+                    "time": pa.array([_NOW], pa.timestamp("ms", tz="UTC")),
+                    "value": pa.array([77.01]),
+                    "unit": pa.array(["K"]),
+                }
+            )
+        )
+    )
+
+    assert "cryo-77k" in drawn
+    assert len([line for line in drawn.splitlines() if "\u251c" in line]) == 1
+
+
+def test_a_single_measurement_is_not_ruled_off(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A rule under the last group would sit against the bottom border.
+    monkeypatch.setattr("labmon.influx.get_client", PanelClient)
+
+    drawn = _drawn(monitor.take(None, None, "15m", now=_NOW))
+
+    ruled = [line for line in drawn.splitlines() if "\u251c" in line]
+    assert len(ruled) == 1
+
+
 def test_nothing_to_show_says_so_rather_than_drawing_an_empty_box() -> None:
     drawn = _drawn(monitor.Snapshot(taken=_NOW))
 
