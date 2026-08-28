@@ -78,7 +78,7 @@ def _as_float(value: object) -> float | None:
 def cache_path() -> Path:
     """Where the roster lives, honouring `XDG_CACHE_HOME`."""
     base = os.environ.get("XDG_CACHE_HOME")
-    root = Path(base) if base else Path(os.path.expanduser("~")) / ".cache"
+    root = Path(base) if base else Path("~").expanduser() / ".cache"
     return root / "labmon" / CACHE_NAME
 
 
@@ -128,7 +128,7 @@ def save(path: Path, known: Mapping[tuple[str, str], Known]) -> None:
     crash midway through a direct write leaves a truncated file, which
     `load` correctly treats as empty — self-healing, except that what it
     heals to is an empty roster, discarding exactly the memory of quiet
-    sensors this exists to keep. `os.replace` is atomic within a
+    sensors this exists to keep. `Path.replace` is atomic within a
     filesystem, so a reader sees either the old roster or the new one.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -145,7 +145,7 @@ def save(path: Path, known: Mapping[tuple[str, str], Known]) -> None:
     scratch = path.with_name(f"{path.name}.{os.getpid()}.tmp")
     try:
         _ = scratch.write_text(json.dumps(payload, indent=2) + "\n")
-        os.replace(scratch, path)
+        _ = scratch.replace(path)
     except OSError:
         scratch.unlink(missing_ok=True)
         raise
