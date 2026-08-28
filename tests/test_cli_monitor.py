@@ -1662,9 +1662,12 @@ def test_a_tile_over_its_threshold_is_marked(
     _drive(scenario)
 
 
-def test_the_config_flag_supplies_the_layout(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+@pytest.mark.parametrize("flag", ["--config", "-c"])
+def test_the_layout_flag_supplies_the_layout(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, flag: str
 ) -> None:
+    # One flag under two spellings, the short one for the panel that is
+    # opened against a procedure file several times an afternoon.
     built: list[dict[str, object]] = []
 
     class Recording:
@@ -1676,7 +1679,7 @@ def test_the_config_flag_supplies_the_layout(
 
     monkeypatch.setattr("labmon.cli.tui.Panel", Recording)
 
-    result = _run("monitor", "--config", str(_layout(tmp_path)))
+    result = _run("monitor", flag, str(_layout(tmp_path)))
 
     assert result.exit_code == 0, result.output
     assert built[0]["window"] == "15m"

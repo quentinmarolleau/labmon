@@ -46,6 +46,7 @@ Layout = Annotated[
     Path | None,
     typer.Option(
         "--config",
+        "-c",
         help="A layout file for one procedure, overriding the [monitor]"
         + " section of the user configuration",
         metavar="FILE",

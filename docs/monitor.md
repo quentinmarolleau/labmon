@@ -162,10 +162,10 @@ The value is drawn with `Digits`, which is what makes it readable from
 across a room — the whole reason a tile beats a table row.
 
 A layout lives either in the user configuration, under `[monitor]`, or
-in a file of its own passed with `--config`. The two have different
-lifetimes: a machine-wide window and cadence are settings, while "the
-five things worth watching during a bakeout" is a document that belongs
-beside the procedure. `--config` **replaces** the `[monitor]` section
+in a file of its own passed with `--config`, or `-c`. The two have
+different lifetimes: a machine-wide window and cadence are settings,
+while "the five things worth watching during a bakeout" is a document
+that belongs beside the procedure. `--config` **replaces** the `[monitor]` section
 rather than merging with it, so a layout can say "just these tiles"
 without first editing the file it was avoiding.
 
