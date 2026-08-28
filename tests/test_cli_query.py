@@ -140,8 +140,15 @@ class FakeClient:
                 }
             )
         if "information_schema.columns" in query:
+            # `table_name` is named in every row, as the server names it,
+            # so the same answer serves the sweep over every table and
+            # the question about one.
+            columns = ["time", "value", "sensor_id", "unit"]
             return pa.table(
-                {"column_name": pa.array(["time", "value", "sensor_id", "unit"])}
+                {
+                    "table_name": pa.array(["temperature"] * len(columns)),
+                    "column_name": pa.array(columns),
+                }
             )
         return pa.table(
             {
