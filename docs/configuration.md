@@ -171,6 +171,7 @@ timezone = "Europe/Paris"
 | `timezone` | `"UTC"` | Zone the `time` column is printed in. An IANA name, or `"local"` for the machine's own zone |
 | `monitor.refresh` | `"2s"` | How often `labmon monitor` redraws |
 | `monitor.window` | `"15m"` | How much history the panel's statistics cover |
+| `monitor.theme` | `"nord"` | Colours the panel opens in — any of Textual's twenty-one themes |
 | `[[monitor.panels]]` | *(none)* | A tile per entry. With none, the panel shows a table of every sensor |
 | `[[monitor.sensors]]` | *(none)* | How many digits one sensor is worth, in the table and in any tile |
 
@@ -207,6 +208,7 @@ timezone = "Europe/Paris"
 [monitor]
 refresh = "2s"
 window  = "15m"
+theme   = "nord"
 
 [[monitor.sensors]]
 sensor_id = "beam-x"
@@ -232,6 +234,12 @@ refreshes sixty times too often. Both `[monitor]` values are validated
 when the file is read rather than when they are first used, since a
 mistake that surfaced on the first tick would already have taken over
 the terminal. See [`docs/monitor.md`](monitor.md).
+
+`theme` is checked the same way, against the list the panel itself
+offers — `gruvbox`, `dracula`, `solarized-light`, `tokyo-night` and the
+rest. A name it does not have is refused before the panel starts, with
+the list in the message, rather than raising over a screen it has
+already taken.
 
 `timezone` changes only what a terminal prints. Readings are stored in
 UTC and exported in UTC — a data file that carried somebody's desk clock

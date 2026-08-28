@@ -110,7 +110,7 @@ def monitor(
         window = since
 
     try:
-        from labmon.cli.tui import Panel
+        from labmon.cli.tui import Panel, themes
     except ImportError as error:
         # Only when Textual is genuinely absent. Reporting every
         # ImportError raised while loading that module as "the extra is
@@ -129,6 +129,19 @@ def monitor(
             + " uv tool install --editable '.[tui]' --force"
         ) from error
 
+    # Checked here rather than left to Textual, which refuses an unknown
+    # theme by raising once the panel is already running and the screen
+    # has been taken over. The file is named because a theme is written
+    # down once and read back months later.
+    if settings.theme not in themes():
+        from labmon.config import ConfigError, config_path
+
+        where = config if config is not None else config_path()
+        raise ConfigError(
+            f"{where}: monitor.theme — {settings.theme!r} is not a theme"
+            + f" this panel has. Try one of: {', '.join(themes())}"
+        )
+
     Panel(
         measurements=measurement,
         sensor_ids=sensor_id,
@@ -137,4 +150,5 @@ def monitor(
         panels=settings.panels,
         display=settings.sensors,
         tz=settings_file.timezone,
+        theme=settings.theme,
     ).run()

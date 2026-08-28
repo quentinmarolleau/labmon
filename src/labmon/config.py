@@ -63,6 +63,16 @@ FORMATS: frozenset[str] = frozenset({"auto", "plain", "scientific"})
 DEFAULT_REFRESH = "2s"
 DEFAULT_WINDOW = "15m"
 
+# The colours the panel opens in. Nord is calm at a glance and legible
+# on a projector, which is where a panel beside an experiment tends to
+# end up. Named here rather than in the panel because it is a
+# preference, and a preference is what this file is for.
+#
+# Which names are valid is Textual's business, and this module is read
+# by every command including the ones that never draw anything — so the
+# spelling is checked here and the name itself where the panel starts.
+DEFAULT_THEME = "nord"
+
 
 @dataclass(frozen=True)
 class Display:
@@ -163,10 +173,15 @@ class Monitor:
     by sensor, never walked. They apply to the panel's table and to its
     tiles alike, and a tile that names its own precision overrides the
     rule for that tile only.
+
+    `theme` is the name of a Textual theme, unchecked here: the list of
+    them lives in a package this module must not import. It is checked
+    against the panel's own before the panel starts.
     """
 
     refresh: float = 2.0
     window: str = DEFAULT_WINDOW
+    theme: str = DEFAULT_THEME
     panels: tuple[Panel, ...] = ()
     sensors: tuple[Display, ...] = ()
 
@@ -275,7 +290,7 @@ def _monitor(section: object, where: Path) -> Monitor:
         )
     table = cast(dict[str, object], section)
 
-    unknown = sorted(set(table) - {"refresh", "window", "panels", "sensors"})
+    unknown = sorted(set(table) - {"refresh", "window", "theme", "panels", "sensors"})
     if unknown:
         raise ConfigError(
             f"{where}: unknown monitor setting{'s' if len(unknown) > 1 else ''}"
@@ -313,9 +328,17 @@ def _monitor(section: object, where: Path) -> Monitor:
     except WindowError as error:
         raise ConfigError(f"{where}: monitor.window — {error}") from None
 
+    theme = table.get("theme", DEFAULT_THEME)
+    if not isinstance(theme, str) or not theme:
+        raise ConfigError(
+            f"{where}: monitor.theme must be the name of a theme in quotes"
+            + f' such as "{DEFAULT_THEME}"'
+        )
+
     return Monitor(
         refresh=seconds,
         window=window,
+        theme=theme,
         panels=_panels(table, where),
         sensors=_sensors(table, where),
     )

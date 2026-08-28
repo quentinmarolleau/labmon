@@ -8,6 +8,8 @@
 
 refresh = "2s"   # how often to redraw
 window  = "15m"  # how much history the statistics cover
+theme   = "nord" # any of Textual's themes; `m` lists them, and previews
+                 # each one as the selector passes over it
 
 # How many digits a sensor is worth, wherever it appears — the fallback
 # table as well as any tile. Readings are otherwise shown exactly as

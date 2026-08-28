@@ -293,6 +293,7 @@ def test_the_flags_reach_the_panel(monkeypatch: pytest.MonkeyPatch) -> None:
             "panels": (),
             "display": (),
             "tz": UTC,
+            "theme": "nord",
         }
     ]
 
@@ -320,6 +321,106 @@ def test_the_configuration_supplies_the_defaults(
     assert result.exit_code == 0, result.output
     assert built[0]["refresh"] == 10.0
     assert built[0]["window"] == "6h"
+
+
+def test_the_panel_wears_the_theme_it_was_given(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("labmon.influx.get_client", PanelClient)
+    from labmon.cli.tui import Panel
+
+    async def scenario() -> None:
+        app = Panel(
+            measurements=None,
+            sensor_ids=None,
+            window="15m",
+            refresh=3600.0,
+            theme="gruvbox",
+        )
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            assert app.theme == "gruvbox"
+
+    _drive(scenario)
+
+
+def test_the_configured_theme_reaches_the_panel(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config = tmp_path / "config" / "labmon" / "labmon.toml"
+    config.parent.mkdir(parents=True)
+    _ = config.write_text('[monitor]\ntheme = "gruvbox"\n')
+
+    built: list[dict[str, object]] = []
+
+    class Recording:
+        def __init__(self, **kwargs: object) -> None:
+            built.append(kwargs)
+
+        def run(self) -> None:
+            return None
+
+    monkeypatch.setattr("labmon.cli.tui.Panel", Recording)
+
+    result = _run("monitor")
+
+    assert result.exit_code == 0, result.output
+    assert built[0]["theme"] == "gruvbox"
+
+
+def test_a_theme_the_panel_does_not_have_is_refused(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Checked before the panel starts rather than left to Textual, which
+    # raises once the screen has already been taken over — and the file
+    # is named, because a theme is written down once and read back
+    # months later.
+    config = tmp_path / "config" / "labmon" / "labmon.toml"
+    config.parent.mkdir(parents=True)
+    _ = config.write_text('[monitor]\ntheme = "nordic"\n')
+
+    class Recording:
+        def __init__(self, **kwargs: object) -> None:
+            raise AssertionError("the panel should not have started")
+
+        def run(self) -> None:
+            return None
+
+    monkeypatch.setattr("labmon.cli.tui.Panel", Recording)
+
+    result = _run("monitor")
+
+    assert result.exit_code != 0
+    assert "nordic" in result.output
+    assert "labmon.toml" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_a_layout_file_may_name_the_theme_too(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # `--config` replaces the [monitor] section whole, colours included:
+    # a procedure that wants a light theme on a projector says so in the
+    # file it already has.
+    layout = tmp_path / "bakeout.toml"
+    _ = layout.write_text('theme = "textual-light"\n')
+
+    built: list[dict[str, object]] = []
+
+    class Recording:
+        def __init__(self, **kwargs: object) -> None:
+            built.append(kwargs)
+
+        def run(self) -> None:
+            return None
+
+    monkeypatch.setattr("labmon.cli.tui.Panel", Recording)
+
+    result = _run("monitor", "--config", str(layout))
+
+    assert result.exit_code == 0, result.output
+    assert built[0]["theme"] == "textual-light"
 
 
 def _prompts(offered: OptionList) -> list[str]:

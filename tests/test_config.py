@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from labmon.config import (
+    DEFAULT_THEME,
     ConfigError,
     Display,
     config_path,
@@ -159,6 +160,35 @@ def test_an_unknown_monitor_key_is_refused(config_home: Path) -> None:
     # at the default while the file says otherwise.
     with pytest.raises(ConfigError, match="interval"):
         _ = load(_write(config_home, '[monitor]\ninterval = "2s"\n'))
+
+
+def test_a_theme_is_read_from_the_file(config_home: Path) -> None:
+    # The panel's colours are a preference, and a preference belongs
+    # beside the person's other dotfiles rather than in a keystroke they
+    # have to repeat every time the panel is opened.
+    config = load(_write(config_home, '[monitor]\ntheme = "gruvbox"\n'))
+
+    assert config.monitor.theme == "gruvbox"
+
+
+def test_the_theme_defaults_to_the_one_the_panel_opens_with(
+    config_home: Path,
+) -> None:
+    assert load(config_home).monitor.theme == DEFAULT_THEME
+
+
+def test_a_theme_that_is_not_a_string_is_refused(config_home: Path) -> None:
+    with pytest.raises(ConfigError, match="theme"):
+        _ = load(_write(config_home, "[monitor]\ntheme = 3\n"))
+
+
+def test_an_empty_theme_is_refused(config_home: Path) -> None:
+    # A name this file does not recognise is caught against the panel's
+    # own list, which needs Textual and so cannot happen here. An empty
+    # string is refused here, because there is nothing for that check to
+    # name back.
+    with pytest.raises(ConfigError, match="theme"):
+        _ = load(_write(config_home, '[monitor]\ntheme = ""\n'))
 
 
 def test_a_monitor_that_is_not_a_table_is_refused(config_home: Path) -> None:

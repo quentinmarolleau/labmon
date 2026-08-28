@@ -86,6 +86,16 @@ actually on screen. `escape` puts back the theme that was in force.
 
 The default is `nord`, chosen for being calm at a glance and legible on a
 projector, which is where a panel beside an experiment tends to end up.
+A different one every time is `theme` in the configuration file, or in a
+layout passed with `--config`:
+
+```toml
+[monitor]
+theme = "solarized-light"
+```
+
+An unknown name is refused before the panel starts, with the twenty-one
+it does have in the message.
 
 `s` writes a screenshot, as an SVG in the Downloads directory, and says
 where it went. The command palette carries the same entry, a search box
@@ -162,6 +172,7 @@ without first editing the file it was avoiding.
 ```toml
 refresh = "2s"
 window  = "15m"
+theme   = "nord"
 
 [[panels]]
 sensor_id = "cryo-77k"
@@ -364,6 +375,7 @@ The file is where a decision worth keeping goes — see
 [monitor]
 refresh = "2s"
 window  = "15m"
+theme   = "nord"
 
 [[monitor.sensors]]
 sensor_id = "beam-x"

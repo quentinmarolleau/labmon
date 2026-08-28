@@ -44,14 +44,23 @@ from labmon.cli.screenshot import placed
 
 # Aliased: `Panel` here is the application, and a `[[monitor.panels]]`
 # entry is the specification for one tile inside it.
+from labmon.config import DEFAULT_THEME
 from labmon.config import Display as DisplaySpec
 from labmon.config import Panel as PanelSpec
 
-# The panel's default look. Nord is calm at a glance and legible on a
-# projector, which is where a panel beside an experiment tends to end
-# up. It is a default, not a decision: Textual ships twenty themes and
-# the command palette switches between them live.
-THEME = "nord"
+
+def themes() -> tuple[str, ...]:
+    """Every theme a panel can be told to wear, in menu order.
+
+    Textual's built-ins, which is all of them: the panel registers none
+    of its own, so this is the same set `App.available_themes` reports.
+    Read through a function so that the check the configuration is put
+    through and the menu the panel offers cannot come apart.
+    """
+    from textual.theme import BUILTIN_THEMES
+
+    return tuple(sorted(BUILTIN_THEMES))
+
 
 # Columns holding a number, right-aligned so digits line up under each
 # other. A column of left-aligned floats has to be read digit by digit
@@ -577,6 +586,7 @@ class Panel(App[None]):
         panels: tuple[PanelSpec, ...] = (),
         display: tuple[DisplaySpec, ...] = (),
         tz: tzinfo = UTC,
+        theme: str = DEFAULT_THEME,
     ) -> None:
         super().__init__()
         self._measurements: list[str] | None = measurements
@@ -592,6 +602,9 @@ class Panel(App[None]):
         # own and overriding it with a tuple breaks the framework.
         self._rules: tuple[DisplaySpec, ...] = display
         self._tz: tzinfo = tz
+        # Named apart from `App.theme`, which is a reactive the framework
+        # owns and cannot be set before the application is running.
+        self._theme: str = theme
         # The widest each column has had to be, so the table stops
         # changing size under a reading that gained a digit.
         self._widths: dict[str, int] = {}
@@ -630,7 +643,7 @@ class Panel(App[None]):
         yield Footer()
 
     def on_mount(self) -> None:
-        self.theme = THEME
+        self.theme = self._theme
         self.title = "labmon"
         self.sub_title = self._window
         self._schedule()
