@@ -468,6 +468,124 @@ def test_changing_the_rate_says_so_without_re_querying(
     _drive(scenario)
 
 
+def test_the_theme_menu_opens_on_the_theme_in_force(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("labmon.influx.get_client", PanelClient)
+    from labmon.cli.tui import Panel, Themes
+
+    async def scenario() -> None:
+        app = Panel(measurements=None, sensor_ids=None, window="15m", refresh=3600.0)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.search_themes()
+            await pilot.pause()
+
+            assert isinstance(app.screen, Themes)
+            offered = app.screen.query_one(OptionList)
+            assert _prompts(offered) == sorted(app.available_themes)
+            assert _prompts(offered)[offered.highlighted or 0] == app.theme
+
+    _drive(scenario)
+
+
+def test_moving_over_a_theme_applies_it_at_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A theme is picked by looking at it, not by reading its name. The
+    # menu is the preview: the panel behind it is already drawn in the
+    # theme under the cursor, against the readings actually on screen.
+    monkeypatch.setattr("labmon.influx.get_client", PanelClient)
+    from labmon.cli.tui import Panel
+
+    async def scenario() -> None:
+        app = Panel(measurements=None, sensor_ids=None, window="15m", refresh=3600.0)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.search_themes()
+            await pilot.pause()
+            offered = app.screen.query_one(OptionList)
+            await pilot.press("down")
+            await pilot.pause()
+
+            assert app.theme == _prompts(offered)[offered.highlighted or 0]
+            assert app.theme != "nord"
+
+    _drive(scenario)
+
+
+def test_choosing_a_theme_keeps_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("labmon.influx.get_client", PanelClient)
+    from labmon.cli.tui import Panel, Themes
+
+    async def scenario() -> None:
+        app = Panel(measurements=None, sensor_ids=None, window="15m", refresh=3600.0)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.search_themes()
+            await pilot.pause()
+            await pilot.press("down")
+            await pilot.pause()
+            previewed = app.theme
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert app.theme == previewed
+            assert not isinstance(app.screen, Themes)
+
+    _drive(scenario)
+
+
+def test_leaving_the_theme_menu_puts_the_theme_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A preview that stuck because somebody pressed escape would be a
+    # menu that changes the panel by being opened.
+    monkeypatch.setattr("labmon.influx.get_client", PanelClient)
+    from labmon.cli.tui import Panel, Themes
+
+    async def scenario() -> None:
+        app = Panel(measurements=None, sensor_ids=None, window="15m", refresh=3600.0)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            was = app.theme
+            app.search_themes()
+            await pilot.pause()
+            await pilot.press("down", "down")
+            await pilot.pause()
+            assert app.theme != was
+
+            await pilot.press("escape")
+            await pilot.pause()
+
+            assert app.theme == was
+            assert not isinstance(app.screen, Themes)
+
+    _drive(scenario)
+
+
+def test_the_command_palette_reaches_the_previewing_theme_menu(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The menu is Textual's own, opened by its own system command. The
+    # preview has to be on that path, not only on a key of our own.
+    monkeypatch.setattr("labmon.influx.get_client", PanelClient)
+    from labmon.cli.tui import Panel
+
+    async def scenario() -> None:
+        app = Panel(measurements=None, sensor_ids=None, window="15m", refresh=3600.0)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.action_change_theme()
+            await pilot.pause()
+
+            from labmon.cli.tui import Themes
+
+            assert isinstance(app.screen, Themes)
+
+    _drive(scenario)
+
+
 def test_a_failed_refresh_keeps_the_last_good_table(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

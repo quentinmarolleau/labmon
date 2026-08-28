@@ -10,7 +10,7 @@ lives behind the `tui` extra and pulls Rich and a tree of its own
 dependencies. Nothing that merely writes readings should pay for that.
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime, tzinfo
 from typing import ClassVar, final, override
 
@@ -411,6 +411,86 @@ class Rate(ModalScreen[float | None]):
         _ = self.dismiss(self._rates[event.option_index])
 
 
+# What the theme menu is called. It rides in the border like the rate
+# menu's, and every theme Textual ships is longer than the word, so
+# nothing here needs padding to keep the title from being cut short.
+THEME_TITLE = "theme"
+
+
+@final
+class Themes(ModalScreen[None]):
+    """The themes on offer, applied as the selector passes over them.
+
+    Textual's own theme menu changes nothing until something is chosen,
+    which makes picking one a matter of reading names and then looking.
+    Applying on highlight turns the menu itself into the preview: the
+    panel behind it is already drawn in the theme under the cursor, in
+    the terminal it will actually be read in and against the readings
+    actually on screen.
+
+    Leaving without choosing puts the theme back. A preview that stuck
+    because somebody pressed escape would be a menu that changes the
+    panel by being opened.
+    """
+
+    BINDINGS: ClassVar[list[BindingType]] = [
+        Binding("escape,q", "restore", "Close", key_display="esc"),
+    ]
+
+    CSS = """
+    Themes {
+        align: center middle;
+        background: $background 60%;
+    }
+    #themes {
+        border: round $panel-lighten-2;
+        border-title-align: center;
+        background: $surface;
+        padding: 0 1;
+        width: auto;
+        height: auto;
+    }
+    """
+
+    def __init__(
+        self, themes: Sequence[str], current: str, wear: Callable[[str], None]
+    ) -> None:
+        super().__init__()
+        self._themes: tuple[str, ...] = tuple(themes)
+        self._current: str = current
+        # Handed in rather than reached for. The menu decides which
+        # theme is being looked at; the application it is drawn over is
+        # what owns the setting.
+        self._wear: Callable[[str], None] = wear
+
+    @override
+    def compose(self) -> ComposeResult:
+        yield OptionList(*(Option(name, id=name) for name in self._themes), id="themes")
+
+    def on_mount(self) -> None:
+        chosen = self.query_one("#themes", OptionList)
+        chosen.border_title = THEME_TITLE
+        # Opens on the theme in force, so the first thing the preview
+        # shows is what the panel already looks like.
+        chosen.highlighted = self._themes.index(self._current)
+        _ = chosen.focus()
+
+    def on_option_list_option_highlighted(
+        self, event: OptionList.OptionHighlighted
+    ) -> None:
+        self._wear(self._themes[event.option_index])
+
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        # Already worn by the highlight that preceded it; choosing is
+        # only how somebody stops previewing and keeps what they see.
+        _ = event
+        _ = self.dismiss(None)
+
+    def action_restore(self) -> None:
+        self._wear(self._current)
+        _ = self.dismiss(None)
+
+
 @final
 class Panel(App[None]):
     """A table of current values, redrawn on a fixed cadence.
@@ -579,6 +659,23 @@ class Panel(App[None]):
         self._schedule()
         self._draw()
         self.notify(f"refreshing every {seconds(chosen)}", timeout=2)
+
+    @override
+    def search_themes(self) -> None:
+        """The theme menu, previewing each theme as it is highlighted.
+
+        Overridden rather than added beside Textual's, so that the entry
+        in the command palette — the way somebody actually arrives here
+        — is the previewing one. A second, non-previewing menu reachable
+        by the obvious route would be the worse of the two winning.
+        """
+        _ = self.push_screen(
+            Themes(sorted(self.available_themes), self.theme, self._wear)
+        )
+
+    def _wear(self, name: str) -> None:
+        """Put a theme on, which is how the menu previews one."""
+        self.theme = name
 
     def action_keys(self) -> None:
         """`?`, for the list of what the other keys do."""

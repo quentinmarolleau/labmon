@@ -77,9 +77,13 @@ itself, so one early buys nothing.
 ```
 
 `m` opens Textual's command palette, where the colour theme can be
-changed. The default is `nord`, chosen for being calm at a glance and
-legible on a projector, which is where a panel beside an experiment tends
-to end up.
+changed. Each theme is worn as the selector passes over it, so the menu
+is its own preview: the panel behind it is redrawn in the theme under the
+cursor, in the terminal it will be read in and against the readings
+actually on screen. `escape` puts back the theme that was in force.
+
+The default is `nord`, chosen for being calm at a glance and legible on a
+projector, which is where a panel beside an experiment tends to end up.
 
 `?` lists the keys above without leaving the panel, and closes on `?`,
 `escape` or `q`.
