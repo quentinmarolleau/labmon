@@ -551,14 +551,16 @@ def probe(conversion: Conversion) -> pint.Quantity:
     Raises the failure from the first probe if every one of them fails,
     since that is the voltage a reader is most likely to reason about.
     """
-    first: Exception | None = None
+    failures: list[Exception] = []
     for voltage in PROBE_VOLTAGES:
         try:
             return conversion.apply(voltage)
         except Exception as error:  # noqa: BLE001 — re-raised below if all fail
-            first = first or error
-    assert first is not None
-    raise first
+            failures.append(error)
+    # A list rather than a running `first`, because indexing it is typed
+    # where the running value was `Exception | None` and needed an
+    # assertion to say what the loop already guarantees.
+    raise failures[0]
 
 
 def _trial_apply(where: Location, conversion: Conversion) -> None:
