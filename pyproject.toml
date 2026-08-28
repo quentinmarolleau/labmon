@@ -77,9 +77,18 @@ target-version = "py312"
 # nobody touched; the answer to that is to pin ruff in the dev
 # dependencies when it happens, not to freeze the rule set in advance.
 extend-select = [
-    "G",   # flake8-logging-format
-    "LOG", # flake8-logging
-    "RUF", # ruff's own rules
+    "G",    # flake8-logging-format
+    "LOG",  # flake8-logging
+    "RUF",  # ruff's own rules
+    "DTZ",  # timezone-aware datetimes
+    "PTH",  # pathlib over os.path
+    "C4",   # comprehensions
+    "PIE",  # dead syntax
+    "RET",  # return-statement hygiene
+    "PERF", # avoidable slow patterns
+    "A",    # builtin shadowing
+    "ARG",  # unused arguments
+    "S",    # bandit
 ]
 
 # `G` is the reason this section exists. Every logging call in the package
@@ -98,12 +107,35 @@ extend-select = [
 # asserts something other than it appears to. Marking the deliberate ones
 # raw makes the accidental ones visible.
 
+# `DTZ` is the one on that second list that guards something this project
+# depends on rather than tidiness. Every reading is stamped before it is
+# written, and a naive `datetime.now()` reaching a `.time()` call is
+# silently wrong: the point lands at an offset that depends on the host's
+# timezone, and nothing fails until two sources are compared and disagree
+# by hours.
+#
+# `S` (bandit) is worth its suppressions for the rules nothing has tripped
+# yet: hardcoded passwords and tokens (`S105`-`S107`), which is the shape
+# a value takes when it is inlined "just to check something" on a public
+# repo, and `S324`, which stops the calibration fingerprint being moved
+# off sha256 quietly.
+
 # `RUF001`-`RUF003` catch a character that looks like ASCII and is not,
 # which is worth catching in an identifier and wrong for a unit or a
 # symbol. Every entry here is notation a physicist writes by hand, and
 # spelling them `\u03c3` in the source to satisfy a linter would make the
 # code harder to read than the problem the linter is guarding against.
 allowed-confusables = ["\u00b5", "\u03c3", "\u2212", "\u00b0"]
+
+[tool.ruff.lint.per-file-ignores]
+# `S101` is "use of assert", which is what a test is made of. Every one of
+# the 1156 findings is here, and nowhere else, so the exemption removes
+# exactly the noise and nothing more.
+"tests/*" = ["S101"]
+# The stubs describe libraries this project does not own, parameter names
+# included: `pa.array(obj, type=...)` has to be spelled the way pyarrow
+# spells it or the annotation describes a different function.
+"typings/*" = ["A002"]
 
 [tool.basedpyright]
 include = ["src", "tests", "scripts", "demo", "templates"]

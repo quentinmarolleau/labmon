@@ -207,7 +207,7 @@ def config_path() -> Path:
     they cannot disagree about what an unset variable means.
     """
     base = os.environ.get("XDG_CONFIG_HOME")
-    root = Path(base) if base else Path(os.path.expanduser("~")) / ".config"
+    root = Path(base) if base else Path("~").expanduser() / ".config"
     return root / "labmon" / CONFIG_NAME
 
 

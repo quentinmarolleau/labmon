@@ -368,7 +368,8 @@ def test_the_command_line_loads_without_the_heavy_libraries() -> None:
         "heavy = {'pyarrow', 'pint', 'influxdb_client_3', 'numpy', 'serial'};"
         "print(','.join(sorted(heavy & {m.split('.')[0] for m in sys.modules})))"
     )
-    result = subprocess.run(
+    # This interpreter, running a literal probe.
+    result = subprocess.run(  # noqa: S603
         [sys.executable, "-c", probe], capture_output=True, text=True, check=True
     )
 
