@@ -88,6 +88,12 @@ reliably delivers the right file — and name where it landed:
 INFLUXDB_TLS_CA=/etc/labmon/labmon-ca.crt
 ```
 
+Leave it readable by everyone — `chmod 644`, which is what
+`export-ca.sh` writes. The sensor containers run as an unprivileged user
+and read the file through a bind mount, so an owner-only copy is one they
+cannot open. There is nothing in it to protect: the private key never
+leaves the server.
+
 The server signs its own certificates, and a private root is in no system
 trust store, so without this the sensor refuses to connect rather than
 merely warning. One variable is enough for both directions of traffic:
