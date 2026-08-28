@@ -1544,6 +1544,97 @@ def test_every_tile_has_a_width_to_be_read_at(
     _drive(scenario)
 
 
+def _ticks(*coming: "monitor.Snapshot") -> "Callable[..., monitor.Snapshot]":
+    """A `take` that hands back each snapshot in turn, then repeats."""
+    queued = list(coming)
+
+    def next_tick(*args: object, **kwargs: object) -> "monitor.Snapshot":
+        _ = (args, kwargs)
+        return queued.pop(0) if len(queued) > 1 else queued[0]
+
+    return next_tick
+
+
+def test_a_tile_is_redrawn_in_place_rather_than_remounted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Removing every tile and mounting a new one in its place makes the
+    # whole grid blink twice a second: the tiles vanish and come back on
+    # every tick, which is unwatchable on the panel this exists to be.
+    from textual.widgets import Digits
+
+    from labmon.cli.tui import Panel as App
+    from labmon.cli.tui import Stat
+
+    monkeypatch.setattr(
+        "labmon.cli.tui.take", _ticks(_readings(77.01), _readings(78.42))
+    )
+
+    async def scenario() -> None:
+        app = App(
+            measurements=None,
+            sensor_ids=None,
+            window="15m",
+            refresh=3600.0,
+            panels=(Panel(sensor_id="cryo-77k"),),
+        )
+        async with app.run_test(size=(110, 34)) as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            tile = app.query_one(Stat)
+            assert tile.query_one(Digits).value == "77.01"
+
+            app.refresh_now()
+            await pilot.pause()
+            await pilot.pause()
+
+            assert app.query_one(Stat) is tile
+            assert tile.query_one(Digits).value == "78.42"
+
+    _drive(scenario)
+
+
+def test_a_tile_takes_its_alarm_and_drops_it_again_in_place(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The border is a class on the tile, so a tile that is not rebuilt
+    # has to be re-marked — and un-marked when the reading comes back.
+    from labmon.cli.tui import Panel as App
+    from labmon.cli.tui import Stat
+
+    monkeypatch.setattr(
+        "labmon.cli.tui.take",
+        _ticks(_readings(77.0), _readings(85.0), _readings(77.5)),
+    )
+
+    async def scenario() -> None:
+        app = App(
+            measurements=None,
+            sensor_ids=None,
+            window="15m",
+            refresh=3600.0,
+            panels=(Panel(sensor_id="cryo-77k", warn_above=80.0),),
+        )
+        async with app.run_test(size=(110, 34)) as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            tile = app.query_one(Stat)
+            assert "alarm" not in tile.classes
+
+            app.refresh_now()
+            await pilot.pause()
+            await pilot.pause()
+            assert app.query_one(Stat) is tile
+            assert "alarm" in tile.classes
+
+            app.refresh_now()
+            await pilot.pause()
+            await pilot.pause()
+            assert "alarm" not in tile.classes
+
+    _drive(scenario)
+
+
 def test_a_tile_over_its_threshold_is_marked(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

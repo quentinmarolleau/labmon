@@ -228,6 +228,13 @@ def _grouped(
     return laid
 
 
+# The classes a tile's state is drawn with, exactly one of which is
+# worn at a time. Listed so that re-marking a tile can take the others
+# off: a tile that recovered while wearing `stale` keeps a red border
+# for as long as the panel is open.
+_TILE_STATES: tuple[str, ...] = ("alarm", "missing", "ageing", "stale")
+
+
 @final
 class Stat(Static):
     """One tile: a heading, a large number, a unit and an age.
@@ -235,18 +242,38 @@ class Stat(Static):
     In the spirit of a Grafana stat panel. `Digits` is what makes the
     value readable from across a room without a font dependency — the
     whole reason a tile beats a table row.
+
+    Its parts are built here rather than inside `compose`, and kept, so
+    that a later reading can be written into them. A tile rebuilt on
+    every tick blinks: the grid empties and refills twice a second,
+    which is unwatchable on the one view meant to be left open.
     """
 
     def __init__(self, tile: Tile) -> None:
         super().__init__()
         self._tile: Tile = tile
+        self._value: Digits = Digits(tile.reading or "—", classes="tile-value")
+        self._unit: Label = Label(tile.unit, classes="tile-unit")
+        self._note: Label = Label(self._footer(), classes="tile-footer")
 
     @override
     def compose(self) -> ComposeResult:
         yield Label(self._tile.heading, classes="tile-heading")
-        yield Digits(self._tile.reading or "—", classes="tile-value")
-        yield Label(self._tile.unit, classes="tile-unit")
-        yield Label(self._footer(), classes="tile-footer")
+        yield self._value
+        yield self._unit
+        yield self._note
+
+    def show(self, tile: Tile) -> None:
+        """Write a fresh reading into the tile already on screen.
+
+        The heading is not touched: it comes from the layout file, which
+        is read once at startup and cannot change under a running panel.
+        """
+        self._tile = tile
+        self._value.update(tile.reading or "—")
+        self._unit.update(tile.unit)
+        self._note.update(self._footer())
+        self._mark()
 
     def _footer(self) -> str:
         """The line under the number: what it is, and how it is doing.
@@ -265,15 +292,25 @@ class Stat(Static):
         return f"{self._tile.measurement} · {self._tile.age}"
 
     def on_mount(self) -> None:
-        # An alarm outranks staleness: a reading that is out of range is
-        # a fact about the experiment, and one that is merely old is a
-        # fact about the network.
+        self._mark()
+
+    def _mark(self) -> None:
+        """Wear the class this reading calls for, and no other.
+
+        An alarm outranks staleness: a reading that is out of range is a
+        fact about the experiment, and one that is merely old is a fact
+        about the network.
+        """
         if self._tile.alarm is not None:
-            _ = self.add_class("alarm")
+            wanted = "alarm"
         elif not self._tile.found:
-            _ = self.add_class("missing")
+            wanted = "missing"
         elif self._tile.state is not Freshness.FRESH:
-            _ = self.add_class(self._tile.state.value)
+            wanted = self._tile.state.value
+        else:
+            wanted = ""
+        for name in _TILE_STATES:
+            _ = self.set_class(name == wanted, name)
 
 
 def keys_table(bindings: Sequence[BindingType]) -> RenderableType:
@@ -766,18 +803,25 @@ class Panel(App[None]):
         )
 
     def _draw_tiles(self) -> None:
-        """Replace the grid's contents with this tick's tiles.
+        """Write this tick's readings into the tiles already on screen.
 
-        Rebuilt rather than updated in place. A tile's border and its
-        classes depend on the reading, a layout is a handful of widgets
-        rather than a table of thousands, and rebuilding cannot leave a
-        stale class behind on a tile that has recovered.
+        Updated in place rather than rebuilt. Mounting a fresh grid on
+        every tick empties it and refills it, which reads as a blink
+        twice a second — and the layout is fixed at startup, so there is
+        one tile per configured panel however the readings come out.
+
+        The mounting branch is therefore the first tick only, where the
+        grid is still empty.
         """
         grid = self.query_one("#tiles", Grid)
-        _ = grid.remove_children()
-        _ = grid.mount_all(
-            Stat(tile) for tile in tiles(self.latest, self._panels, self._rules)
-        )
+        made = tiles(self.latest, self._panels, self._rules)
+        showing = list(grid.query(Stat))
+        if len(showing) == len(made):
+            for stat, tile in zip(showing, made, strict=True):
+                stat.show(tile)
+        else:
+            _ = grid.remove_children()
+            _ = grid.mount_all(Stat(tile) for tile in made)
         self.query_one("#caption", Label).update(
             status(
                 self.latest,
