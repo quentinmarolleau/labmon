@@ -170,6 +170,14 @@ services:
   # devices: passes the serial device through to the container.
   # volumes: the calibration file is read at startup and never written.
   #
+  # The container runs as an unprivileged user that is in `dialout`, whose
+  # gid is 20 on Debian and Ubuntu. A host that numbers that group
+  # differently has to pass its own gid through, because a device carries
+  # the host's numbers rather than the container's names:
+  #
+  #   group_add:
+  #     - "$(stat -c %g /dev/labmon-due)"
+  #
   # serial-sensor:
   #   <<: *labmon-sensor
   #   container_name: labmon-serial-sensor

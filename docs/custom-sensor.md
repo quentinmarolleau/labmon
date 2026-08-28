@@ -108,6 +108,11 @@ on top of it. Putting them in the shared image instead means a failed SDK
 install stops the whole stack building, and a merge conflict on every
 `git pull`.
 
+The base image ends as an unprivileged user, so a layer that installs
+anything — a wheel, an apt package — asks for root back with `USER root`
+and hands it in again with `USER labmon` before the entrypoint. The
+template does that around the section meant for it.
+
 On a machine where the container is not an option — a locked-down control
 PC, or an SDK that will not containerise — the same two scripts run
 directly under systemd instead. See [`deploy/`](../deploy/) for the units

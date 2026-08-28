@@ -514,6 +514,17 @@ client machine — nothing about the code cares which.
 the image's default entrypoint, passes the device through, and mounts the
 calibration file read-only.
 
+The container runs as an unprivileged user that is a member of `dialout`,
+which is gid 20 on Debian and Ubuntu — the same group the host puts on
+the device. On a host that numbers it differently, add the host's gid to
+the service, since a passed-through device carries the host's numbers and
+not the container's names:
+
+```yaml
+group_add:
+  - "986"   # stat -c %g /dev/labmon-due
+```
+
 **Bare install**: use
 [`deploy/labmon-serial-sensor.service`](../deploy/labmon-serial-sensor.service)
 as a systemd unit so it starts on boot and restarts on failure.

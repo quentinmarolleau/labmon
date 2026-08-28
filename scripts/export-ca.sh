@@ -43,6 +43,12 @@ fi
 
 docker compose cp "caddy:${ROOT_IN_CONTAINER}" "$DESTINATION"
 
+# `cp` brings the mode out of the container with it, which is owner-only.
+# The containers that read this file run as an unprivileged user, so an
+# owner-only copy is one they cannot open — and there is nothing here to
+# protect: the file is a public certificate, as the header above says.
+chmod 644 "$DESTINATION"
+
 # Without openssl there is no way to tell a good export from a truncated
 # one. Say that, rather than reporting a file that is probably fine as
 # unreadable — the check is the optional part here, not the export.

@@ -22,6 +22,11 @@
 # from your vendor has to sit next to this file; COPY cannot climb out.
 FROM labmon:latest
 
+# The base image ends as the unprivileged `labmon` user, so anything that
+# installs has to ask for root back and hand it in again before the
+# entrypoint. `COPY` is unaffected: it runs as root whatever USER is set.
+USER root
+
 # Your instrument's Python package. uv is already in the base image; the
 # --python flag points it at the venv labmon itself was installed into,
 # which is not the interpreter uv would pick on its own.
@@ -38,6 +43,9 @@ FROM labmon:latest
 #       && rm -rf /var/lib/apt/lists/*
 
 COPY sensor_continuous.py sensor_triggered.py /app/
+
+# Back to the unprivileged user the base image runs as.
+USER labmon
 
 # Overrides the base image's ENTRYPOINT ["mock-sensor"]. Swap in
 # sensor_triggered.py for a container a timer starts and stops.
