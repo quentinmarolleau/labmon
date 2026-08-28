@@ -388,7 +388,7 @@ def test_a_theme_the_panel_does_not_have_is_refused(
     _ = config.write_text('[monitor]\ntheme = "nordic"\n')
 
     class Recording:
-        def __init__(self, **kwargs: object) -> None:
+        def __init__(self, **_kwargs: object) -> None:
             raise AssertionError("the panel should not have started")
 
         def run(self) -> None:

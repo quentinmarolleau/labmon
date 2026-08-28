@@ -206,7 +206,9 @@ def export(
     since: Since = "1h",
     until: Until = None,
     output: Output = None,
-    format: FormatOption = None,
+    # Not `format`, which shadows the builtin. The flag is spelled by
+    # the annotation, so the parameter is free to be named otherwise.
+    chosen_format: FormatOption = None,
     split_per_sensor: SplitPerSensor = False,
     no_raw_input: NoRawInput = False,
     log_level: LogLevelOption = "INFO",  # pyright: ignore[reportArgumentType]
@@ -216,7 +218,7 @@ def export(
     from labmon.export.writers import write, write_stdout
 
     configure(log_level)
-    fmt = infer_format(output, format)
+    fmt = infer_format(output, chosen_format)
 
     if output == "-" and split_per_sensor:
         raise ExportError(
