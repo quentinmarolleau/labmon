@@ -703,6 +703,35 @@ def test_the_missing_extra_message_names_the_interpreter(
 # --------------------------------------------------------------------------
 
 
+def test_s_takes_a_screenshot_without_going_through_the_menu(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A panel is captured because of what it is showing at that moment,
+    # and the palette's own entry is a menu, a search and a selection
+    # away from that moment.
+    monkeypatch.setattr("labmon.influx.get_client", PanelClient)
+    from labmon.cli.tui import Panel
+
+    async def scenario() -> None:
+        app = Panel(measurements=None, sensor_ids=None, window="15m", refresh=3600.0)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            taken: list[object] = []
+
+            def collect(*args: object, **kwargs: object) -> None:
+                taken.append((args, kwargs))
+
+            monkeypatch.setattr(app, "deliver_screenshot", collect)
+
+            await pilot.press("s")
+            await pilot.pause()
+
+            assert len(taken) == 1
+            assert app.is_running
+
+    _drive(scenario)
+
+
 def test_a_screenshot_places_each_character_itself(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1720,6 +1749,7 @@ def test_the_footer_offers_the_panels_own_keys(
             assert shown == {
                 "q": "Quit",
                 "r": "Change refresh rate",
+                "s": "Screenshot",
                 "m": "Menu",
                 "question_mark": "Keys",
             }

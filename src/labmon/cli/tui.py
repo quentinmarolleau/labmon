@@ -547,6 +547,12 @@ class Panel(App[None]):
             tooltip="Choose how often the panel redraws.",
         ),
         Binding(
+            "s",
+            "screenshot",
+            "Screenshot",
+            tooltip="Write an SVG of the panel to the Downloads directory.",
+        ),
+        Binding(
             "m",
             "command_palette",
             "Menu",

@@ -56,6 +56,7 @@ the same sensors either way.
 |---|---|
 | `q` | Quit |
 | `r` | Change refresh rate |
+| `s` | Take a screenshot |
 | `m` | Open the command palette |
 | `?` | Show the keys, over the panel |
 
@@ -85,9 +86,12 @@ actually on screen. `escape` puts back the theme that was in force.
 The default is `nord`, chosen for being calm at a glance and legible on a
 projector, which is where a panel beside an experiment tends to end up.
 
-The palette also takes a screenshot, written as an SVG into the working
-directory. Each character is placed on its own coordinate rather than a
-run of text at a time: Rich holds a run to its width with `textLength`,
+`s` writes a screenshot, as an SVG in the Downloads directory, and says
+where it went. The command palette carries the same entry, a search box
+and a selection away from the moment worth capturing.
+
+Each character in it is placed on a coordinate of its own rather than a
+run of text at a time. Rich holds a run to its width with `textLength`,
 which browsers honour and librsvg — the renderer behind most desktop
 image viewers, and behind ImageMagick — ignores, so a screenshot opened
 outside a browser had its columns drifting off the borders they belong
