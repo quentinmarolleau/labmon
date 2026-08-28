@@ -85,6 +85,15 @@ actually on screen. `escape` puts back the theme that was in force.
 The default is `nord`, chosen for being calm at a glance and legible on a
 projector, which is where a panel beside an experiment tends to end up.
 
+The palette also takes a screenshot, written as an SVG into the working
+directory. Each character is placed on its own coordinate rather than a
+run of text at a time: Rich holds a run to its width with `textLength`,
+which browsers honour and librsvg — the renderer behind most desktop
+image viewers, and behind ImageMagick — ignores, so a screenshot opened
+outside a browser had its columns drifting off the borders they belong
+to. The file is about three times the size and renders the same
+everywhere.
+
 `?` lists the keys above without leaving the panel, and closes on `?`,
 `escape` or `q`.
 

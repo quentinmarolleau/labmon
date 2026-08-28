@@ -40,6 +40,7 @@ from labmon.cli.monitor import (
     tiles,
 )
 from labmon.cli.render import LATEST_HEADINGS, LatestRow
+from labmon.cli.screenshot import placed
 
 # Aliased: `Panel` here is the application, and a `[[monitor.panels]]`
 # entry is the specification for one tile inside it.
@@ -676,6 +677,20 @@ class Panel(App[None]):
     def _wear(self, name: str) -> None:
         """Put a theme on, which is how the menu previews one."""
         self.theme = name
+
+    @override
+    def export_screenshot(
+        self, *, title: str | None = None, simplify: bool = False
+    ) -> str:
+        """The screenshot, with every character placed on the grid.
+
+        Textual's own is laid out by the renderer's font, which only a
+        browser gets right — see `labmon.cli.screenshot`. Overridden
+        here rather than at the point the file is written, because
+        `deliver_screenshot` and `save_screenshot` both come through
+        this one method.
+        """
+        return placed(super().export_screenshot(title=title, simplify=simplify))
 
     def action_keys(self) -> None:
         """`?`, for the list of what the other keys do."""

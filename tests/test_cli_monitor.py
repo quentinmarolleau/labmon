@@ -699,6 +699,41 @@ def test_the_missing_extra_message_names_the_interpreter(
 
 
 # --------------------------------------------------------------------------
+# The screenshot
+# --------------------------------------------------------------------------
+
+
+def test_a_screenshot_places_each_character_itself(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Rich holds a run of text to its width with `textLength`, which the
+    # renderer behind most desktop image viewers ignores — the readings
+    # then drift off the grid their own borders are drawn on.
+    from xml.etree import ElementTree
+
+    monkeypatch.setattr("labmon.influx.get_client", PanelClient)
+    from labmon.cli.tui import Panel
+
+    async def scenario() -> None:
+        app = Panel(measurements=None, sensor_ids=None, window="15m", refresh=3600.0)
+        async with app.run_test(size=(100, 30)) as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            drawn = app.export_screenshot()
+
+            assert "textLength" not in drawn
+            written = "".join(
+                element.text or ""
+                for element in ElementTree.fromstring(drawn).iter(
+                    "{http://www.w3.org/2000/svg}text"
+                )
+            )
+            assert "cryo-77k" in written
+
+    _drive(scenario)
+
+
+# --------------------------------------------------------------------------
 # What the panel draws
 # --------------------------------------------------------------------------
 
