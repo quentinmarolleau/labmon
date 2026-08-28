@@ -861,7 +861,8 @@ def test_a_screenshot_places_each_character_itself(
             assert "textLength" not in drawn
             written = "".join(
                 element.text or ""
-                for element in ElementTree.fromstring(drawn).iter(
+                # The panel's own screenshot, generated on the line above.
+                for element in ElementTree.fromstring(drawn).iter(  # noqa: S314
                     "{http://www.w3.org/2000/svg}text"
                 )
             )

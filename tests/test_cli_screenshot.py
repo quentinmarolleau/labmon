@@ -81,7 +81,8 @@ def test_what_comes_back_is_still_valid_xml() -> None:
         + "</svg>"
     )
 
-    assert ElementTree.fromstring(drawn) is not None
+    # The literal built three lines above.
+    assert ElementTree.fromstring(drawn) is not None  # noqa: S314
 
 
 @pytest.mark.parametrize("cells", [1, 5, 100])

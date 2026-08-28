@@ -105,7 +105,10 @@ def columns_of(client: Queryable, measurement: str) -> frozenset[str]:
     from the server, so the column list decides what the SELECT contains.
     """
     table = client.query(
-        "SELECT column_name FROM information_schema.columns"
+        # Literal + literal, which the rule cannot tell from an
+        # interpolation. Adjacent literals would say the same thing
+        # without the operator, and basedpyright refuses those.
+        "SELECT column_name FROM information_schema.columns"  # noqa: S608
         + " WHERE table_schema = $schema AND table_name = $table",
         query_parameters={"schema": _USER_SCHEMA, "table": measurement},
     )
@@ -129,7 +132,8 @@ def columns_of_all(client: Queryable) -> dict[str, frozenset[str]]:
     which reads the same as a table with no usable columns.
     """
     table = client.query(
-        "SELECT table_name, column_name FROM information_schema.columns"
+        # Literal + literal, as above.
+        "SELECT table_name, column_name FROM information_schema.columns"  # noqa: S608
         + " WHERE table_schema = $schema",
         query_parameters={"schema": _USER_SCHEMA},
     )
@@ -194,7 +198,9 @@ def fetch(
         conditions.append(f'"sensor_id" IN ({", ".join(placeholders)})')
 
     sql = (
-        f"SELECT {_select_clause(present)}"
+        # The table name is one `resolve_measurements` matched against the
+        # list the server itself reported; the rest are parameters.
+        f"SELECT {_select_clause(present)}"  # noqa: S608
         + f' FROM "{measurement}"'
         + f" WHERE {' AND '.join(conditions)}"
         + f' ORDER BY "{TIME_COLUMN}"'
@@ -338,7 +344,9 @@ def _latest_branch(
         conditions.append(f'"{SENSOR_COLUMN}" IN ({", ".join(sensor_placeholders)})')
 
     return (
-        f"SELECT {', '.join(columns)}"
+        # The table name is one `resolve_measurements` matched against the
+        # list the server itself reported; the rest are parameters.
+        f"SELECT {', '.join(columns)}"  # noqa: S608
         + f' FROM "{measurement}"'
         + f" WHERE {' AND '.join(conditions)}"
         + f' GROUP BY "{SENSOR_COLUMN}"'
