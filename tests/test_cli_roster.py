@@ -21,9 +21,12 @@ def _known(sensor: str, seconds_ago: int = 0) -> Known:
 
 
 def test_the_cache_honours_xdg_cache_home(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("XDG_CACHE_HOME", "/tmp/somewhere")
+    # Named, never created. Somewhere other than /tmp, which would be a
+    # real shared directory and is read as one by anything looking for
+    # insecure temporary paths.
+    monkeypatch.setenv("XDG_CACHE_HOME", "/nowhere/cache")
 
-    assert cache_path() == Path("/tmp/somewhere/labmon/sensors.json")
+    assert cache_path() == Path("/nowhere/cache/labmon/sensors.json")
 
 
 def test_the_cache_falls_back_to_dot_cache(monkeypatch: pytest.MonkeyPatch) -> None:
