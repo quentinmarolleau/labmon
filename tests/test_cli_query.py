@@ -4,13 +4,21 @@ import re
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import override
+from zoneinfo import ZoneInfo
 
 import pyarrow as pa
 import pytest
 
 from labmon.cli import selection
 from labmon.cli.main import build_app
-from labmon.cli.render import DEFAULT_LIMIT, render, render_latest, visible_columns
+from labmon.cli.render import (
+    DEFAULT_LIMIT,
+    latest_rows,
+    render,
+    render_latest,
+    visible_columns,
+)
+from labmon.cli.runtime import REFUSED
 from labmon.export.table import combine, normalise
 from tests.cli_runner import Invocation, invoke
 
@@ -399,6 +407,49 @@ def test_the_timezone_suffix_is_never_half_printed() -> None:
     assert "+00:" not in render(_at(1_000))
 
 
+def test_a_configured_timezone_moves_the_printed_time() -> None:
+    # Paris was CET, UTC+1, on this date. The stored instant does not
+    # move; where it is shown does.
+    assert "1970-01-01 01:00:01.000" in render(_at(1_000), tz=ZoneInfo("Europe/Paris"))
+
+
+def test_a_shifted_time_still_does_not_print_its_offset() -> None:
+    # Dropping the suffix is what makes the column narrow enough to
+    # read, and it stays dropped once the zone is no longer UTC.
+    assert "+01:" not in render(_at(1_000), tz=ZoneInfo("Europe/Paris"))
+
+
+def test_the_timezone_reaches_the_query_command(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config = tmp_path / "config" / "labmon" / "labmon.toml"
+    config.parent.mkdir(parents=True)
+    _ = config.write_text('timezone = "Europe/Paris"\n')
+    monkeypatch.setattr("labmon.influx.get_client", FakeClient)
+
+    result = _run("query", "--since", "1h")
+
+    assert result.exit_code == 0
+    # FakeClient stamps its one reading at the epoch, which in Paris is
+    # an hour later on the same day.
+    assert "1970-01-01 01:00:00.000" in result.output
+
+
+def test_a_broken_configuration_is_reported_without_a_traceback(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config = tmp_path / "config" / "labmon" / "labmon.toml"
+    config.parent.mkdir(parents=True)
+    _ = config.write_text('timezone = "Mars/Olympus"\n')
+    monkeypatch.setattr("labmon.influx.get_client", FakeClient)
+
+    result = _run("query", "--since", "1h")
+
+    assert result.exit_code == REFUSED
+    assert "Traceback" not in result.output
+    assert "Mars/Olympus" in result.output
+
+
 # --------------------------------------------------------------------------
 # The latest reading from each sensor
 # --------------------------------------------------------------------------
@@ -443,21 +494,55 @@ def test_a_sensor_is_listed_once() -> None:
     assert len(body) == 2
 
 
-def test_the_stalest_sensor_is_listed_last() -> None:
-    # The one that stopped reporting is the one worth finding, and a
-    # reader's eye lands on the end of a short list.
+def test_rows_are_ordered_by_measurement_then_sensor() -> None:
+    # Stable ordering is the whole requirement. Sorting by age looks
+    # right on a one-shot listing and is unusable on a panel that
+    # redraws every two seconds: every row moves, so nothing can be
+    # followed. Staleness is carried by colour, which does not depend on
+    # position.
     table = _latest(
         [
-            ("fresh", "temperature", 1.0, "K", 2),
-            ("silent", "temperature", 2.0, "K", 9000),
+            ("room-1", "temperature", 1.0, "°C", 2),
+            ("vac-1", "pressure", 2.0, "mbar", 9000),
+            ("cryo-77k", "temperature", 3.0, "K", 40),
+            ("chamber-1", "pressure", 4.0, "mbar", 5),
         ]
     )
 
-    lines = [
-        line for line in render_latest(table, now=_NOW).splitlines() if " ago" in line
+    listed = [
+        tuple(line.split()[:2])
+        for line in render_latest(table, now=_NOW).splitlines()
+        if " ago" in line
     ]
 
-    assert lines[-1].startswith("silent")
+    assert listed == [
+        ("pressure", "chamber-1"),
+        ("pressure", "vac-1"),
+        ("temperature", "cryo-77k"),
+        ("temperature", "room-1"),
+    ]
+
+
+def test_a_silent_sensor_sorts_among_the_others_rather_than_at_the_end() -> None:
+    # It is remembered, not exiled. Age no longer decides position, so a
+    # roster entry belongs wherever its name puts it.
+    from labmon.cli.roster import Known
+
+    table = _latest([("room-1", "temperature", 1.0, "°C", 2)])
+    quiet = Known(
+        sensor_id="cryo-77k",
+        measurement="temperature",
+        unit="K",
+        last_seen=_NOW - timedelta(hours=4),
+    )
+
+    listed = [
+        line.split()[1]
+        for line in render_latest(table, now=_NOW, silent=[quiet]).splitlines()
+        if " ago" in line
+    ]
+
+    assert listed == ["cryo-77k", "room-1"]
 
 
 def test_columns_stay_aligned_when_an_age_is_coloured() -> None:
@@ -534,16 +619,18 @@ def test_latest_reports_how_long_ago_each_sensor_reported(
     assert "3h ago" in result.output
 
 
-def test_latest_puts_the_quietest_sensor_last(
+def test_latest_orders_by_measurement_then_sensor(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr("labmon.influx.get_client", LatestClient)
 
     body = [
-        line for line in _run("query", "latest").output.splitlines() if " ago" in line
+        line.split()[1]
+        for line in _run("query", "latest").output.splitlines()
+        if " ago" in line
     ]
 
-    assert body[-1].startswith("abandoned")
+    assert body == ["abandoned", "cryo-77k"]
 
 
 def test_latest_closes_the_client_when_the_query_fails(
@@ -627,11 +714,47 @@ def test_a_sensor_silent_beyond_the_window_is_still_listed(
     assert "2d ago" in result.output
 
 
-def test_a_silent_sensor_shows_no_value_rather_than_a_stale_one(
+def test_a_silent_sensor_shows_what_it_was_last_reading(
     monkeypatch: pytest.MonkeyPatch, roster: "Path"
 ) -> None:
-    # Printing the last value it ever sent, next to a fresh reading from
-    # another sensor, would read as current.
+    # What an instrument was reading when it went quiet is usually the
+    # question being asked of it. The age sits in the same row and says
+    # the number is not current.
+    from labmon.cli.roster import Known, merge, save
+
+    save(
+        roster,
+        merge(
+            {},
+            [
+                Known(
+                    sensor_id="abandoned",
+                    measurement="temperature",
+                    unit="K",
+                    last_seen=datetime.now(UTC) - timedelta(days=2),
+                    value=4.2,
+                )
+            ],
+        ),
+    )
+    monkeypatch.setattr("labmon.influx.get_client", QuietClient)
+
+    line = next(
+        line
+        for line in _run("query", "latest").output.splitlines()
+        if " abandoned " in line
+    )
+
+    assert "4.2" in line
+    assert "2d ago" in line
+
+
+def test_a_roster_entry_with_no_remembered_value_shows_none(
+    monkeypatch: pytest.MonkeyPatch, roster: "Path"
+) -> None:
+    # A roster written before readings were remembered still lists its
+    # sensors, which is the whole point of the cache — it just has
+    # nothing to put in the value column for them.
     from labmon.cli.roster import Known, merge, save
 
     save(
@@ -653,10 +776,10 @@ def test_a_silent_sensor_shows_no_value_rather_than_a_stale_one(
     line = next(
         line
         for line in _run("query", "latest").output.splitlines()
-        if line.startswith("abandoned")
+        if " abandoned " in line
     )
 
-    assert "77.01" not in line
+    assert line.split() == ["temperature", "abandoned", "K", "2d", "ago"]
 
 
 def test_a_live_sensor_is_remembered_for_next_time(
@@ -697,6 +820,39 @@ def test_a_missing_unit_column_is_remembered_as_blank() -> None:
     )
 
     assert selection.known_from(table)[0].unit == ""
+
+
+def test_the_roster_remembers_the_reading_that_was_current() -> None:
+    table = pa.table(
+        {
+            "sensor_id": pa.array(["a"]),
+            "measurement": pa.array(["temperature"]),
+            "time": pa.array([datetime.now(UTC)], pa.timestamp("ms", tz="UTC")),
+            "value": pa.array([4.2]),
+            "unit": pa.array(["K"]),
+        }
+    )
+
+    assert selection.known_from(table)[0].value == 4.2
+
+
+def test_a_row_with_no_reading_is_remembered_without_one() -> None:
+    # The sensor is still worth remembering: the roster's job is knowing
+    # that it exists and has gone quiet, not what it last said.
+    table = pa.table(
+        {
+            "sensor_id": pa.array(["a"]),
+            "measurement": pa.array(["temperature"]),
+            "time": pa.array([datetime.now(UTC)], pa.timestamp("ms", tz="UTC")),
+            "value": pa.array([None], pa.float64()),
+            "unit": pa.array(["K"]),
+        }
+    )
+
+    entry = selection.known_from(table)[0]
+
+    assert entry.value is None
+    assert entry.sensor_id == "a"
 
 
 def test_an_unwritable_cache_does_not_fail_the_command(
@@ -785,3 +941,197 @@ def test_query_help_names_its_subcommand() -> None:
 
     assert result.exit_code == 0
     assert "latest" in result.output
+
+
+# --------------------------------------------------------------------------
+# Window statistics beside the latest reading
+# --------------------------------------------------------------------------
+
+
+def _with_stats(
+    rows: list[tuple[str, str, float, str, int]],
+    stats: list[tuple[float | None, float | None, int]],
+) -> "pa.Table":
+    """`_latest`, plus the columns `fetch_latest(stats=True)` adds."""
+    table = _latest(rows)
+    return (
+        table.append_column("mean", pa.array([s[0] for s in stats], pa.float64()))
+        .append_column("sd", pa.array([s[1] for s in stats], pa.float64()))
+        .append_column("n", pa.array([s[2] for s in stats], pa.int64()))
+    )
+
+
+def test_statistics_are_shown_when_the_table_carries_them() -> None:
+    # Presence of the column is the request: the renderer takes no flag,
+    # so there is no way for it to disagree with the query.
+    table = _with_stats([("a", "temperature", 76.9, "K", 3)], [(76.85, 0.021, 900)])
+
+    rendered = render_latest(table, now=_NOW)
+
+    header = rendered.splitlines()[0]
+
+    # Named as a physicist writes them, and named identically in the
+    # panel — the two share one table of headings.
+    assert "average" in header
+    assert "σ" in header
+    assert "N" in header
+    assert "76.85" in rendered
+    assert "900" in rendered
+
+
+def test_no_statistics_columns_means_no_statistics_headers() -> None:
+    rendered = render_latest(_latest([("a", "temperature", 1.0, "K", 3)]), now=_NOW)
+
+    assert "average" not in rendered
+    assert "σ" not in rendered
+    assert "N" not in rendered
+
+
+def test_a_statistic_is_shown_at_a_readable_magnitude() -> None:
+    # A vacuum gauge's mean is no more readable in full decimal than its
+    # reading. The trailing zero on the mean is significant: the spread
+    # reaches a decimal place further than the mean's own digits do.
+    table = _with_stats(
+        [("vac", "pressure", 1.26e-8, "mbar", 1)], [(1.31e-8, 4.2e-10, 450)]
+    )
+
+    rendered = render_latest(table, now=_NOW)
+
+    assert "1.310e-08" in rendered
+    assert "4.2e-10" in rendered
+
+
+def test_a_single_reading_leaves_the_deviation_blank() -> None:
+    # Sample standard deviation is undefined for one reading, and the
+    # server returns NULL. "0" would claim a spread that was measured.
+    table = _with_stats([("a", "temperature", 1.0, "K", 3)], [(1.0, None, 1)])
+
+    rendered = render_latest(table, now=_NOW)
+
+    assert "1 sensor" in rendered
+    assert "nan" not in rendered.lower()
+
+
+def test_a_group_with_nothing_to_average_shows_blanks() -> None:
+    # `avg` over a window whose values are all NULL returns NULL, and
+    # the group still exists because rows are there to be grouped.
+    table = _with_stats([("a", "temperature", 1.0, "K", 3)], [(None, None, 0)])
+
+    lines = render_latest(table, now=_NOW).splitlines()
+    row = next(line for line in lines if " ago" in line)
+
+    assert row.split() == ["temperature", "a", "1.0", "K", "3s", "ago", "0"]
+
+
+def test_a_silent_sensor_has_no_statistics_to_show() -> None:
+    from labmon.cli.roster import Known
+
+    table = _with_stats([("a", "temperature", 1.0, "K", 3)], [(1.0, 0.5, 90)])
+    quiet = Known(
+        sensor_id="gone",
+        measurement="temperature",
+        unit="K",
+        last_seen=_NOW - timedelta(hours=4),
+        value=9.5,
+    )
+
+    lines = render_latest(table, now=_NOW, silent=[quiet]).splitlines()
+    row = next(line for line in lines if " gone " in line)
+
+    # The reading it left behind, and no mean, sd or n: those describe a
+    # window this sensor contributed nothing to.
+    assert row.split() == ["temperature", "gone", "9.5", "K", "4h", "ago"]
+
+
+class StatsClient(FakeClient):
+    """Answers the latest query with statistics attached."""
+
+    @override
+    def query(self, query: str, *args: object, **kwargs: object) -> pa.Table:
+        if query.startswith("SELECT '"):
+            now = datetime.now(UTC)
+            return pa.table(
+                {
+                    "measurement": pa.array(["temperature"]),
+                    "sensor_id": pa.array(["cryo-77k"]),
+                    "time": pa.array(
+                        [now - timedelta(seconds=2)], pa.timestamp("ms", tz="UTC")
+                    ),
+                    "value": pa.array([77.01]),
+                    "unit": pa.array(["K"]),
+                    "mean": pa.array([76.98]),
+                    "sd": pa.array([0.031]),
+                    "n": pa.array([1800], pa.int64()),
+                }
+            )
+        return super().query(query, *args, **kwargs)  # pyright: ignore[reportArgumentType]
+
+
+def test_the_stats_flag_asks_the_database_for_them(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("labmon.influx.get_client", StatsClient)
+
+    result = _run("query", "latest", "--stats")
+
+    assert result.exit_code == 0, result.output
+    assert "76.98" in result.output
+    assert "1800" in result.output
+
+
+def test_latest_without_the_flag_asks_for_no_statistics(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: list[str] = []
+
+    class Watching(FakeClient):
+        @override
+        def query(self, query: str, *args: object, **kwargs: object) -> pa.Table:
+            seen.append(query)
+            return super().query(query, *args, **kwargs)  # pyright: ignore[reportArgumentType]
+
+    monkeypatch.setattr("labmon.influx.get_client", Watching)
+
+    _ = _run("query", "latest")
+
+    assert not any("stddev(" in query for query in seen)
+
+
+def test_a_reading_is_shown_exactly_as_stored() -> None:
+    # A reading is recorded, not computed: the sensor already rounded it
+    # to the resolution it claims. Only the average and the deviation
+    # are rounded, and only against each other.
+    table = _with_stats(
+        [("beam-x", "position", -7.441802197802218, "µm", 2)], [(0.0196, 16.136, 900)]
+    )
+
+    _present, rows = latest_rows(table, _NOW)
+
+    assert "-7.441802197802218" in rows[0].cells
+
+
+def test_a_wide_spread_does_not_shorten_the_reading_beside_it() -> None:
+    # The beam wandered 16 µm across the window, which says nothing
+    # about how well the detector reads its position. Rounding the
+    # reading against that spread quoted it to whole µm, which was the
+    # wrong statistic applied to the wrong number.
+    table = _with_stats(
+        [("beam-x", "position", -7.441802197802218, "µm", 2)], [(0.0196, 16.136, 900)]
+    )
+
+    present, rows = latest_rows(table, _NOW)
+
+    assert rows[0].cells[present.index("value")] == "-7.441802197802218"
+    # The average, computed from that same window, is rounded against it,
+    # down to the single figure the floor keeps.
+    assert rows[0].cells[present.index("mean")] == "0.02"
+
+
+def test_the_measurement_leads_so_the_ordering_is_visible() -> None:
+    # A table sorted by a column it does not show first looks arbitrary,
+    # which is the readability problem the ordering was meant to fix.
+    table = _latest([("room-1", "temperature", 1.0, "°C", 2)])
+
+    present, _rows = latest_rows(table, _NOW)
+
+    assert present[:2] == ("measurement", "sensor_id")

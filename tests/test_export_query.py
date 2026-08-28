@@ -351,3 +351,69 @@ def test_latest_of_no_usable_measurements_is_empty() -> None:
     result = fetch_latest(client, ("temperature",), _WINDOW)
 
     assert result.num_rows == 0
+
+
+# --------------------------------------------------------------------------
+# Window statistics, in the same grouping
+# --------------------------------------------------------------------------
+
+
+def test_statistics_are_not_computed_unless_asked_for() -> None:
+    client = FakeClient(_FULL)
+
+    _ = fetch_latest(client, ("temperature",), _WINDOW)
+
+    sql = client.calls[-1][0]
+    assert "avg(" not in sql
+    assert "stddev(" not in sql
+
+
+def test_statistics_ride_along_in_the_same_grouping() -> None:
+    # The aggregates run over rows `last_value` is already reading, so
+    # they cost nothing extra and cannot describe a different window
+    # from the value they sit beside.
+    client = FakeClient(_FULL)
+
+    _ = fetch_latest(client, ("temperature",), _WINDOW, stats=True)
+
+    selects = [sql for sql, _ in client.calls if sql.startswith("SELECT '")]
+    assert len(selects) == 1
+    assert 'avg("value") AS "mean"' in selects[0]
+    assert 'stddev("value") AS "sd"' in selects[0]
+    assert 'count("value") AS "n"' in selects[0]
+    assert selects[0].count('GROUP BY "sensor_id"') == 1
+
+
+def test_statistics_are_projected_by_every_arm() -> None:
+    # A UNION arm that lacked them would not compile; more usefully, a
+    # measurement missing from the statistics would read as a sensor
+    # with no history rather than as a bug.
+    client = FakeClient(_FULL)
+
+    _ = fetch_latest(client, ("temperature", "pressure"), _WINDOW, stats=True)
+
+    arms = client.calls[-1][0].split("UNION ALL")
+    assert len(arms) == 2
+    for arm in arms:
+        assert 'AS "mean"' in arm
+        assert 'AS "sd"' in arm
+        assert 'AS "n"' in arm
+
+
+def test_an_empty_statistics_result_still_has_the_columns() -> None:
+    # The renderer decides what to show by which columns are present, so
+    # an empty result that dropped them would silently change the view.
+    client = FakeClient(("time", "value"))
+
+    result = fetch_latest(client, ("temperature",), _WINDOW, stats=True)
+
+    assert result.num_rows == 0
+    assert {"mean", "sd", "n"} <= set(result.column_names)
+
+
+def test_an_empty_result_without_statistics_does_not_invent_them() -> None:
+    client = FakeClient(("time", "value"))
+
+    result = fetch_latest(client, ("temperature",), _WINDOW)
+
+    assert not {"mean", "sd", "n"} & set(result.column_names)

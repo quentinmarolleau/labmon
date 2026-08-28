@@ -1,11 +1,12 @@
 # Configuration reference
 
-Every setting labmon exposes, in one place. Behaviour is tuned in three
-places — the environment, a command line, and the calibration file — and
-which one a given knob lives in is not always guessable. This page is the
-index; the per-component docs explain what each setting is *for*.
+Every setting labmon exposes, in one place. Behaviour is tuned in four
+places — the environment, a command line, the calibration file, and a
+per-user configuration file — and which one a given knob lives in is not
+always guessable. This page is the index; the per-component docs explain
+what each setting is *for*.
 
-There is a fourth category, at the bottom: the constants that are
+There is a fifth category, at the bottom: the constants that are
 deliberately **not** configurable, and what breaks if you change them
 anyway.
 
@@ -147,6 +148,114 @@ They do decide how finely `value` is rounded — see
 [How many digits a reading keeps](#how-many-digits-a-reading-keeps) —
 and digits dropped on the way in do not come back. `input_volts` keeps
 all of its own, which is what makes the correction possible.
+
+## The user configuration file
+
+Everything above configures a *deployment* — a host, a database, a
+token — and reaches labmon through the environment, because that is how
+a container is configured. The settings in this section configure a
+*person*: how readings are shown to whoever is reading them. They live
+with that person's other dotfiles rather than with the stack.
+
+Read from `$XDG_CONFIG_HOME/labmon/labmon.toml`, or
+`~/.config/labmon/labmon.toml` when `XDG_CONFIG_HOME` is unset. **Not
+having one is the ordinary case**: every key has a default and a missing
+file is not an error.
+
+```toml
+timezone = "Europe/Paris"
+```
+
+| Key | Default | Purpose |
+|---|---|---|
+| `timezone` | `"UTC"` | Zone the `time` column is printed in. An IANA name, or `"local"` for the machine's own zone |
+| `monitor.refresh` | `"2s"` | How often `labmon monitor` redraws |
+| `monitor.window` | `"15m"` | How much history the panel's statistics cover |
+| `monitor.theme` | `"nord"` | Colours the panel opens in — any of Textual's twenty-one themes |
+| `[[monitor.panels]]` | *(none)* | A tile per entry. With none, the panel shows a table of every sensor |
+| `[[monitor.sensors]]` | *(none)* | How many digits one sensor is worth, in the table and in any tile |
+
+Each `[[monitor.panels]]` entry takes:
+
+| Key | Default | Purpose |
+|---|---|---|
+| `sensor_id` | *(required)* | Which sensor the tile shows |
+| `measurement` | *(the sensor's only one)* | Which table, for a sensor that writes to more than one |
+| `title` | *(the sensor id)* | What to write above the number |
+| `precision` | *(the sensor's rule, else as stored)* | Decimal places, trailing zeros included |
+| `format` | `"auto"` | `auto`, `plain` or `scientific` |
+| `warn_above`, `warn_below` | *(none)* | Colour the tile when the reading leaves this range |
+
+Each `[[monitor.sensors]]` entry takes a subset — a display rule has no
+title and no threshold, because it governs sensors that have no tile:
+
+| Key | Default | Purpose |
+|---|---|---|
+| `sensor_id` | *(required)* | Which sensor the rule governs |
+| `measurement` | *(all of them)* | Which table, for a sensor that writes to more than one. A rule naming it wins over one that does not |
+| `precision` | *(as stored)* | Decimal places, trailing zeros included |
+| `format` | `"auto"` | `auto`, `plain` or `scientific` |
+
+A tile that names its own `precision` or `format` overrides the sensor's
+rule for that tile. Readings are otherwise shown exactly as stored:
+only the average and the deviation are rounded, and only against each
+other. These rules live under `[monitor]`, so `labmon query latest` is
+unaffected.
+
+```toml
+timezone = "Europe/Paris"
+
+[monitor]
+refresh = "2s"
+window  = "15m"
+theme   = "nord"
+
+[[monitor.sensors]]
+sensor_id = "beam-x"
+precision = 2
+
+[[monitor.panels]]
+sensor_id = "cryo-77k"
+title = "Cold finger"
+precision = 3
+warn_above = 80.0
+```
+
+A layout can also live in a file of its own, passed with
+`labmon monitor --config bakeout.toml`. That file has the same shape
+minus the `monitor.` prefix, and **replaces** this section rather than
+merging with it — see [`monitor.example.toml`](../monitor.example.toml)
+and [`docs/monitor.md`](monitor.md).
+
+Durations are spelled the way `--since` spells them — `2s`, `90m`,
+`24h`, `7d`, `1w` — because one parser serves both. A bare number is
+refused: `2` could be seconds or minutes, and a panel that guesses wrong
+refreshes sixty times too often. Both `[monitor]` values are validated
+when the file is read rather than when they are first used, since a
+mistake that surfaced on the first tick would already have taken over
+the terminal. See [`docs/monitor.md`](monitor.md).
+
+`theme` is checked the same way, against the list the panel itself
+offers — `gruvbox`, `dracula`, `solarized-light`, `tokyo-night` and the
+rest. A name it does not have is refused before the panel starts, with
+the list in the message, rather than raising over a screen it has
+already taken.
+
+`timezone` changes only what a terminal prints. Readings are stored in
+UTC and exported in UTC — a data file that carried somebody's desk clock
+would be unusable to the next person to open it. What it fixes is the
+question you actually ask standing next to an experiment: whether the
+cryostat was cold at 3 a.m. *your* time.
+
+`"local"` is resolved by asking the machine, so a laptop that travels
+follows it. A name that looks right but is rejected usually means the
+system timezone database is not installed — `tzdata` provides it.
+
+**An unrecognised key is an error, not a warning.** A config file that
+skips what it does not understand gives a misspelled setting the exact
+appearance of a working one, with nothing to notice. The cost is that a
+key added by a newer labmon fails on an older one, which is a message
+naming the key rather than a silent wrong answer.
 
 ## The calibration file
 

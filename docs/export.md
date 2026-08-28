@@ -321,9 +321,20 @@ value is.** A sensor that stopped writing an hour ago still has a most
 recent reading, and it looks perfectly healthy until you can see when it
 arrived — `probe-158` above is the row worth noticing.
 
-Rows are ordered by age with the oldest last, so the sensor that has
-gone quiet is the line an eye lands on. In a terminal the age is
-coloured: unmarked under a minute, amber up to five, red beyond. Those
+Rows are ordered by **measurement, then sensor**, alphabetically and by
+nothing else. Age was the obvious key while this view printed once and
+exited — it put the sensor that had stopped on the last line, where an
+eye lands. It is unusable on anything that redraws: every row moves on
+every tick, so no row can be followed and reading one value means
+finding it again first. `labmon monitor` shares this renderer, and the
+same order is used by `labmon sensors`, so a sensor sits in the same
+place in all three.
+
+The measurement leads because it is what the rows are sorted by. A table
+ordered by a column it does not show first looks arbitrary.
+
+Staleness is carried by colour instead, which does not depend on
+position: unmarked under a minute, amber up to five, red beyond. Those
 thresholds are global for now; sensors here legitimately run from 1 Hz
 to once a minute, so a per-sensor expectation is the better answer and
 belongs in a configuration file.
@@ -334,6 +345,60 @@ into a file leaves escape codes out of it.
 The same four selection flags apply, and they narrow the remembered
 sensors as well as the query — asking for temperatures does not list a
 silent pressure gauge.
+
+### How the window behaved, not just where it ended
+
+A latest value alone cannot say whether a sensor is holding steady or
+swinging. `--stats` adds the average, the standard deviation and the
+number of readings over the same window:
+
+```bash
+labmon query latest --stats --since 24h
+```
+
+```
+measurement  sensor_id      value                  unit  age      average          σ        N    
+-----------  -------------  ---------------------  ----  -------  ---------------  -------  -----
+frequency    wavemeter-1    2.765613011e+14        Hz    0s ago   2.765612998e+14  1.9e+06  17392
+frequency    wavemeter-thz  276.5613007            THz   19h ago  276.56130115     3.1e-07  8
+position     beam-x         22.932219780219782     µm    2s ago   0                19       34765
+position     beam-y         -22.199692307692317    µm    2s ago   0                16       34765
+power        laser-1        89.18703296703298      mW    2s ago   95.0             8.8      34765
+```
+
+These come from the **same grouping as the value**, in the same query —
+extra aggregate functions over rows that were being scanned anyway. On
+the demo stack a 24-hour query across six tables measured 70.8 ms
+without them and 63.5 ms with, which is to say the difference is below
+the noise. They also cannot describe a different window from the value
+they sit beside, which a second query could.
+
+`N` is worth as much as the other two. Sensors here legitimately run
+from 1 Hz to once a minute, so it is what separates "quiet because
+nothing changed" from "quiet because it stopped" — and it says how much
+the average is standing on.
+
+**The average and the deviation are rounded against each other**, which
+is the one place labmon does round. A stored reading is shown in full
+because the sensor already rounded it to the resolution it claims; an
+average is computed, so its shortest round-tripping form runs to
+seventeen digits for readings that were only ever good to four. The
+deviation is cut to two significant figures and the average to the same
+decimal place, but never past one significant figure of its own. A
+wavemeter stable to `3.1e-07` keeps eleven digits; a beam centred at
+`0.0196` with a spread of `16` reads as `0.02`.
+
+So **the average is not printed to a finer resolution than σ**, except
+where σ is the wider of the two and would otherwise take the whole
+average with it. Rounding that beam to σ's place gives a bare `0`,
+which states the one thing already visible from the deviation beside
+it — that the centre lies somewhere inside ±16 — while discarding the
+centring itself, sign and all. One figure is enough to recover both,
+and a second would only sharpen a number σ has already called soft.
+
+A sensor with one reading in the window has no sample deviation — the
+column is left blank rather than filled with `0`, which would claim a
+spread that was never measured.
 
 ## Sensors that have gone quiet
 
@@ -346,19 +411,25 @@ labmon therefore remembers the sensors it has seen, and unions that list
 into the result:
 
 ```
-sensor_id   measurement  value   unit  age
-----------  -----------  ------  ----  -------
-cryo-diode  temperature  17.1    K     1s ago
-room-1      temperature  20.518  °C    2s ago
-probe-158   temperature          K     1h ago
+sensor_id   measurement  value    unit  age
+----------  -----------  -------  ----  -------
+cryo-diode  temperature  17.1     K     1s ago
+room-1      temperature  20.518   °C    2s ago
+probe-158   temperature  21.0691  K     1h ago
 
 6 sensors
 1 of them reported nothing in this window — remembered from a previous run
 ```
 
-`probe-158` reported nothing inside the window. Its **value is left
-blank rather than filled with the last reading it ever sent**: printed
-beside a fresh number from another sensor, an old one reads as current.
+`probe-158` reported nothing inside the window. Its value is **the last
+reading the roster saw**, not one from this window — what an instrument
+was reading when it went quiet is usually the question being asked of
+it, and a cryostat that stopped at 4 K is a different morning from one
+that stopped at 300 K. The `age` column sits beside it in every view and
+says the number is an hour old.
+
+A roster written before readings were remembered has none to show, so
+those rows keep a blank value until the sensor is seen again.
 
 The rule the cache follows is that **it may only add sensors, never
 replace or filter them.** Used as a union a stale cache is harmless, and

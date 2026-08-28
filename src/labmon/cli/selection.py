@@ -68,12 +68,17 @@ def read_latest(
     sensor_ids: Sequence[str] | None,
     since: str,
     until: str | None,
+    stats: bool = False,
 ) -> "tuple[pa.Table, Window]":
     """The most recent reading each sensor produced within the window.
 
     Shares the client handling and the measurement allowlist with
     `read`, and differs only in the query it runs — so a sensor visible
     to one is visible to the other.
+
+    `stats` asks for the window's mean, standard deviation and reading
+    count alongside. They come from the same grouping as the value, so
+    they cost no extra round trip and describe the same window.
     """
     from labmon.export.query import fetch_latest, resolve_measurements
     from labmon.export.window import Window
@@ -83,7 +88,9 @@ def read_latest(
     client = get_client()
     try:
         resolved = resolve_measurements(client, list(measurements or ()))
-        table = fetch_latest(client, resolved, window, list(sensor_ids or ()))
+        table = fetch_latest(
+            client, resolved, window, list(sensor_ids or ()), stats=stats
+        )
     finally:
         client.close()
 
@@ -131,6 +138,7 @@ def known_from(table: "pa.Table") -> "list[Known]":
         raw = columns["time"][index]
         if sensor is None or raw is None:
             continue
+        reading = _at(columns, "value", index)
         # `to_pylist` is typed as returning objects; the column is a
         # timestamp, and a column with no zone is UTC because that is
         # what the latest query stamps in.
@@ -141,6 +149,7 @@ def known_from(table: "pa.Table") -> "list[Known]":
                 measurement=str(_at(columns, "measurement", index)),
                 unit=str(_at(columns, "unit", index)),
                 last_seen=stamp if stamp.tzinfo else stamp.replace(tzinfo=UTC),
+                value=reading if isinstance(reading, float) else None,
             )
         )
     return entries
@@ -159,6 +168,7 @@ def read_latest_with_roster(
     sensor_ids: Sequence[str] | None,
     since: str,
     until: str | None,
+    stats: bool = False,
 ) -> "tuple[pa.Table, list[Known]]":
     """The latest readings, plus every sensor the roster remembers.
 
@@ -172,7 +182,7 @@ def read_latest_with_roster(
     """
     from labmon.cli.roster import cache_path, load, merge, save
 
-    table, _window = read_latest(measurements, sensor_ids, since, until)
+    table, _window = read_latest(measurements, sensor_ids, since, until, stats)
     live = known_from(table)
 
     path = cache_path()

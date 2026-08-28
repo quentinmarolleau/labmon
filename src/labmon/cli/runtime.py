@@ -62,6 +62,7 @@ def _report(action: Callable[[], None]) -> None:
     # reaches this function at all.
     from influxdb_client_3.exceptions.exceptions import InfluxDB3ClientError
 
+    from labmon.config import ConfigError
     from labmon.export.query import QueryError
     from labmon.export.window import WindowError
     from labmon.export.writers import ExportError
@@ -69,7 +70,7 @@ def _report(action: Callable[[], None]) -> None:
 
     try:
         action()
-    except (ExportError, QueryError, WindowError) as error:
+    except (ConfigError, ExportError, QueryError, WindowError) as error:
         logger.error("command failed", extra={"reason": str(error)})
         raise SystemExit(REFUSED) from None
     except InfluxDB3ClientError as error:

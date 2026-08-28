@@ -23,6 +23,15 @@ HELP = (
     + "    labmon query --since 1h --limit 0"
 )
 
+Stats = Annotated[
+    bool,
+    typer.Option(
+        "--stats",
+        help="Also show the mean, standard deviation and reading count"
+        + " over the window",
+    ),
+]
+
 Limit = Annotated[
     int,
     typer.Option(
@@ -50,9 +59,11 @@ def query(
         # and print two tables.
         return
 
+    from labmon.config import load
+
     configure(log_level)
     table, _window = selection.read(measurement, sensor_id, since, until)
-    print(render(table, limit=limit))
+    print(render(table, limit=limit, tz=load().timezone))
 
 
 LATEST_HELP = (
@@ -68,6 +79,7 @@ LATEST_HELP = (
     + "\n\n"
     + "[bold]Examples[/bold]\n\n"
     + "    labmon query latest\n"
+    + "    labmon query latest --stats --since 15m\n"
     + "    labmon query latest --measurement temperature\n"
     + "    labmon query latest --sensor-id cryo-77k --sensor-id room-1"
 )
@@ -78,6 +90,7 @@ def latest(
     sensor_id: SensorIds = None,
     since: Since = "1h",
     until: Until = None,
+    stats: Stats = False,
     log_level: LogLevelOption = "INFO",  # pyright: ignore[reportArgumentType]
 ) -> None:
     """One row per sensor: its most recent reading, and how long ago."""
@@ -86,7 +99,7 @@ def latest(
 
     configure(log_level)
     table, silent = selection.read_latest_with_roster(
-        measurement, sensor_id, since, until
+        measurement, sensor_id, since, until, stats=stats
     )
     # Colour only where something will interpret it. Piping this into a
     # file should leave escape codes out of the file, and `isatty` is

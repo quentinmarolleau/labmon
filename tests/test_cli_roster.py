@@ -283,3 +283,103 @@ def test_a_failed_write_does_not_leave_a_temporary_file(
 
     monkeypatch.undo()
     assert list(tmp_path.glob("*.tmp")) == []
+
+
+# --------------------------------------------------------------------------
+# The reading an entry was last heard saying
+# --------------------------------------------------------------------------
+
+
+def test_a_remembered_reading_survives_the_round_trip(tmp_path: Path) -> None:
+    target = tmp_path / "sensors.json"
+    save(target, merge({}, [Known("cryo", "temperature", "K", _NOW, 4.2)]))
+
+    assert load(target)[("cryo", "temperature")].value == 4.2
+
+
+def test_an_entry_written_before_readings_were_remembered_still_loads(
+    tmp_path: Path,
+) -> None:
+    # The cache predates the field, and an entry is worth keeping for
+    # its identity and its timestamp whether or not it has a reading.
+    target = tmp_path / "sensors.json"
+    _ = target.write_text(
+        json.dumps(
+            [
+                {
+                    "sensor_id": "cryo",
+                    "measurement": "temperature",
+                    "unit": "K",
+                    "last_seen": _NOW.isoformat(),
+                }
+            ]
+        )
+    )
+
+    entry = load(target)[("cryo", "temperature")]
+
+    assert entry.value is None
+    assert entry.unit == "K"
+
+
+@pytest.mark.parametrize("written", ["4.2", None, True, [4.2], {}])
+def test_a_reading_that_is_not_a_number_is_dropped(
+    tmp_path: Path, written: object
+) -> None:
+    # Hand-edited files reach here. Refusing the whole entry would lose
+    # a sensor over a field it can do without.
+    target = tmp_path / "sensors.json"
+    _ = target.write_text(
+        json.dumps(
+            [
+                {
+                    "sensor_id": "cryo",
+                    "measurement": "temperature",
+                    "unit": "K",
+                    "last_seen": _NOW.isoformat(),
+                    "value": written,
+                }
+            ]
+        )
+    )
+
+    assert load(target)[("cryo", "temperature")].value is None
+
+
+def test_an_integer_reading_is_kept_as_a_float(tmp_path: Path) -> None:
+    # JSON writes 4.0 as 4, so a whole-numbered reading comes back as an
+    # int and would otherwise be discarded on the next load.
+    target = tmp_path / "sensors.json"
+    _ = target.write_text(
+        json.dumps(
+            [
+                {
+                    "sensor_id": "cryo",
+                    "measurement": "temperature",
+                    "unit": "K",
+                    "last_seen": _NOW.isoformat(),
+                    "value": 4,
+                }
+            ]
+        )
+    )
+
+    assert load(target)[("cryo", "temperature")].value == 4.0
+
+
+def test_forgetting_a_sensor_keeps_the_others_readings(tmp_path: Path) -> None:
+    target = tmp_path / "sensors.json"
+    save(
+        target,
+        merge(
+            {},
+            [
+                Known("cryo", "temperature", "K", _NOW, 4.2),
+                Known("gauge", "pressure", "mbar", _NOW, 1e-7),
+            ],
+        ),
+    )
+
+    save(target, forget(load(target), "gauge"))
+
+    assert load(target)[("cryo", "temperature")].value == 4.2

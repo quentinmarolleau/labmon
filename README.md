@@ -59,6 +59,7 @@ together visually.*
 - [Connecting a real instrument](#connecting-a-real-instrument)
 - [Logs, next to the measurements](#logs-next-to-the-measurements)
 - [Getting the data out](#getting-the-data-out) — CSV, Parquet, Feather, netCDF
+- [Watching it in the terminal](#watching-it-in-the-terminal) — a panel over SSH
 - [Running it across the lab](#running-it-across-the-lab)
 - [Configuration](docs/configuration.md) — every setting, and where it lives
 - [How it works](#how-it-works)
@@ -316,7 +317,7 @@ labmon --install-completion
 
 `labmon query latest` answers the other question — what every sensor
 reads right now, and how long ago each last spoke, so a silent one shows
-up instead of quietly disappearing.
+up with the last reading it sent instead of quietly disappearing.
 
 [`docs/export.md`](docs/export.md) covers the formats, the time window
 spellings, completion for bash and zsh, and why the unit is a column
@@ -324,6 +325,60 @@ rather than only metadata.
 [`docs/loading-exports.md`](docs/loading-exports.md) takes it from the
 other end — loading each file into pandas, polars and xarray, and what
 the shape of the data means once it is there.
+
+## Watching it in the terminal
+
+Grafana is the right tool for a wall display. It is the wrong one for
+the terminal already open next to the experiment, and it is unavailable
+over a bare SSH session — which is exactly when *is the cryostat still
+cold?* is worth asking.
+
+```bash
+pip install 'labmon[tui]'
+labmon monitor
+```
+
+```
+                           labmon · lab @ http://localhost:8181
+╭─────────────┬──────────────┬─────────────────┬──────┬────────┬──────────┬─────────┬─────╮
+│ measurement │ sensor       │           value │ unit │ age    │  average │       σ │   N │
+├─────────────┼──────────────┼─────────────────┼──────┼────────┼──────────┼─────────┼─────┤
+│ frequency   │ wavemeter-1  │ 2.765612936e+14 │ Hz   │ 5m ago │          │         │     │
+├─────────────┼──────────────┼─────────────────┼──────┼────────┼──────────┼─────────┼─────┤
+│ position    │ beam-x       │            10.7 │ µm   │ 1s ago │        6 │      10 │ 298 │
+│             │ beam-y       │           12.94 │ µm   │ 1s ago │       -6 │      11 │ 298 │
+├─────────────┼──────────────┼─────────────────┼──────┼────────┼──────────┼─────────┼─────┤
+│ power       │ laser-1      │           85.63 │ mW   │ 1s ago │     95.1 │     8.8 │ 298 │
+├─────────────┼──────────────┼─────────────────┼──────┼────────┼──────────┼─────────┼─────┤
+│ pressure    │ chamber-1    │     1.35284e-07 │ mbar │ 4s ago │ 1.50e-07 │ 1.0e-08 │  60 │
+│             │ pirani-1     │        1.59e-09 │ mbar │ 1s ago │  4.6e-08 │ 3.8e-08 │ 298 │
+├─────────────┼──────────────┼─────────────────┼──────┼────────┼──────────┼─────────┼─────┤
+│ temperature │ cryo-4k      │           3.865 │ K    │ 4s ago │    3.793 │   0.093 │  60 │
+│             │ cryo-77k     │          77.533 │ K    │ 4s ago │    77.23 │    0.44 │  60 │
+│             │ cryo-diode   │           34.48 │ K    │ 1s ago │       30 │      11 │ 298 │
+│             │ room-1       │          21.075 │ °C   │ 4s ago │    20.70 │    0.24 │  60 │
+│             │ room-2       │           22.07 │ °C   │ 5m ago │          │         │     │
+├─────────────┼──────────────┼─────────────────┼──────┼────────┼──────────┼─────────┼─────┤
+│ voltage     │ bias-monitor │           -2.79 │ V    │ 1s ago │      0.4 │     2.2 │ 298 │
+╰─────────────┴──────────────┴─────────────────┴──────┴────────┴──────────┴─────────┴─────╯
+                   12 sensors, 2 quiet · window 5m · every 2s · 08:29:01
+```
+
+Redraws in place, colours a sensor amber then red as it goes quiet, and
+keeps the last good table on screen when the database is briefly
+unreachable rather than tearing down the terminal.
+
+Name the handful of things you actually care about and it becomes a grid
+of tiles instead, each with the value large enough to read across the
+room, its unit, how long ago it arrived, and a colour change when it
+leaves the range you set:
+
+```bash
+labmon monitor --config monitor.example.toml
+```
+
+[`monitor.example.toml`](monitor.example.toml) works through every key;
+[`docs/monitor.md`](docs/monitor.md) has the rest.
 
 ## Running it across the lab
 

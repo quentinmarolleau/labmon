@@ -34,6 +34,31 @@ class WindowError(ValueError):
     """A --since or --until value that cannot be understood."""
 
 
+def parse_duration(text: str) -> float:
+    """A duration such as "2s", "15m" or "24h", as seconds.
+
+    Split out from `parse_instant` so that the places wanting a plain
+    interval — how often a panel refreshes — spell one exactly as the
+    selection flags do. Two parsers would drift, and "2s" meaning
+    different things in two parts of the same config file is the kind of
+    difference nobody finds by reading.
+
+    A bare number is refused. "2" could be seconds or minutes, and a
+    panel that guesses wrong refreshes sixty times too often.
+    """
+    candidate = text.strip()
+    if not candidate:
+        raise WindowError("a duration cannot be empty")
+
+    matched = _DURATION.match(candidate)
+    if matched is None:
+        raise WindowError(
+            f"{text!r} is not a duration. Use a number and a unit:"
+            + " 2s, 90m, 24h, 7d, 1w"
+        )
+    return float(matched.group("amount")) * _UNIT_SECONDS[matched.group("unit")]
+
+
 def parse_instant(text: str, *, now: datetime | None = None) -> datetime:
     """Resolve one --since/--until value to an aware UTC datetime.
 
@@ -51,11 +76,8 @@ def parse_instant(text: str, *, now: datetime | None = None) -> datetime:
     if not candidate:
         raise WindowError("a time bound cannot be empty")
 
-    duration = _DURATION.match(candidate)
-    if duration is not None:
-        amount = float(duration.group("amount"))
-        seconds = amount * _UNIT_SECONDS[duration.group("unit")]
-        return moment - timedelta(seconds=seconds)
+    if _DURATION.match(candidate) is not None:
+        return moment - timedelta(seconds=parse_duration(candidate))
 
     try:
         parsed = datetime.fromisoformat(candidate)

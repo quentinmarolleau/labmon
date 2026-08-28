@@ -263,3 +263,30 @@ def test_forgetting_works_with_the_database_unreachable(
 
     assert result.exit_code == 0
     assert ("old-probe", "temperature") not in load(roster)
+
+
+def test_the_roster_is_ordered_by_measurement_then_sensor(roster: Path) -> None:
+    # The same order as `query latest`. Three views of one kind of table
+    # sorting three different ways makes a sensor hard to find in
+    # whichever one you were not looking at.
+    for name, measurement, days in [
+        ("vac-1", "pressure", 1),
+        ("room-1", "temperature", 5),
+        ("cryo-77k", "temperature", 2),
+        ("chamber-1", "pressure", 9),
+    ]:
+        entry = Known(
+            sensor_id=name,
+            measurement=measurement,
+            unit="x",
+            last_seen=datetime.now(UTC) - timedelta(days=days),
+        )
+        save(roster, merge(load(roster), [entry]))
+
+    listed = [
+        line.split()[0]
+        for line in _run("sensors").output.splitlines()
+        if " ago" in line
+    ]
+
+    assert listed == ["chamber-1", "vac-1", "cryo-77k", "room-1"]

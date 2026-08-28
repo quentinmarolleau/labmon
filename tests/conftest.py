@@ -25,3 +25,16 @@ def _isolated_cache(  # pyright: ignore[reportUnusedFunction]
     to remember.
     """
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+
+
+@pytest.fixture(autouse=True)
+def _isolated_config(  # pyright: ignore[reportUnusedFunction]
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Point the configuration file inside the test's own directory.
+
+    Every command reads it, so without this the suite's behaviour
+    depends on whether whoever runs it has set a timezone — and a
+    passing run on one machine says nothing about another.
+    """
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))

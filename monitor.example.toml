@@ -1,0 +1,80 @@
+# An example labmon monitor layout, passed with:
+#
+#     labmon monitor --config monitor.example.toml
+#
+# The same keys go under [monitor] in ~/.config/labmon/labmon.toml when
+# they should apply to every run rather than to one procedure. A file
+# with no [[panels]] at all is valid and gives the fallback table.
+
+refresh = "2s"   # how often to redraw
+window  = "15m"  # how much history the statistics cover
+theme   = "nord" # any of Textual's themes; `m` lists them, and previews
+                 # each one as the selector passes over it
+
+# How many digits a sensor is worth, wherever it appears — the fallback
+# table as well as any tile. Readings are otherwise shown exactly as
+# stored, which is honest and is more digits than anybody reads at a
+# glance for anything behind a calibration: a conversion turns four
+# meaningful digits into seventeen.
+#
+# `precision` is decimal places, or — with `format = "scientific"` —
+# digits after the point of the mantissa, which is what asking for two
+# digits of a pressure means.
+[[sensors]]
+sensor_id = "beam-x"
+precision = 2
+
+[[sensors]]
+sensor_id = "beam-y"
+precision = 2
+
+[[sensors]]
+sensor_id = "cryo-diode"
+precision = 2
+
+[[sensors]]
+sensor_id = "laser-1"
+precision = 1
+
+[[sensors]]
+sensor_id = "bias-monitor"
+precision = 3
+
+[[sensors]]
+sensor_id = "pirani-1"
+format = "scientific"
+precision = 2
+
+# Only `sensor_id` is required. Everything else refines how the tile
+# reads.
+[[panels]]
+sensor_id = "cryo-77k"
+title = "Cold finger"   # what to write above the number
+precision = 3           # decimal places, trailing zeros included
+warn_above = 80.0       # colour the tile when the reading goes over
+
+[[panels]]
+sensor_id = "cryo-4k"
+title = "4 K stage"
+precision = 3
+warn_above = 4.5
+
+[[panels]]
+sensor_id = "chamber-1"
+title = "Chamber"
+format = "scientific"   # auto, plain or scientific
+
+[[panels]]
+sensor_id = "laser-1"
+title = "Laser"
+precision = 1
+warn_below = 80.0
+
+# `measurement` is how a sensor that writes to more than one table says
+# which of them this tile is for. Most sensors write to one and can
+# leave it out; the tile prints whichever it settled on either way.
+[[panels]]
+sensor_id = "dual-probe"
+measurement = "pressure"
+title = "Probe pressure"
+format = "scientific"
