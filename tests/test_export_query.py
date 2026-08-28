@@ -9,6 +9,7 @@ import pytest
 from labmon.export.query import (
     QueryError,
     columns_of,
+    columns_of_all,
     fetch,
     fetch_latest,
     list_measurements,
@@ -55,6 +56,28 @@ class FakeClient:
         if "SHOW TABLES" in query:
             return _TABLES
         if "information_schema.columns" in query:
+            if "table" not in parameters:
+                # The sweep, which asks about every table at once. Each
+                # of them has the same columns in this fake.
+                names = [
+                    name
+                    for schema, name in zip(
+                        cast(list[str], _TABLES.column("table_schema").to_pylist()),
+                        cast(list[str], _TABLES.column("table_name").to_pylist()),
+                        strict=True,
+                    )
+                    if schema == "iox"
+                ]
+                return pa.table(
+                    {
+                        "table_name": pa.array(
+                            [name for name in names for _ in self._columns]
+                        ),
+                        "column_name": pa.array(
+                            [column for _ in names for column in self._columns]
+                        ),
+                    }
+                )
             return pa.table({"column_name": pa.array(list(self._columns))})
         return pa.table({"time": pa.array([], pa.timestamp("ns"))})
 
@@ -301,9 +324,29 @@ class UnevenClient(FakeClient):
         if "information_schema.columns" in query:
             raw = kwargs.get("query_parameters")
             parameters = cast(dict[str, str], raw) if isinstance(raw, dict) else {}
+            self.calls.append((query, dict(parameters)))
+            if "table" not in parameters:
+                self._asked.append("")
+                return pa.table(
+                    {
+                        "table_name": pa.array(
+                            [
+                                name
+                                for name, columns in self._per_table.items()
+                                for _ in columns
+                            ]
+                        ),
+                        "column_name": pa.array(
+                            [
+                                column
+                                for columns in self._per_table.values()
+                                for column in columns
+                            ]
+                        ),
+                    }
+                )
             table = parameters.get("table", "")
             self._asked.append(table)
-            self.calls.append((query, dict(parameters)))
             return pa.table({"column_name": pa.array(list(self._per_table[table]))})
         return super().query(query, *args, **kwargs)  # pyright: ignore[reportArgumentType]
 
@@ -417,3 +460,36 @@ def test_an_empty_result_without_statistics_does_not_invent_them() -> None:
     result = fetch_latest(client, ("temperature",), _WINDOW)
 
     assert not {"mean", "sd", "n"} & set(result.column_names)
+
+
+def test_the_columns_of_every_table_come_in_one_round_trip() -> None:
+    # One question about six tables rather than six questions about one
+    # each: the round trip is what costs, which is the argument the
+    # latest query was built on in the first place.
+    client = FakeClient(("time", "value", "sensor_id"))
+
+    known = columns_of_all(client)
+
+    assert known["temperature"] == frozenset({"time", "value", "sensor_id"})
+    assert set(known) == {"temperature", "pressure", "voltage"}
+    assert len(client.calls) == 1
+
+
+def test_the_latest_query_asks_about_the_schema_once() -> None:
+    client = FakeClient(_FULL)
+
+    _ = fetch_latest(client, ("temperature", "pressure", "voltage"), _WINDOW)
+
+    schema = [sql for sql, _ in client.calls if "information_schema" in sql]
+    assert len(schema) == 1
+
+
+def test_a_table_the_sweep_did_not_report_is_skipped() -> None:
+    # It was dropped between the listing and the sweep, or it is a table
+    # the server will not describe. Either way there is nothing to
+    # project, which is the same answer as a table with no readings.
+    client = FakeClient(())
+
+    result = fetch_latest(client, ("temperature",), _WINDOW)
+
+    assert result.num_rows == 0
