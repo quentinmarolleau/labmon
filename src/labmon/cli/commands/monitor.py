@@ -47,7 +47,11 @@ Layout = Annotated[
     typer.Option(
         "--config",
         "-c",
-        help="A layout file for one procedure, overriding the [monitor]"
+        # `\[` because Typer renders help through Rich, which otherwise
+        # reads `[monitor]` as markup for a style it does not have and
+        # drops it — leaving the one line that names the section with
+        # the name missing.
+        help=r"A layout file for one procedure, overriding the \[monitor]"
         + " section of the user configuration",
         metavar="FILE",
         show_default=False,

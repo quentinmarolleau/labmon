@@ -1687,6 +1687,16 @@ def test_the_layout_flag_supplies_the_layout(
     assert [panel.sensor_id for panel in panels] == ["cryo-77k", "nowhere"]
 
 
+def test_the_layout_flag_names_the_section_it_replaces() -> None:
+    # Typer renders help through Rich, which reads `[monitor]` as markup
+    # for a style it does not have and drops it — leaving "replacing the
+    # section of the user configuration", with the name of the section
+    # missing from the one line that exists to give it.
+    result = _run("monitor", "--help")
+
+    assert "[monitor]" in result.output
+
+
 def test_a_layout_file_that_is_not_there_is_reported(tmp_path: Path) -> None:
     result = _run("monitor", "--config", str(tmp_path / "nope.toml"))
 
