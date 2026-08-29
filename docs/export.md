@@ -517,5 +517,5 @@ attaches completions to a command word, and `uv run labmon …` is the
 command `uv`. Installing it as a tool puts it on the PATH:
 
 ```bash
-uv tool install --editable .
+uv tool install --editable '.[tui]'
 ```

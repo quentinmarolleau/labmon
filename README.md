@@ -275,12 +275,23 @@ which level, and the setup.
 ## Getting the data out
 
 Dashboards are for watching. When it is time to look at numbers or plot
-a figure, two commands read the recorded readings:
+a figure, two commands read the recorded readings. They run on your
+machine rather than in a container, so install the CLI first:
+
+```bash
+uv tool install --editable '.[tui]'   # puts `labmon` on your PATH
+```
+
+Then:
 
 ```bash
 labmon query  --measurement temperature --since 5m        # print a table
 labmon export --measurement temperature --since 24h -o run # write a file
 ```
+
+Run them from the directory holding `.env` and they pick up the token and
+host from it. From anywhere else, set those in the environment yourself —
+[`docs/configuration.md`](docs/configuration.md) covers both.
 
 Both take the same selection flags — `--measurement`, `--sensor-id`,
 `--since`, `--until` — so learning one teaches the other.
@@ -311,7 +322,6 @@ Tab completion is a command away, and doubles as documentation —
 completing a flag shows its help text beside it:
 
 ```bash
-uv tool install --editable .   # puts `labmon` on your PATH
 labmon --install-completion
 ```
 
@@ -333,8 +343,9 @@ the terminal already open next to the experiment, and it is unavailable
 over a bare SSH session — which is exactly when *is the cryostat still
 cold?* is worth asking.
 
+The `[tui]` extra in the install above is what this needs:
+
 ```bash
-pip install 'labmon[tui]'
 labmon monitor
 ```
 
