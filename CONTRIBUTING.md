@@ -168,9 +168,12 @@ for when you've been using `--no-verify`.
   through Grafana. It has no coverage requirement and mocks nothing — its
   whole job is to catch what unit tests structurally cannot, like a bind
   mount created with the wrong owner. To run it yourself, bring the stack
-  up and then `python3 scripts/smoke_dashboard.py` — adding
+  up with `COMPOSE_PROFILES=demo,logs` and then
+  `python3 scripts/smoke_dashboard.py` — adding
   `--password "$GRAFANA_ADMIN_PASSWORD"` if you set one in `.env`, which
-  Compose reads but your shell does not.
+  Compose reads but your shell does not. The profile is needed because
+  every dashboard is checked, the Logs one included; `--dashboard
+  lab-overview` skips it on a stack without Loki.
 - `# pragma: no cover` is reserved for code that is genuinely untestable
   in a meaningful way (e.g. the `if __name__ == "__main__":` guard, where
   testing it would only prove Python's own import mechanism works, not

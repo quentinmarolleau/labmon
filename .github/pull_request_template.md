@@ -20,11 +20,12 @@ CONTRIBUTING asks commit bodies to. If it fixes an issue, "Closes #n".
 
 <!--
 Touching docker-compose.yml, the Dockerfile, grafana/ or demo/? Bring the
-stack up and run `python3 scripts/smoke_dashboard.py` as well — the unit
-tests cannot see anything that only breaks once containers are running.
+stack up with `COMPOSE_PROFILES=demo,logs` and run
+`python3 scripts/smoke_dashboard.py` as well — the unit tests cannot see
+anything that only breaks once containers are running.
 
 Verified something by hand? Say what you actually observed, not just that
-you checked. "All 14 dashboard queries returned rows" beats "tested locally".
+you checked. "All 20 dashboard queries returned rows" beats "tested locally".
 -->
 
 ## Notes for the reviewer
