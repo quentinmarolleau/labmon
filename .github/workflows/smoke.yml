@@ -55,17 +55,23 @@ jobs:
       - name: Every service is up
         run: docker compose ps
 
-      - name: Every dashboard query returns rows
-        run: python3 scripts/smoke_dashboard.py --timeout 180
-
       # Adding the profile to a running stack rather than starting a second
       # one: Loki and Alloy join what is already up, so this costs two
       # containers rather than another full bootstrap.
+      #
+      # Ahead of the dashboard check, which now runs the Logs dashboard's
+      # LogQL as well and so needs Loki up. Collection is asserted first
+      # for the same reason: when Alloy is not shipping, every Loki panel
+      # is empty too, and this check names the container that is missing
+      # rather than the six panels that noticed.
       - name: Start log collection
         run: COMPOSE_PROFILES=demo,logs docker compose up -d --wait loki alloy
 
       - name: Every container's logs reach Loki
         run: python3 scripts/smoke_logs.py --timeout 120
+
+      - name: Every dashboard query returns rows
+        run: python3 scripts/smoke_dashboard.py --timeout 180
 
       # Same trick again: the proxy joins the running stack rather than
       # starting a second one. The site lists name `caddy` as well as

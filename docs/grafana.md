@@ -166,8 +166,19 @@ off by using a backend nobody taught it about.
 
 None of them run a query, so SQL that is structurally fine but names a
 column the schema does not have passes here. Catching that needs a live
-stack, not a JSON parse — which is what `scripts/smoke_dashboard.py` does,
-though only for `lab-overview.json`: it speaks SQL and reads `rawSql`, so
-the Logs dashboard's LogQL is checked for shape here and not for meaning
-anywhere. `scripts/smoke_logs.py` covers the other half, proving collection
-reaches Loki at all.
+stack, not a JSON parse, which is what `scripts/smoke_dashboard.py` does:
+it sends every panel target on every dashboard through Grafana's query
+endpoint and counts the rows that come back.
+
+Counting rows rather than settling for "no error" is what makes it worth
+running against LogQL. A bad column name is at least a SQL error, but Loki
+answers a renamed logfmt field, a `msg=` that matches nothing and a
+mistyped label with an empty result and no complaint — so a query that has
+stopped meaning anything is indistinguishable from a healthy one until the
+rows are counted. Panels that filter on severity are exempt, since a run
+that logged no warnings is a good run; everything else has to return rows,
+and a new panel is held to that until someone exempts it by name.
+
+Every dashboard means every profile that backs one has to be running, so
+`--dashboard` narrows it to a subset. `scripts/smoke_logs.py` covers the
+half neither reaches, proving collection gets to Loki at all.
