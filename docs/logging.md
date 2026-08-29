@@ -361,6 +361,18 @@ Alloy has a UI at [http://localhost:12345](http://localhost:12345) showing
 every component, its health, and what it last sent. Check there before
 suspecting Loki: a component in a failed state names its own problem.
 
+It is bound to loopback, since it has no authentication and lists
+component configuration, endpoints and recently sent data. Setting
+`LABMON_BIND_ADDRESS` does not publish it, so administering the server
+from a workstation means forwarding it:
+
+```bash
+ssh -L 12345:127.0.0.1:12345 <server-host>
+```
+
+That is the same instruction [`docs/client-setup.md`](client-setup.md)
+gives for a client's UI, which is bound the same way.
+
 Loki itself has no healthcheck in `docker-compose.yml`, unlike every other
 service. Its image is distroless — it contains exactly one binary and no
 shell, `wget` or `curl` for a check to use. Alloy retries a failed push, so

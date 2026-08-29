@@ -234,7 +234,18 @@ services:
     ports:
       # Alloy's own UI, showing each component's health and what it last
       # sent. The first place to look when logs are not arriving.
-      - "12345:12345"
+      #
+      # Loopback only. The UI has no authentication and describes the
+      # deployment — component configuration, endpoints, recently sent
+      # data — so it sits on the same side of the line as InfluxDB's and
+      # Grafana's ports above. Reach it over SSH with
+      # `ssh -L 12345:127.0.0.1:12345 <host>`.
+      #
+      # Written out rather than taking LABMON_BIND_ADDRESS: that variable
+      # exists so a server can publish InfluxDB and Grafana to clients,
+      # which is a normal thing to want, and it must not quietly hand out
+      # an unauthenticated diagnostic UI along with them.
+      - "127.0.0.1:12345:12345"
     volumes:
       - type: bind
         source: ./alloy/config.alloy
