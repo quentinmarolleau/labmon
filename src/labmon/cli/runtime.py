@@ -9,8 +9,9 @@ the app in it. Each command calls `configure()` first so its own
 import functools
 import logging
 from collections.abc import Callable
+from pathlib import Path
 
-from labmon import logs
+from labmon import env, logs
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -22,14 +23,47 @@ UNREACHABLE = 3
 
 
 def configure(level: object) -> None:
-    """Apply a command's --log-level. Accepts the enum or its value."""
+    """Apply a command's --log-level, then read `./.env`.
+
+    In that order, and as a command's first act. The level has to be in
+    force before the line naming the file is emitted, and the file has
+    to be read before any setting is looked up — every command calls
+    this before it touches the environment, which is what makes one call
+    site enough. Tab completion never reaches a command body, so it
+    never pays for the read.
+
+    Accepts the enum or its value.
+    """
     name = getattr(level, "value", level)
     logs.configure(logs.level_from_name(str(name)))
+    _ = env.load()
 
 
 def _first_line(message: str) -> str:
     """The first sentence of a client error, without the gRPC dump."""
     return message.split(". gRPC")[0].strip()
+
+
+def _no_token_reason() -> str:
+    """Why the token is missing, in terms of what the reader can see.
+
+    Naming the variable and pointing at the manual is what this said
+    before, and it sent somebody who had set that variable — in `.env`,
+    where the containers were visibly reading it — round three wrong
+    turns. The useful fact is which file was in play, so the message
+    distinguishes the two cases rather than describing the mechanism.
+    """
+    if (Path.cwd() / env.ENV_FILE).is_file():
+        return (
+            f"INFLUXDB3_AUTH_TOKEN is not set, and the {env.ENV_FILE} in this"
+            + " directory does not define it either"
+        )
+    return (
+        f"INFLUXDB3_AUTH_TOKEN is not set, and there is no {env.ENV_FILE} in"
+        + f" this directory. {env.ENV_FILE} is read by Docker Compose rather"
+        + " than by your shell, so run labmon where that file is, or export"
+        + " it first with: set -a; . ./.env; set +a"
+    )
 
 
 def reporting[**P](command: Callable[P, None]) -> Callable[P, None]:
@@ -87,12 +121,6 @@ def _report(action: Callable[[], None]) -> None:
         # get_client() raises this when INFLUXDB3_AUTH_TOKEN is unset,
         # which as a bare traceback names the variable and nothing else.
         if error.args and error.args[0] == "INFLUXDB3_AUTH_TOKEN":
-            logger.error(
-                "no auth token",
-                extra={
-                    "reason": "INFLUXDB3_AUTH_TOKEN is not set;"
-                    + " see docs/configuration.md"
-                },
-            )
+            logger.error("no auth token", extra={"reason": _no_token_reason()})
             raise SystemExit(UNREACHABLE) from None
         raise

@@ -9,6 +9,7 @@ dependencies = [
     "influxdb3-python>=0.20.0",
     "pint>=0.25.3",
     "pyserial>=3.5",
+    "python-dotenv>=1.2.3",
     "typer>=0.27.1",
 ]
 

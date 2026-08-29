@@ -130,7 +130,8 @@ data. Left unset (the default), no `unit` tag is written at all.
 
 ## Configuration
 
-Read from the environment (see `.env`, loaded automatically via direnv):
+Read from the environment, and from `.env` when the command runs in the
+directory holding it (see [`docs/configuration.md`](configuration.md)):
 
 | Variable               | Default                 | Purpose                          |
 |-------------------------|--------------------------|-----------------------------------|

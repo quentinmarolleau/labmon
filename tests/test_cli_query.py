@@ -334,6 +334,51 @@ def test_a_missing_token_says_which_variable(
     assert "Traceback" not in written
 
 
+def test_a_missing_token_with_no_env_file_explains_where_it_is_read(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Naming the variable is not enough on its own.
+
+    Somebody who set it in `.env`, and can see the containers using it,
+    needs to be told that a shell does not read that file — otherwise
+    the message describes a state they can prove is false.
+    """
+    from labmon.cli import main as cli_main
+
+    monkeypatch.delenv("INFLUXDB3_AUTH_TOKEN", raising=False)
+    monkeypatch.setattr("sys.argv", ["labmon", "query"])
+
+    with pytest.raises(SystemExit):
+        cli_main.main()
+
+    written = capsys.readouterr().err
+    assert "Docker Compose" in written
+    assert "set -a" in written
+
+
+def test_a_missing_token_beside_an_env_file_says_that_file_lacks_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The other case, and a different problem.
+
+    The file was found and read; it simply has no token in it. Repeating
+    the advice about shells there would send the reader to look for a
+    fault that is not the one they have.
+    """
+    from labmon.cli import main as cli_main
+
+    _ = (tmp_path / ".env").write_text("INFLUXDB_DATABASE=lab\n")
+    monkeypatch.delenv("INFLUXDB3_AUTH_TOKEN", raising=False)
+    monkeypatch.setattr("sys.argv", ["labmon", "query"])
+
+    with pytest.raises(SystemExit):
+        cli_main.main()
+
+    written = capsys.readouterr().err
+    assert "does not define it" in written
+    assert "set -a" not in written
+
+
 def test_an_unrelated_key_error_is_not_swallowed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -66,6 +66,10 @@ so the sections below map onto commit types.
 - The demo's beam channels wander rather than tracing a Lissajous
   figure.
   [#176](https://github.com/quentinmarolleau/labmon/pull/176)
+- Commands read `.env` from the directory they run in, so a token set
+  for Compose also reaches a `labmon` typed at a prompt. The process
+  environment still wins.
+  [#185](https://github.com/quentinmarolleau/labmon/issues/185)
 
 ### Fixed
 

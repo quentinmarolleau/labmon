@@ -38,3 +38,23 @@ def _isolated_config(  # pyright: ignore[reportUnusedFunction]
     passing run on one machine says nothing about another.
     """
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+
+
+@pytest.fixture(autouse=True)
+def _isolated_working_directory(  # pyright: ignore[reportUnusedFunction]
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Run each test somewhere that is not the repository.
+
+    Every command reads `./.env` now, and the repository root has a real
+    one on any machine the stack has been started on. Without this the
+    suite would load a developer's own token and host into `os.environ`
+    and pass or fail accordingly — the sharpest form of the problem this
+    file exists to prevent, since it would also differ between a
+    contributor's checkout and CI.
+
+    It doubles as protection for the other direction: a command that
+    writes a file relative to the working directory now writes it into
+    the test's own directory rather than into the tree.
+    """
+    monkeypatch.chdir(tmp_path)
