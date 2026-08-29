@@ -6,6 +6,12 @@ in a profile the test suite does not start. These check the few
 properties that would fail silently — a source wired straight past the
 processing stage still collects logs, it just stops labelling them, and
 nothing complains.
+
+Pinning the text cannot tell a config that ships lines from one that
+parses perfectly and ships none. For the client that gap is closed by
+the smoke job, which runs `client.alloy` against a live stack and
+asserts its lines arrive labelled; the server's is covered by
+`scripts/smoke_logs.py`.
 """
 
 import re

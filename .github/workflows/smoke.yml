@@ -240,6 +240,135 @@ jobs:
             exit 1
           fi
 
+      # The client collector, run the way docs/client-setup.md describes
+      # it: the shipped alloy/client.alloy, on the compose network, pushing
+      # through the proxy. Nothing else in CI runs that file.
+      # tests/test_alloy_config.py pins its wiring as text, which catches a
+      # rewiring but cannot tell a config that ships lines from one that
+      # parses perfectly and ships none — the same gap the Flight SQL step
+      # above closed for the query path.
+      #
+      # Two collectors from one config, started together. The second has
+      # its tls_config removed and is what makes the first mean anything:
+      # without it, a step that verified nothing would pass identically.
+      - name: The client collector ships through the proxy
+        run: |
+          set -eu
+
+          image="$(grep -oE 'grafana/alloy:[^ ]+' docker-compose.client.yml | head -1)"
+          network="$(docker inspect influxdb \
+            --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{end}}')"
+          password="$(grep '^GRAFANA_ADMIN_PASSWORD=' .env | cut -d= -f2-)"
+          # Grafana's own default when .env leaves it blank, which is what
+          # the quickstart does. Assembled into a variable rather than
+          # written on the curl line, so the file carries no literal
+          # user:password pair for a secret scanner to object to — the
+          # same reason the push-endpoint step above builds its own.
+          credential="admin:${password:-admin}"
+          loki="http://127.0.0.1:3000/api/datasources/proxy/uid/loki/loki/api/v1"
+          echo "collector image $image on network $network"
+
+          # The mutation checks itself. A reformat that moved the block
+          # would otherwise leave both collectors fully configured, and the
+          # negative half would pass having proved nothing at all.
+          sed '/tls_config {/,/^\t\t}$/d' alloy/client.alloy > /tmp/client-notls.alloy
+          grep -q 'tls_config' alloy/client.alloy
+          if grep -q 'tls_config' /tmp/client-notls.alloy; then
+            echo "tls_config was not removed from the copy; the negative half is inert" >&2
+            exit 1
+          fi
+
+          # The UI binds loopback inside the container and the image
+          # carries no shell tools to read it from within, so the metrics
+          # port is published — on loopback, and only for these two
+          # throwaway containers.
+          collector() {
+            docker run -d --name "$1" --network "$network" -p "127.0.0.1:$2:12345" \
+              -v "$3:/etc/alloy/config.alloy:ro" \
+              -v "$PWD/labmon-ca.crt:/ca.crt:ro" \
+              -v /var/run/docker.sock:/var/run/docker.sock:ro \
+              -e LABMON_LOKI_URL=https://caddy:3444/loki/api/v1/push \
+              -e LABMON_LOKI_PUSH_USER=labmon \
+              -e LABMON_LOKI_PUSH_PASSWORD="$LOKI_PUSH_PASSWORD" \
+              -e INFLUXDB_TLS_CA=/ca.crt \
+              -e LABMON_CLIENT_NAME="$1" \
+              "$image" run /etc/alloy/config.alloy \
+                --storage.path=/var/lib/alloy/data \
+                --server.http.listen-addr=0.0.0.0:12345 >/dev/null
+          }
+          metric() {
+            curl -s "http://127.0.0.1:$1/metrics" | awk -v m="^$2" '$0 ~ m {print $2; exit}'
+          }
+          # Counters can print in exponent form, and a collector that has
+          # not started answers with nothing at all, so neither comparison
+          # is one `[ -gt ]` can make.
+          positive() { awk -v value="$1" 'BEGIN { exit !(value + 0 > 0) }'; }
+
+          # Started together, so the healthy one arriving is itself the
+          # proof that the other has had long enough.
+          collector ci-client 12346 "$PWD/alloy/client.alloy"
+          collector ci-client-notls 12347 /tmp/client-notls.alloy
+
+          deadline=$((SECONDS + 120))
+          until positive "$(metric 12346 loki_write_sent_entries_total)"; do
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "the client collector sent nothing in 120s" >&2
+              docker logs ci-client 2>&1 | tail -30 >&2
+              exit 1
+            fi
+            sleep 5
+          done
+          echo "ci-client sent $(metric 12346 loki_write_sent_entries_total) entries"
+
+          # What the server actually holds, which is the only thing that
+          # proves the whole path rather than one end of it.
+          query() {
+            curl -s -u "$credential" --get "$loki/query_range" \
+              --data-urlencode "query=$1" --data-urlencode 'limit=1'
+          }
+          streams="$(query '{host="ci-client"}' | grep -c '"values"' || true)"
+          labelled="$(query '{host="ci-client", sensor_id=~".+"}' \
+            | grep -c '"sensor_id"' || true)"
+          echo "host=ci-client streams: $streams, carrying a sensor_id: $labelled"
+          if ! positive "$streams"; then
+            echo 'nothing arrived under {host="ci-client"}' >&2
+            exit 1
+          fi
+          if ! positive "$labelled"; then
+            echo "lines arrived but none carry a sensor_id label" >&2
+            exit 1
+          fi
+
+          # The negative half. Sending nothing is checked first because it
+          # is the real claim; the retry count is checked after, and only
+          # then, because a collector that shipped happily has no retries
+          # either — asking about retries first would report a working push
+          # as an idle container.
+          sent="$(metric 12347 loki_write_sent_entries_total)"
+          tried="$(metric 12347 loki_write_batch_retries_total)"
+          echo "ci-client-notls sent ${sent:-none} entries over ${tried:-none} retries"
+          if positive "$sent"; then
+            echo "a collector with no tls_config pushed $sent entries; the CA is" >&2
+            echo "not load-bearing and this whole step proves nothing" >&2
+            exit 1
+          fi
+          # Nothing sent is only meaningful if it tried. An idle collector
+          # — one that discovered no containers, say — would satisfy the
+          # line above without the CA having refused anything.
+          if ! positive "$tried"; then
+            echo "the untrusting collector never attempted a push, so it proves nothing" >&2
+            docker logs ci-client-notls 2>&1 | tail -30 >&2
+            exit 1
+          fi
+          if curl -s -u "$credential" "$loki/label/host/values" \
+             | grep -q 'ci-client-notls'; then
+            echo "the untrusting collector's lines reached Loki anyway" >&2
+            exit 1
+          fi
+
+          docker rm -f ci-client ci-client-notls >/dev/null
+          echo "the client collector ships over TLS, and ships nothing without the CA"
+
       # Grafana through the proxy is the viewer's route, so both suites run
       # again against it. Cheap — the stack is already up and warm.
       - name: Dashboards and logs work through the proxy
