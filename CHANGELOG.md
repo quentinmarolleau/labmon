@@ -70,6 +70,8 @@ so the sections below map onto commit types.
   for Compose also reaches a `labmon` typed at a prompt. The process
   environment still wins.
   [#185](https://github.com/quentinmarolleau/labmon/issues/185)
+- `INFLUXDB_NODE_ID` defaults to `node0`, leaving the token as the only
+  value the quickstart has to fill in.
 
 ### Fixed
 

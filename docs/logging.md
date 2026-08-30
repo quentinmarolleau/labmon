@@ -7,9 +7,15 @@ reachable by running `docker compose logs` on the right machine, with no
 history beyond what Docker happens to still hold.
 
 The `logs` profile adds two containers that fix this: **Loki** stores log
-lines, and **Alloy** collects them from every container on the host and
-ships them over. Both are Grafana's own, so the result is queryable in the
-same Grafana that shows the measurements.
+lines, and **Alloy** collects them. Both are Grafana's own, so the result is
+queryable in the same Grafana that shows the measurements.
+
+```
+   every container's stdout ─┐
+                             ├─► Alloy ──► Loki ──► Grafana
+   systemd journal (labmon-*)┘    reads      stores    Logs dashboard
+                                  labels             + Explore
+```
 
 ## Turning it on
 
@@ -59,16 +65,16 @@ This is the setting that decides how much disk the stack uses over time —
 log lines are far bulkier than measurements, so a year of logs costs more
 than a year of readings.
 
-**Do not set it below 24h.** That is Loki's documented minimum, but Loki
-does not enforce it: `1h` starts cleanly, is reported back by `/config`
-as `1h`, and produces no warning. It will not do what it says either, since
-retention cannot be finer than the 24h index period the schema requires.
-The result is a setting that appears to have been accepted and quietly
-means something else.
+> [!WARNING]
+> **Do not set it below 24h.** That is Loki's documented minimum, and Loki
+> does not enforce it: `1h` starts cleanly, is reported back by `/config` as
+> `1h`, and produces no warning. It will not do what it says either, since
+> retention cannot be finer than the 24h index period the schema requires —
+> a setting that appears accepted and quietly means something else.
 
-Retention only works because `loki/config.yaml` enables the compactor.
-With `retention_enabled` off — Loki's default — the retention period is
-silently ignored and logs accumulate until the disk fills.
+Retention only works because `loki/config.yaml` enables the compactor. With
+`retention_enabled` off — Loki's default — the retention period is silently
+ignored and logs accumulate until the disk fills.
 
 ## What a sensor line looks like
 
@@ -88,11 +94,14 @@ Query on the fields in Grafana:
 {container=~".+"} | logfmt | sensor_id="cryo-77k"
 ```
 
-**Severities are not spelled the same across the stack.** Python's logging
-module produces `warning` and `critical`; the Go services — Grafana, Loki
-and Alloy — produce `warn` and `fatal`. Since every container is collected
-into the same place, a filter naming one spelling silently drops the other
-half, which reads as a quiet stack rather than a missed filter. Match both:
+> [!IMPORTANT]
+> **Severities are not spelled the same across the stack.** Python's logging
+> module produces `warning` and `critical`; the Go services — Grafana, Loki
+> and Alloy — produce `warn` and `fatal`. A filter naming one spelling
+> silently drops the other half, which reads as a quiet stack rather than a
+> missed filter.
+
+Match both:
 
 ```logql
 {container=~".+"} | logfmt | level=~"warn|warning"
@@ -122,18 +131,12 @@ visible without a line per reading:
 {container=~".+"} | logfmt | skipped > 0
 ```
 
-A sensor appears in the summary even when it wrote nothing at all, which
-is the case worth seeing: the trace is flat, and this line is the only
-thing that distinguishes readings arriving unwritable from a sensor that
-died.
-
-That holds for a sensor which produced *nothing* too, not only one whose
-readings were rejected. Each loop declares the sensors it is responsible
-for — from the calibration file, for `serial-sensor` — so a channel that
-has never said a word still reports `readings=0 skipped=0` every window.
-An instrument that is powered off, a board that has stopped talking and a
-process that has died are three different situations, and only the last
-one produces no line.
+A sensor appears in the summary even when it wrote nothing at all. Each loop
+declares the sensors it is responsible for — from the calibration file, for
+`serial-sensor` — so a channel that has never said a word still reports
+`readings=0 skipped=0` every window. An instrument that is powered off, a
+board that has stopped talking and a process that has died are three
+different situations, and only the last produces no line at all.
 
 To see every reading while bringing a board up:
 
@@ -181,7 +184,10 @@ gets no such label at all, rather than an empty one. An empty value would
 be a stream of its own and would appear in every label browser in
 Grafana.
 
-### InfluxDB's WAL flush line
+<details>
+<summary><b>Why InfluxDB's WAL flush line is turned down</b></summary>
+
+<br>
 
 A write does not go straight into InfluxDB's long-term storage. It is
 validated in memory and appended to a **write-ahead log** — a WAL, an
@@ -205,14 +211,16 @@ It is lowered rather than dropped, with a `--log-filter` directive in
 `n_ops` and `wal_file_number` — so it comes back by raising InfluxDB's
 level for that module, and `debug` restores it in full.
 
-Lowering one module's level is a blunt instrument: what is worth
-keeping for a day and worthless after thirty is a general problem, and
-suppression is the wrong shape for it. A retention tier for
-noisy-but-useful signals is tracked separately.
+Lowering one module's level is a blunt instrument: what is worth keeping for
+a day and worthless after thirty is a general problem, and suppression is
+the wrong shape for it. A retention tier for noisy-but-useful signals is
+tracked separately.
+
+</details>
 
 ### If a container's output never appears
 
-Almost always buffering rather than collection. Python block-buffers stdout
+Almost always **buffering**, not collection. Python block-buffers stdout
 when it is not a terminal, which it never is in a container, so a program
 printing a short line every few seconds can fill a buffer for twenty
 minutes before anything is written. `docker compose logs` shows nothing
@@ -267,16 +275,17 @@ That prompts for a password and prints a bcrypt hash. The hash goes in
 `LABMON_TLS_LOKI_SITES` lists the addresses clients dial — the same form
 as the other two lists in `.env.example`.
 
-Quote the hash, exactly as `.env.example` has it:
-
-```dotenv
-LABMON_LOKI_PUSH_HASH='$2a$14$...'
-```
-
-Bcrypt hashes are full of `$`, and compose expands an unquoted `$name`
-in `.env` as a variable — an unset one, so that span of the hash is
-replaced by nothing and every push is refused with no indication why.
-Single quotes are what suppresses it; double quotes do not.
+> [!CAUTION]
+> **Single-quote the hash**, exactly as `.env.example` has it:
+>
+> ```dotenv
+> LABMON_LOKI_PUSH_HASH='$2a$14$...'
+> ```
+>
+> Bcrypt hashes are full of `$`, and compose expands an unquoted `$name` in
+> `.env` as a variable — an unset one, so that span of the hash is replaced
+> by nothing and every push is refused with no indication why. Single quotes
+> suppress it; double quotes do not.
 
 Until that is set the endpoint refuses every credential. The hash shipped
 in `docker-compose.yml` is bcrypt of random bytes nobody kept, so no
@@ -328,24 +337,27 @@ centralise.
 
 ### About the `level` label
 
-Journal entries carry a `level`, which container logs have no equivalent
-of. It is less than it appears: **everything a plain script writes arrives
-as `info`, stderr included.** systemd does not infer severity from the
-stream — only an explicit `<N>` prefix on the line changes it.
+Journal entries carry a `level`, which container logs have no equivalent of.
 
-So `level` is a hook for real severities rather than a source of them.
+> [!NOTE]
+> It is less than it appears: **everything a plain script writes arrives as
+> `info`, stderr included.** systemd does not infer severity from the stream
+> — only an explicit `<N>` prefix on the line changes it. So `level` is a
+> hook for real severities rather than a source of them.
 
 ## What Alloy needs, and what that costs
 
 Alloy mounts `/var/run/docker.sock`, plus the host journal read-only.
-**Access to that socket is equivalent to root on the host** — it allows starting a container with the host
-filesystem mounted. Marking the mount `read_only` does not meaningfully
-constrain it, since the socket is a full API either way.
 
-This is the honest trade for collecting logs without modifying every
-container. It is a reasonable one on a dedicated lab server that is already
-running the stack as a whole. It is less reasonable on a shared or
-multi-tenant machine.
+> [!WARNING]
+> **Access to that socket is equivalent to root on the host** — it allows
+> starting a container with the host filesystem mounted. Marking the mount
+> `read_only` does not meaningfully constrain it, since the socket is a full
+> API either way.
+
+That is the trade for collecting logs without modifying every container.
+Reasonable on a dedicated lab server already running the stack as a whole;
+less so on a shared or multi-tenant machine.
 
 If it is the wrong trade for yours:
 

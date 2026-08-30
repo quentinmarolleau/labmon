@@ -10,8 +10,22 @@ uv run labmon serial-sensor --port /dev/labmon-due --calibration calibration.tom
 
 ## How a reading becomes a data point
 
-The board sends **raw ADC counts**, never physical units — what a count
-means lives on the host, where it can be changed without reflashing:
+The board sends **raw ADC counts**, never physical units. What a count
+means lives on the host, where it can be changed without reflashing.
+
+```
+   board          host
+  ┌───────┐
+  │  ADC  │ "A0,2048\r\n"
+  └───┬───┘      │
+      │ USB      ▼
+      └────► parse ──► counts ──► volts ──► calibration ──► rounded value
+                       raw       ×vref/2ⁿ    one of five        │
+                                                 modes          ▼
+                                                          Point(value,
+                                                                input_volts,
+                                                                calibration_id)
+```
 
 1. The board streams one line per reading: `<channel>,<raw_count>`.
    The count may be fractional (see [Averaging on the
@@ -29,9 +43,10 @@ means lives on the host, where it can be changed without reflashing:
    from step 2, unrounded (see
    [Keeping the conversion's input](#keeping-the-conversions-input)).
 
-A malformed line, or a channel with no calibration entry, is logged and
-skipped rather than being fatal — one bad line shouldn't stop a
-long-running sensor.
+> [!NOTE]
+> A malformed line, or a channel with no calibration entry, is logged and
+> skipped rather than being fatal. One bad line should not stop a
+> long-running sensor.
 
 Writing is decoupled from reading by `labmon.writer.PointWriter`, so a
 slow or briefly unreachable InfluxDB never stalls the read loop. The
@@ -60,12 +75,14 @@ measurement = "temperature"
 conversion_factor = "42.5 kelvin / volt"
 ```
 
-A channel name is what the board sends before the comma, and it may use
-letters, digits, `_`, `.` and `-`, up to 32 characters. A reading whose
-channel falls outside that is discarded with a warning rather than
-recorded: the name becomes an indexed InfluxDB tag and appears in every
-log line for that channel, so line noise that happens to split on a
-comma must not be able to write into either.
+A channel name is what the board sends before the comma, and may use
+letters, digits, `_`, `.` and `-`, up to 32 characters.
+
+> [!WARNING]
+> A reading whose channel falls outside that is discarded with a warning
+> rather than recorded. The name becomes an indexed InfluxDB tag and appears
+> in every log line for that channel, so line noise that happens to split on
+> a comma must not be able to write into either.
 
 Where the unit can be **derived** it is, rather than declared: volts
 times a factor in `kelvin / volt` gives kelvin, so `linear` and `affine`
@@ -399,7 +416,10 @@ which does not import modules or reach the filesystem. An expression that
 references an unknown name, or returns something that isn't a number, is
 rejected at startup.
 
-#### A calibration file is code, not configuration
+<details>
+<summary><b>A calibration file is code, not configuration</b></summary>
+
+<br>
 
 That restriction makes typos safe. It is **not** a security boundary, and
 asteval's own documentation says so plainly: a crafted expression can
@@ -417,6 +437,8 @@ artefact that gets emailed between groups.
 from the same source.** Review a third-party one before loading it, and
 do not accept one from outside the lab.
 
+</details>
+
 ## Options
 
 | Flag | Default | Purpose |
@@ -429,7 +451,7 @@ do not accept one from outside the lab.
 
 Connection settings (`INFLUXDB_HOST`, `INFLUXDB_DATABASE`,
 `INFLUXDB3_AUTH_TOKEN`) come from the environment, exactly as for
-[`mock-sensor`](mock-sensor.md#configuration).
+[`mock-sensor`](mock-sensor.md#where-it-writes).
 
 `--log-level DEBUG` adds a line per reading; `--summary-interval` sets
 how often the "still writing" line appears, and `0` turns it off.

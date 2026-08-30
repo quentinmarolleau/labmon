@@ -1,14 +1,17 @@
 # Configuration reference
 
-Every setting labmon exposes, in one place. Behaviour is tuned in four
-places — the environment, a command line, the calibration file, and a
-per-user configuration file — and which one a given knob lives in is not
-always guessable. This page is the index; the per-component docs explain
-what each setting is *for*.
+Every setting labmon exposes, in one place. This page is the index; the
+per-component docs explain what each setting is *for*.
 
-There is a fifth category, at the bottom: the constants that are
-deliberately **not** configurable, and what breaks if you change them
-anyway.
+| Where | Holds | Read by |
+|---|---|---|
+| **Environment** / `.env` | where the database is, what the stack runs | every command, Compose |
+| **Command-line flags** | what one process does on this run | that command |
+| **Calibration file** | what a voltage means, per channel | `serial-sensor` |
+| **User config file** | how `labmon monitor` looks | `monitor` |
+
+A fifth category is at the bottom: the constants that are deliberately
+**not** configurable, and what breaks if you change them anyway.
 
 ## Environment variables
 
@@ -22,10 +25,12 @@ file supplies a value the command says so, naming the file — worth reading
 if two checkouts sit side by side, since it is the line that distinguishes
 a run against the test stack from one against the real one.
 
-`.env` is **not** read by your shell. That matters wherever a command runs
-somewhere else: a sensor under systemd on a client machine gets its
-settings from the unit, not from a file in a checkout. To use `.env` from
-another directory, either export it —
+> [!IMPORTANT]
+> `.env` is **not** read by your shell. That matters wherever a command runs
+> somewhere else: a sensor under systemd on a client machine gets its
+> settings from the unit, not from a file in a checkout.
+
+To use `.env` from another directory, either export it —
 
 ```bash
 set -a; . ./.env; set +a
@@ -63,11 +68,13 @@ for the server side.
 `.env`, because one value cannot serve both a container (which needs the
 Docker network name) and a host-side process (which needs `localhost`).
 
-**Set-but-empty is not the same as unset.** Compose substitutes its own
-default for an empty value, but Python does not: `INFLUXDB_DATABASE=`
-with nothing after it makes a host-side sensor write to a database named
-`""` rather than to `lab`. `.env.example` ships several keys in exactly
-that shape, so either fill them in or comment them out.
+> [!NOTE]
+> **Set-but-empty is treated as unset**, matching Compose. `.env.example`
+> ships several keys with nothing after the `=`, and Compose reads those as
+> `${VAR:-default}`; `labmon` falls back the same way, so a host-side run and
+> a container agree on what `INFLUXDB_DATABASE=` means. Python's own
+> `os.environ.get(name, default)` does not — it falls back only when the
+> variable is absent — which is why `labmon.influx._setting` exists.
 
 ### Server stack
 
@@ -75,7 +82,7 @@ Only meaningful on the machine running `docker-compose.yml`.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `INFLUXDB_NODE_ID` | *(required)* | Node identifier for the InfluxDB instance |
+| `INFLUXDB_NODE_ID` | `node0` | Node identifier for the InfluxDB instance. It names the directory the data is stored under, so changing it on an instance that already holds readings hides them |
 | `GRAFANA_ADMIN_PASSWORD` | `admin` | Grafana admin login |
 | `LABMON_BIND_ADDRESS` | `127.0.0.1` | Which address InfluxDB's and Grafana's ports bind to. Loopback by default; a server clients push to sets `0.0.0.0`. Does not affect the `tls` profile's proxy |
 | `COMPOSE_PROFILES` | *(unset)* | Which optional services start — see below |
@@ -98,7 +105,7 @@ Only meaningful on the machine running `docker-compose.yml`.
 The two are independent, so `demo,logs` is valid. A profile is needed to
 *stop* its services as well as start them: `docker compose down` without
 it leaves them running. See
-[`docs/deployment.md`](deployment.md#demo-vs-server-compose_profiles).
+[`docs/deployment.md`](deployment.md#choosing-what-runs-compose_profiles).
 
 `ADC_FEEDER_HOST` also exists, but only the demo's simulated board reads
 it — see [`docs/demo-stack.md`](demo-stack.md).
@@ -114,9 +121,9 @@ describing hardware. Full description in
 | Flag | Default | Purpose |
 |---|---|---|
 | `--sensor-id` | `mock-sensor-1` | Tag identifying the sensor |
-| `--measurement` | `temperature` | InfluxDB measurement (table) to write to |
+| `--measurement` | **required** | InfluxDB measurement (table) to write to |
+| `--unit` | **required** | Unit tag, e.g. `°C`, `K`, `mbar` |
 | `--field` | `value` | Field name for the reading |
-| `--unit` | *(none)* | Unit tag; omitted entirely when unset |
 | `--interval` | `5.0` | Seconds between readings |
 | `--setpoint` | `21.0` | Baseline the walk reverts toward |
 | `--noise` | `0.1` | Standard deviation of the step noise |

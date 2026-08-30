@@ -1,7 +1,14 @@
 # Getting the data out
 
-Two commands read recorded readings, and they differ only in what they
-do with the answer:
+The commands run on your machine, not in a container, so install them
+first:
+
+```bash
+uv tool install --editable '.[tui]'
+```
+
+Two of them read recorded readings, and they differ only in what they do
+with the answer:
 
 ```bash
 labmon query  --measurement temperature --since 5m       # look at it now
@@ -41,15 +48,17 @@ polars and xarray — see
 
 With no `--format`, the extension of `-o` decides; failing that, CSV.
 
-The extension is appended for you when `-o` does not already carry it,
-so `-o test --format feather` writes `test.feather` and a directory does
-not fill with extensionless files nothing can identify. Only the right
-extension counts as already present — `-o run.2026-08-24` becomes
-`run.2026-08-24.csv`, because `.24` names no format. A path ending in a
-*different* format's extension is left exactly as typed and warns:
-`-o run.csv --format parquet` contradicts itself, and quietly renaming
-the filename you were explicit about would be the surprising half of
-that.
+The extension is appended when `-o` does not already carry it, so
+`-o test --format feather` writes `test.feather` and a directory does not
+fill with extensionless files nothing can identify. Only the right extension
+counts as already present — `-o run.2026-08-24` becomes
+`run.2026-08-24.csv`, because `.24` names no format.
+
+> [!NOTE]
+> A path ending in a *different* format's extension is left exactly as typed
+> and warns. `-o run.csv --format parquet` contradicts itself, and quietly
+> renaming a filename you were explicit about would be the surprising half
+> of that.
 
 ### Where the file lands
 
@@ -61,28 +70,31 @@ labmon export --since 2m -o ~/data/labmon/2026-08-25 # tilde expanded
 labmon export --since 2m -o exported/                # exported/labmon-export.csv
 ```
 
-A directory that does not exist yet is created, however deep, so
-`-o runs/2026-08-25/data` does not fail because a dated directory is
-new. Creating one is logged at INFO, so a typo in the path shows up as a
-directory nobody meant to make rather than as silence.
+<details>
+<summary><b>The rules that path follows</b></summary>
 
-A `~` is expanded here rather than left to the shell, which does not
-expand it inside quotes — and a directory literally named `~` is never
-what was meant.
+<br>
 
-A path that names a directory, either because one is already there or
-because it ends in a separator, receives the default filename inside it.
-Writing `exported.csv` *beside* a directory called `exported` is nobody's
-intent.
+- **A missing directory is created**, however deep, so
+  `-o runs/2026-08-25/data` does not fail because a dated directory is new.
+  Creating one is logged at INFO, so a typo shows up as a directory nobody
+  meant to make rather than as silence.
+- **`~` is expanded here** rather than left to the shell, which does not
+  expand it inside quotes — and a directory literally named `~` is never
+  what was meant.
+- **A path naming a directory** — one that already exists, or that ends in a
+  separator — receives the default filename inside it. Writing
+  `exported.csv` *beside* a directory called `exported` is nobody's intent.
+- **A path whose parent is an existing file is refused**, and the file is
+  left alone.
 
-A path whose parent is an existing *file* is refused, and the file is
-left alone.
+</details>
 
-CSV, Parquet and Feather need no extra install: `pyarrow` already
-arrives with the InfluxDB client. netCDF does:
+CSV, Parquet and Feather need no extra install — `pyarrow` arrives with the
+InfluxDB client. netCDF does:
 
 ```bash
-pip install 'labmon[netcdf]'
+uv tool install --editable '.[tui,netcdf]'
 ```
 
 Loading looks like this:
@@ -294,10 +306,12 @@ labmon query latest --sensor-id cryo-77k --sensor-id room-1
 sensor_id     measurement  value             unit  age
 ------------  -----------  ----------------  ----  -------
 wavemeter-1   frequency    2.765612997e+14   Hz    2s ago
+…
 chamber-1     pressure     1.9867e-07        mbar  4s ago
 cryo-77k      temperature  76.945            K     4s ago
+probe-158     temperature  21.0691           K     57m ago
 room-1        temperature  21.552            °C    4s ago
-old-probe     temperature  21.0691           K     57m ago
+…
 
 13 sensors
 ```
@@ -414,8 +428,9 @@ into the result:
 sensor_id   measurement  value    unit  age
 ----------  -----------  -------  ----  -------
 cryo-diode  temperature  17.1     K     1s ago
-room-1      temperature  20.518   °C    2s ago
 probe-158   temperature  21.0691  K     1h ago
+room-1      temperature  20.518   °C    2s ago
+…
 
 6 sensors
 1 of them reported nothing in this window — remembered from a previous run

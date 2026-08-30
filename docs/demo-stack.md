@@ -1,8 +1,7 @@
 # The demo stack
 
 `COMPOSE_PROFILES=demo` starts sensors alongside InfluxDB and Grafana so
-the dashboard has something to show before any hardware exists. There are
-two kinds, and the difference is the point.
+the dashboard has something to show before any hardware exists.
 
 ```bash
 COMPOSE_PROFILES=demo docker compose up -d --build --wait
@@ -10,21 +9,30 @@ COMPOSE_PROFILES=demo docker compose up -d --build --wait
 
 ## Two acquisition paths, one database
 
+```
+  mock-room-1, mock-room-2, mock-cryo-77k,
+  mock-cryo-4k, mock-pressure, mock-wavemeter ───────────────┐
+      six processes inventing physical values                │
+                                                             ▼
+  demo-adc-feeder ──raw counts over TCP──► demo-serial-sensor ──► InfluxDB
+   stands in for the board                  the real serial-sensor
+```
+
 | | What it runs | What it writes |
 |---|---|---|
-| `mock-*` (5 services) | `mock-sensor` | A value already in physical units |
+| `mock-*` (6 services) | `mock-sensor` | A value already in physical units |
 | `demo-adc-feeder` + `demo-serial-sensor` | `serial-sensor` | `value`, `input_volts`, `calibration_id` |
 
-The mock sensors invent a reading directly — useful for filling a
-dashboard, but they skip the conversion layer entirely, so nothing they
-write can demonstrate it.
+The mock sensors invent a reading directly. Useful for filling a dashboard,
+but they skip the conversion layer entirely, so nothing they write can
+demonstrate it.
 
-The second pair doesn't skip anything. `demo-adc-feeder` streams raw ADC
-counts in the wire format
+The second pair skips nothing. `demo-adc-feeder` streams raw ADC counts in
+the wire format
 [`firmware/due_native_serial`](../firmware/due_native_serial/due_native_serial.ino)
-emits, and `demo-serial-sensor` is the ordinary `serial-sensor` entry
-point reading them. Parsing, calibration, unit derivation, provenance —
-all the real code. Only the board is substituted.
+emits, and `demo-serial-sensor` is the ordinary `serial-sensor` entry point
+reading them. Parsing, calibration, unit derivation, provenance — all the
+real code. Only the board is substituted.
 
 ## How it reaches serial-sensor without a serial port
 
@@ -38,10 +46,12 @@ command:
 ```
 
 `--port` accepts anything pyserial's `serial_for_url` understands, so no
-pty, no `socat`, and no device passthrough is involved. The same
-mechanism has a use beyond the demo: `rfc2217://host:port` reaches a
-board plugged into a serial device server somewhere else on the network
-rather than into the machine running the sensor.
+pty, no `socat` and no device passthrough is involved.
+
+> [!TIP]
+> That has a use beyond the demo: `rfc2217://host:port` reaches a board
+> plugged into a serial device server elsewhere on the network rather than
+> into the machine running the sensor.
 
 The feeder is [`demo/adc_feeder.py`](../demo/adc_feeder.py) — stdlib
 only, so it runs in the labmon image with nothing added, and it is not
@@ -102,7 +112,11 @@ defaults to empty, so a server deployment installs nothing and needs no
 network when Grafana boots. The cost of leaving it unset is that one panel
 renders as "plugin not found"; everything else works.
 
-Three details in that one line are easy to get wrong:
+<details>
+<summary><b>Three details in that one line that are easy to get wrong</b></summary>
+
+<br>
+
 
 - **The variable is `GF_PLUGINS_PREINSTALL_SYNC`, not
   `GF_INSTALL_PLUGINS`.** The obvious spelling is deprecated in this image
@@ -114,11 +128,16 @@ Three details in that one line are easy to get wrong:
 - **The version is pinned.** `preinstall_auto_update` defaults to true, so
   an unpinned id would silently follow upstream releases.
 
-If the panel still reports "plugin not found" in the browser after the
-container is up, the tab is stale rather than the install broken: the
+</details>
+
+> [!NOTE]
+> If the panel still reports "plugin not found" after the container is up,
+> the tab is stale rather than the install broken. A hard reload
+> (Ctrl+Shift+R) fixes it — see below.
+
+The
 available-panels map is baked into `index.html` at page load, so a tab
-opened before the plugin registered never learns about it. A hard reload
-(Ctrl+Shift+R) fixes it.
+opened before the plugin registered never learns about it.
 
 The plugin's own options schema misspells one key (`ticknessGaugeBasis`),
 so the dashboard JSON has to spell it the same way; `pyproject.toml`
@@ -126,45 +145,64 @@ allows exactly that identifier and no other use of the misspelling.
 
 ## Grafana wrinkles worth knowing if you edit the dashboard
 
-**The Calibration layer panel's unit follows the dropdown.** Its left
-axis is kelvin, mbar, volts, mW or µm depending on the channel, and a
-panel's unit is otherwise a fixed setting. A second hidden query looks up
-the Grafana unit id for the selected channel, and the `configFromData`
-transformation applies it to the axis. Anything the lookup doesn't
+<details>
+<summary><b>The Calibration layer panel's unit follows the dropdown</b></summary>
+
+<br>
+
+Its left axis is kelvin, mbar, volts, mW or µm depending on the channel,
+and a panel's unit is otherwise a fixed setting. A second hidden query looks
+up the Grafana unit id for the selected channel, and the `configFromData`
+transformation applies it to the axis. Anything the lookup does not
 recognise falls back to `suffix:<unit>`, so a new unit still renders
 sensibly without touching the dashboard.
 
-**The XY panel needs an explicit `pluginVersion`.** Without one Grafana
+</details>
+
+<details>
+<summary><b>The XY panel needs an explicit <code>pluginVersion</code></b></summary>
+
+<br>
+
+Without one, Grafana
 treats the panel as pre-11.1 and runs the xychart migration, which
 expects `series[].x` to be a plain field name rather than a matcher. It
 yields zero series and the panel renders "No data" with no error
 anywhere. Any hand-written xychart panel needs `"pluginVersion"` set to
 the Grafana version it targets.
 
-**Its two queries must not share field names either.** Grafana
+Its two queries must not share field names either. Grafana
 disambiguates duplicate field names across frames, which defeats the
 `byName` matchers the manual series mapping uses. The current-position
 query therefore selects `now-x`/`now-y` where the trace query selects
 `beam-x`/`beam-y`.
 
-**Stat sparklines are linear-only, which is why the pressure tile has
-none.** A stat panel registers no custom field config, so
+</details>
+
+<details>
+<summary><b>Stat sparklines are linear-only, which is why the pressure tile has none</b></summary>
+
+<br>
+
+A stat panel registers no custom field config, so
 `scaleDistribution` — the option that puts the Vacuum panel on a log axis
 — is unavailable to it. `A2` spans two decades, and two decades on a
 linear axis flatten against the axis while one maximum sets the top: a
 correct number above a misleading graph. `graphMode: "none"` drops the
 graph and leaves the trend to the Vacuum panel.
 
-**That tile's unit is `suffix:mbar` with `decimals` unset.** The `sci`
-format gives clean scientific notation but emits no unit at all, and a
-panel's unit is the only place a stat can put one. `suffix:mbar` routes
-through `toFixed` instead, which returns exponential notation verbatim
-whenever the rounded value has an exponent — so leaving `decimals` unset
-gives `9.91e-10 mbar`, while *setting* it renders `0.00 mbar`. The
-trade-off is that trailing zeros are dropped, so the mantissa is
-occasionally shown to fewer digits.
+That tile's unit is `suffix:mbar` with `decimals` left unset, which is
+what gets a unit onto a value like `9.91e-10` — see [units and scientific
+notation](grafana.md#latest-value-panels) for why the obvious alternatives
+do not.
 
-**The inventory table formats its readings in SQL for the same reason.**
+</details>
+
+<details>
+<summary><b>The inventory table formats its readings in SQL, for the same reason</b></summary>
+
+<br>
+
 Its `value` column holds every measurement at once, from a 276 THz
 carrier down to 10⁻⁹ mbar, and a column carries one `decimals` setting
 for all of them: any fixed value renders the pressure rows as `0.0000`,
@@ -176,7 +214,12 @@ the detuning gauge plots — while the database keeps storing hertz.
 Because the column is text, it needs an explicit right-align; `auto`
 aligns text left.
 
-## A schema wrinkle worth knowing if you edit the dashboard
+</details>
+
+<details>
+<summary><b>A table only has the columns something has written to it</b></summary>
+
+<br>
 
 InfluxDB 3 creates columns on write, so a table only has the columns
 something has actually written to it. `frequency` is written solely by a
@@ -194,10 +237,12 @@ UNION ALL SELECT 'frequency', sensor_id, CAST(NULL AS VARCHAR) AS calibration_id
 Adding another measurement that only mock sensors write means adding the
 same casts, or the panel breaks.
 
+</details>
+
 ## Turning it off
 
 The demo profile is opt-in; a server deployment simply doesn't set it.
-See [`docs/deployment.md`](deployment.md#demo-vs-server-compose_profiles).
+See [`docs/deployment.md`](deployment.md#choosing-what-runs-compose_profiles).
 
 To stop everything:
 
@@ -216,8 +261,9 @@ docker compose exec influxdb influxdb3 delete database "$INFLUXDB_DATABASE" \
 The writers recreate the database and its tables on their next write, so
 restarting the sensors is enough to start over.
 
-Deleting `.influxdb3/data` also works, but it is a bigger hammer than it
-looks: `catalog/` lives in there alongside `dbs/`, and the catalog is
-where tokens are stored. Wiping the directory invalidates
-`INFLUXDB3_AUTH_TOKEN`, so every sensor and Grafana itself stop
-authenticating until a new token is created and `.env` updated.
+> [!WARNING]
+> Deleting `.influxdb3/data` also works, but it is a bigger hammer than it
+> looks: `catalog/` lives in there alongside `dbs/`, and the catalog is
+> where tokens are stored. Wiping the directory invalidates
+> `INFLUXDB3_AUTH_TOKEN`, so every sensor and Grafana itself stop
+> authenticating until a new token is created and `.env` updated.
