@@ -12,10 +12,28 @@ anyway.
 
 ## Environment variables
 
-Read from `.env` by Compose, or from the process environment for a bare
-install. `.env` is **not** read by your shell — a value set there reaches
-a container but not a `uv run labmon mock-sensor` you type yourself, unless
-something like direnv exports it.
+Read from the process environment, and from `.env` when a command runs in
+the directory holding that file. The process environment wins: a container,
+a systemd unit and a `VAR=x labmon …` prefix all keep the value they set.
+
+Only the working directory is read, never a parent, so a `.env` further up
+the tree belonging to something else cannot configure a sensor. When the
+file supplies a value the command says so, naming the file — worth reading
+if two checkouts sit side by side, since it is the line that distinguishes
+a run against the test stack from one against the real one.
+
+`.env` is **not** read by your shell. That matters wherever a command runs
+somewhere else: a sensor under systemd on a client machine gets its
+settings from the unit, not from a file in a checkout. To use `.env` from
+another directory, either export it —
+
+```bash
+set -a; . ./.env; set +a
+```
+
+— or install [direnv](https://direnv.net/), which does it on `cd`. An
+`.envrc` containing `dotenv` is committed, so `direnv allow` is the whole
+setup.
 
 ### Connection settings
 

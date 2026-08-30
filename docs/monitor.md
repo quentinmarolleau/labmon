@@ -115,11 +115,14 @@ everywhere.
 Needs the `tui` extra, which brings in Textual:
 
 ```bash
-pip install 'labmon[tui]'
+uv tool install --editable '.[tui]'
 ```
 
-Running it without that gives the install command rather than an import
-traceback.
+`pip install 'labmon[tui]'` works for an ordinary virtualenv, but not for
+a checkout installed as a uv tool — that installs into the environment
+`pip` happens to belong to, leaving the `labmon` on your PATH unchanged.
+Running the command without Textual names the interpreter it looked in
+and the install line for it, rather than an import traceback.
 
 ## Why not just leave Grafana open
 
