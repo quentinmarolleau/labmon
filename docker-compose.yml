@@ -71,7 +71,7 @@ services:
     command:
       - influxdb3
       - serve
-      - --node-id=${INFLUXDB_NODE_ID}
+      - --node-id=${INFLUXDB_NODE_ID:-node0}
       - --object-store=file
       - --data-dir=/var/lib/influxdb3/data
       # Everything influxdb3 emits at steady state is one line per
