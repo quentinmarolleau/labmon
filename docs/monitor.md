@@ -133,8 +133,8 @@ experiment, and it is unavailable over a bare SSH session.
 ## A layout of tiles
 
 With no `[[monitor.panels]]` configured, `labmon monitor` shows the table
-below and everything the database has. A layout replaces it with one
-tile per sensor:
+at the top of this page, covering everything the database has. A layout
+replaces it with one tile per sensor:
 
 ```bash
 labmon monitor --config monitor.example.toml

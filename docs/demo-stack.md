@@ -48,6 +48,11 @@ command:
 `--port` accepts anything pyserial's `serial_for_url` understands, so no
 pty, no `socat` and no device passthrough is involved.
 
+> [!TIP]
+> That has a use beyond the demo: `rfc2217://host:port` reaches a board
+> plugged into a serial device server elsewhere on the network rather than
+> into the machine running the sensor.
+
 The feeder is [`demo/adc_feeder.py`](../demo/adc_feeder.py) — stdlib
 only, so it runs in the labmon image with nothing added, and it is not
 part of the installed package.
@@ -91,12 +96,6 @@ was in force during a run:
 ```bash
 docker compose logs demo-serial-sensor | head
 ```
-
-> [!TIP]
-> `--port` accepts anything pyserial's `serial_for_url` understands, which
-> is useful beyond the demo: `rfc2217://host:port` reaches a board plugged
-> into a serial device server elsewhere on the network rather than into the
-> machine running the sensor.
 
 ## The dashboard needs one panel plugin
 
@@ -150,11 +149,11 @@ allows exactly that identifier and no other use of the misspelling.
 <summary><b>The Calibration layer panel's unit follows the dropdown</b></summary>
 
 <br>
-Its left axis is kelvin,
-mbar, volts, mW or µm depending on the channel, and a panel's unit is
-otherwise a fixed setting. A second hidden query looks up
-the Grafana unit id for the selected channel, and the `configFromData`
-transformation applies it to the axis. Anything the lookup doesn't
+
+Its left axis is kelvin, mbar, volts, mW or µm depending on the channel,
+and a panel's unit is otherwise a fixed setting. A second hidden query looks
+up the Grafana unit id for the selected channel, and the `configFromData`
+transformation applies it to the axis. Anything the lookup does not
 recognise falls back to `suffix:<unit>`, so a new unit still renders
 sensibly without touching the dashboard.
 
@@ -192,14 +191,10 @@ linear axis flatten against the axis while one maximum sets the top: a
 correct number above a misleading graph. `graphMode: "none"` drops the
 graph and leaves the trend to the Vacuum panel.
 
-That tile's unit is `suffix:mbar` with `decimals` unset. The `sci`
-format gives clean scientific notation but emits no unit at all, and a
-panel's unit is the only place a stat can put one. `suffix:mbar` routes
-through `toFixed` instead, which returns exponential notation verbatim
-whenever the rounded value has an exponent — so leaving `decimals` unset
-gives `9.91e-10 mbar`, while *setting* it renders `0.00 mbar`. The
-trade-off is that trailing zeros are dropped, so the mantissa is
-occasionally shown to fewer digits.
+That tile's unit is `suffix:mbar` with `decimals` left unset, which is
+what gets a unit onto a value like `9.91e-10` — see [units and scientific
+notation](grafana.md#latest-value-panels) for why the obvious alternatives
+do not.
 
 </details>
 

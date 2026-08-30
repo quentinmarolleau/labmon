@@ -306,10 +306,12 @@ labmon query latest --sensor-id cryo-77k --sensor-id room-1
 sensor_id     measurement  value             unit  age
 ------------  -----------  ----------------  ----  -------
 wavemeter-1   frequency    2.765612997e+14   Hz    2s ago
+…
 chamber-1     pressure     1.9867e-07        mbar  4s ago
 cryo-77k      temperature  76.945            K     4s ago
+probe-158     temperature  21.0691           K     57m ago
 room-1        temperature  21.552            °C    4s ago
-old-probe     temperature  21.0691           K     57m ago
+…
 
 13 sensors
 ```
@@ -426,8 +428,9 @@ into the result:
 sensor_id   measurement  value    unit  age
 ----------  -----------  -------  ----  -------
 cryo-diode  temperature  17.1     K     1s ago
-room-1      temperature  20.518   °C    2s ago
 probe-158   temperature  21.0691  K     1h ago
+room-1      temperature  20.518   °C    2s ago
+…
 
 6 sensors
 1 of them reported nothing in this window — remembered from a previous run
