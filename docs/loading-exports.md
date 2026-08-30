@@ -222,7 +222,10 @@ ragged shape otherwise. Keeping it an explicit step rather than folding
 it into the loader is deliberate: the cost should be visible at the
 point it is paid.
 
-## Why netCDF is shaped differently
+<details>
+<summary><b>Why netCDF is shaped differently</b></summary>
+
+<br>
 
 netCDF stores named arrays over named dimensions. There is no row — the
 closest thing is an index shared across several arrays, which means a
@@ -237,5 +240,8 @@ single `value(obs)` variable can carry exactly one `units` attribute.
 An export spans K, °C, mbar, V, µm, mW and Hz at once. DSG assumes one
 physical quantity per collection, and this is deliberately not that.
 
-One variable per sensor is the layout that keeps the unit attached to
-the readings it describes — which is the whole point of recording it.
+One variable per sensor keeps the unit attached to the readings it
+describes, which the ragged layout cannot.
+
+
+</details>

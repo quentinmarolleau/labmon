@@ -127,9 +127,8 @@ and the install line for it, rather than an import traceback.
 ## Why not just leave Grafana open
 
 Grafana is the right tool for a wall display and for digging through
-history. It is the wrong one for the terminal that is already open next
-to the experiment, and it is unavailable over a bare SSH session — which
-is exactly the moment "is the cryostat still cold?" is worth asking.
+history. It is the wrong one for the terminal already open next to the
+experiment, and it is unavailable over a bare SSH session.
 
 ## A layout of tiles
 
@@ -251,7 +250,12 @@ says which of them a tile is for. **The tile always prints the
 measurement it settled on**, so what is on screen is never ambiguous
 even when the configuration was.
 
-## Rows stay where you left them
+## How it behaves
+
+<details>
+<summary><b>Rows stay where you left them</b></summary>
+
+<br>
 
 Ordered by measurement, then by sensor, alphabetically. Nothing about a
 reading moves a row.
@@ -261,7 +265,12 @@ reorders itself on every tick, so following one number means finding it
 again first. Staleness is carried by colour, which does not need a
 position to say anything.
 
-## Only the average is rounded
+</details>
+
+<details>
+<summary><b>Only the average is rounded</b></summary>
+
+<br>
 
 A reading is shown **exactly as stored**. The sensor already rounded it
 to the resolution it claims, and nothing here knows better.
@@ -277,7 +286,12 @@ quantity moved while nobody was looking, which is no statement at all
 about how well the instrument measured it — a beam wandering 19 µm
 across half an hour is at `-21.49 µm` right now, to far better than a µm.
 
-## How many digits a sensor is worth
+</details>
+
+<details>
+<summary><b>How many digits a sensor is worth</b></summary>
+
+<br>
 
 Some instruments write more digits than anybody wants to read at a
 glance — anything behind a calibration, in particular, where a
@@ -310,7 +324,12 @@ They belong to `[monitor]`, so `labmon query latest` is unaffected — it
 promises the reading as recorded, and remains the place to go for every
 digit.
 
-## What it shows, and what it shares
+</details>
+
+<details>
+<summary><b>What it shows, and what it shares</b></summary>
+
+<br>
 
 The panel shows exactly what `labmon query latest --stats` shows: the
 same selection layer, the same renderer, the same notion of staleness.
@@ -327,7 +346,12 @@ run from 1 Hz down to once a minute, so a tile that has not changed in
 thirty seconds might be perfectly healthy or might be dead. The reading
 count over the window is what separates the two.
 
-## How a refresh works
+</details>
+
+<details>
+<summary><b>How a refresh works</b></summary>
+
+<br>
 
 Each tick re-queries the whole window and replaces the result. It does
 not append to what it already has.
@@ -355,7 +379,12 @@ The query runs on a worker thread. It blocks for tens of milliseconds,
 which is long enough to make a keypress feel sticky, and there is no
 reason for `q` to wait for a database.
 
-## When a refresh fails
+</details>
+
+<details>
+<summary><b>When a refresh fails</b></summary>
+
+<br>
 
 The panel does not exit. The last good table stays on screen and the
 status line says what happened:
@@ -367,6 +396,8 @@ cannot reach the database — showing the last good reading · window 15m · ref
 A panel that tore down the terminal on one unreachable moment would be
 worse than useless next to a running experiment. The window is
 re-queried every tick anyway, so recovery needs no action.
+
+</details>
 
 ## Settings
 

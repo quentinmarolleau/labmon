@@ -1,15 +1,26 @@
 # Latency and throughput
 
 Where time actually goes between a board's ADC and a row in InfluxDB,
-measured rather than assumed. This exists because one layer turned out
-to be a thousand times more expensive than the rest, in a way that was
-invisible until it throttled a sensor loop.
+measured rather than assumed. One layer turned out to be a thousand times
+more expensive than the rest, invisibly, until it throttled a sensor loop.
 
-All figures below were measured on the machine described under
-[Reproducing the measurements](#reproducing-the-measurements); treat them
-as orders of magnitude and relative costs, not absolutes.
+```
+   board ──► parse ──► convert ──► Point ──► queue ─┊─► writer thread ──► InfluxDB
+             3 µs      61 µs       42 µs     3 µs   ┊    batches          ~1 s
+                                                    ┊
+                       the sampling loop stops here ┊   different thread
+```
+
+All figures were measured on the machine described under [Reproducing the
+measurements](#reproducing-the-measurements); treat them as orders of
+magnitude and relative costs, not absolutes.
 
 ## The problem that started this
+
+<details>
+<summary><b>A 1 s interval that sampled slower than 1 s</b></summary>
+
+<br>
 
 `mock-sensor` originally called `client.write()` once per reading,
 straight from its sampling loop. A sensor configured for a 1 s interval
@@ -20,6 +31,8 @@ That was fixed in `18cb779` by putting `PointWriter` in front of the
 client: `write()` only enqueues, and a background thread drains the queue
 and flushes whatever accumulated in one call. `serial-sensor` inherits
 the same arrangement unchanged.
+
+</details>
 
 ## Cost of each layer
 
@@ -130,13 +143,12 @@ the queue grows at whatever rate the board is streaming.
 | 50 readings/s | ~3 min |
 
 Past that, the oldest queued point is discarded to make room for the
-newest, and acquisition carries on. For a live instrument the most
-recent reading is the valuable one, and the alternative is worse than
-losing the oldest: blocking there turns a storage outage into an
-acquisition outage. The recording gates stop being evaluated, the
-serial buffer overflows anyway, and the periodic summary that would
-report any of it stops being emitted — so the failure hides precisely
-because the code that reports failures is part of what stopped.
+newest, and acquisition carries on. For a live instrument the most recent
+reading is the valuable one, and blocking instead turns a storage outage
+into an acquisition outage: the recording gates stop being evaluated, the
+serial buffer overflows anyway, and the periodic summary that would report
+any of it stops being emitted — the failure hides because the code that
+reports failures is part of what stopped.
 
 Discards are counted and reported. The first one logs a warning
 immediately, and each summary window that lost points reports how many
@@ -144,16 +156,21 @@ as `dropped readings to keep acquiring`. That count is writer-wide
 rather than per-sensor, because one `PointWriter` carries every
 channel.
 
-Note what this policy does **not** preserve: the queue holds a fixed
-number of points, so a long outage is recorded as its final stretch
-rather than its whole span. Keeping the entire window at reduced
-resolution is a better answer and is tracked separately.
+> [!NOTE]
+> The queue holds a fixed number of points, so a long outage is recorded as
+> its final stretch rather than its whole span. Keeping the entire window at
+> reduced resolution would be better, and is tracked separately.
 
 At the rates this project actually runs, the queue is oversized by orders
 of magnitude and none of this is reachable. It matters only for a
 high-rate board combined with a long outage.
 
 ## Reproducing the measurements
+
+<details>
+<summary><b>Machine, method and tooling</b></summary>
+
+<br>
 
 Environment: AMD Ryzen 3 5300U, Python 3.14.5, `influxdb:3-core`
 (`sha256:2a50afa7…`) in Docker on the same host, so the network
@@ -172,5 +189,7 @@ contribution is negligible — a real LAN adds its own round trip on top.
   ceiling rather than the server's.
 
 The same `socat` setup described in
-[`docs/serial-sensor.md`](serial-sensor.md#testing-without-hardware)
+[`serial-sensor.md`](serial-sensor.md#testing-without-hardware)
 serves for ad-hoc checks without writing any benchmark code.
+
+</details>
