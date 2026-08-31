@@ -1,0 +1,12 @@
+# hadolint's defaults, minus one rule.
+#
+# DL3066 objects to `USER labmon` on the grounds that a name may not
+# resolve outside the container. It is aimed at images that adopt a name
+# from the base image without knowing its number; both Dockerfiles here
+# create the account themselves, three lines above the USER, pinned to
+# uid/gid 10001. Nothing is left to resolve, and `USER 10001` would cost
+# the reader the one word that says who this is.
+#
+# The threshold stays at hadolint's default, so a warning fails the job.
+ignored:
+  - DL3066

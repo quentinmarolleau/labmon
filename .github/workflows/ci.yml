@@ -65,6 +65,28 @@ jobs:
           enable-cache: true
       - run: uv run --locked typos
 
+  # No uv here: this lints a Dockerfile, not Python, and pulling a small
+  # image beats provisioning an interpreter to do it. The image is pinned
+  # by digest for the same reason the actions above are — a tag on Docker
+  # Hub is mutable, and this runs arbitrary code on a runner holding a
+  # checkout of this repository.
+  dockerfiles:
+    name: dockerfiles
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # templates/custom-sensor/Dockerfile matters more than the root one:
+      # it exists to be copied into somebody else's project, so a bad
+      # instruction in it is a bad instruction reproduced by every user who
+      # follows docs/custom-sensor.md.
+      #
+      # .hadolint.yaml in the working directory is read automatically; it
+      # carries the one rule this repository turns off, with the reason.
+      - run: |
+          docker run --rm -v "$PWD:/repo" -w /repo \
+            hadolint/hadolint@sha256:a1d49ae1a4e83c1dbad26b8c1ad7588c8bd1e04f4866b34ad3cac50335198552 \
+            hadolint Dockerfile templates/custom-sensor/Dockerfile
+
   test:
     name: test (${{ matrix.python-version }})
     runs-on: ubuntu-latest
