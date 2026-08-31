@@ -41,6 +41,18 @@ so the sections below map onto commit types.
 - **Tab completion** for bash, zsh, fish and powershell, through
   `labmon --install-completion`.
   [#154](https://github.com/quentinmarolleau/labmon/pull/154)
+- **`labmon init`** — issues the instance's admin token, writes it into
+  `.env`, and creates the database. Replaces exec'ing into the container
+  and copying the token out of the terminal, and works from a machine
+  that has no container to exec into. `--retention` sets how long
+  readings are kept, which can only be decided when a database is
+  created.
+  [`docs/deployment.md`](docs/deployment.md#setting-up-and-starting-over)
+- **`labmon reset-database`** — empties the database and creates it
+  again, keeping its retention. The admin token is untouched, so clients
+  keep writing. `docker compose down -v` does not do this: InfluxDB's
+  data is a bind mount rather than a named volume.
+  [`docs/deployment.md`](docs/deployment.md#setting-up-and-starting-over)
 
 #### Elsewhere
 

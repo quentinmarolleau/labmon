@@ -67,34 +67,84 @@ cd labmon
 cp .env.example .env
 ```
 
-**2. Ask InfluxDB for an auth token.**
+**2. Install the command line.**
+
+```bash
+uv tool install --editable '.[tui]'
+```
+
+**3. Start InfluxDB and set it up.**
 
 InfluxDB issues its own tokens, so it has to be running before it can give
 you one:
 
 ```bash
 docker compose up -d --wait influxdb
+labmon init --retention 1y
+```
+
+`labmon init` asks the server for its admin token, writes it into `.env`,
+and creates the database. `--retention` is optional; without it, readings
+are kept for ever.
+
+> [!IMPORTANT]
+> The token is shown once, and one admin token exists per instance.
+> `labmon init` saves it, so it is in `.env` — keep that file. If it is
+> lost, `influxdb3 create token --admin --regenerate` issues a new one and
+> invalidates the old, which means every client needs the new value.
+
+<details>
+<summary><b>What <code>labmon init</code> actually does</b></summary>
+
+<br>
+
+Three HTTP calls to InfluxDB, and one edit to a file:
+
+1. `POST /api/v3/configure/token/admin` — unauthenticated, because this is
+   the call that issues the credential everything else needs. The server
+   answers with the token once and keeps no copy it will hand back.
+2. The token is written into `.env` as `INFLUXDB3_AUTH_TOKEN=…`. An
+   existing assignment is replaced where it stands, so the comment above
+   it still describes the line beneath, and nothing else in the file is
+   touched — Compose reads this same file.
+3. `POST /api/v3/configure/database` — creates the database named by
+   `INFLUXDB_DATABASE`, with the retention you asked for.
+
+Running it again is safe, and does almost nothing: the server answers
+`409` to a second token and to a second database of the same name, and
+`init` reports both rather than failing. The one thing a re-run *will*
+change is the retention, if you pass `--retention` — that is a property of
+the database rather than of its creation, so it stays adjustable.
+
+Nothing here needs a container. The token endpoint is served over HTTP
+like everything else, so `labmon init` also works from a sensor machine
+across the lab, pointed at the server with `INFLUXDB_HOST`.
+
+</details>
+
+<details>
+<summary><b>Doing it without installing labmon</b></summary>
+
+<br>
+
+The same thing, from inside the container:
+
+```bash
 docker compose exec influxdb influxdb3 create token --admin
 ```
 
-Copy the token into `.env` as `INFLUXDB3_AUTH_TOKEN=…`.
+Then copy the token into `.env` as `INFLUXDB3_AUTH_TOKEN=…` yourself. The
+database is created by the first write, so there is nothing else to do —
+but it will keep readings for ever, since a retention period can only be
+set when the database is created. `labmon init --retention` exists for
+exactly that.
 
-> [!IMPORTANT]
-> The token is shown once, and one admin token exists per instance. Keep
-> it somewhere. If it is lost, `influxdb3 create token --admin
-> --regenerate` issues a new one and invalidates the old, which means
-> every client needs the new value.
+</details>
 
-**3. Start everything.**
+**4. Start everything.**
 
 ```bash
 docker compose up -d --wait
-```
-
-**4. Install the command line.**
-
-```bash
-uv tool install --editable '.[tui]'
 ```
 
 That is the whole setup. Data is already being recorded, so:
@@ -502,6 +552,24 @@ datasource and dashboards are provisioned from files in this repository.
 
 [`docs/configuration.md`](docs/configuration.md) is the index: every
 setting, what reads it, and where it lives.
+
+### Starting over
+
+`labmon reset-database` empties the database and creates it again, keeping
+its retention period. The admin token is untouched, so sensors on other
+machines keep writing without being visited.
+
+```bash
+labmon reset-database              # asks you to type the database name
+labmon reset-database --yes        # for a script that means it
+```
+
+It exists because `docker compose down -v` does not do this: InfluxDB's
+data is a bind mount rather than a named volume, so the alternative was
+`rm -rf .influxdb3/data` with the stack stopped.
+[`docs/deployment.md`](docs/deployment.md#setting-up-and-starting-over)
+covers what a reset does to the data on disk, and why there is no command
+to delete a narrower slice of it.
 
 ### Project structure
 
