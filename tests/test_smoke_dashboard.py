@@ -24,6 +24,7 @@ from email.message import Message
 from pathlib import Path
 from typing import Self, cast
 
+import certifi
 import pytest
 
 from tests.loader import (
@@ -384,11 +385,15 @@ class TestTlsContext:
             _ = tls_context(str(tmp_path / "absent.crt"))
 
     def test_a_real_ca_is_loaded(self, tmp_path: Path) -> None:
-        bundle = Path(ssl.get_default_verify_paths().cafile)
-        if not bundle.is_file():  # pragma: no cover - host without a CA bundle
-            pytest.skip("no system CA bundle to borrow")
+        """The exported CA has to be trusted, not merely found.
+
+        certifi's bundle is borrowed rather than a certificate minted,
+        which would pull in `cryptography` for one assertion. Not
+        `ssl.get_default_verify_paths()`: typeshed declares its `cafile`
+        a `str`, and on a CI runner it is None.
+        """
         certificate = tmp_path / "ca.crt"
-        _ = certificate.write_bytes(bundle.read_bytes())
+        _ = certificate.write_bytes(Path(certifi.where()).read_bytes())
 
         context = tls_context(str(certificate))
 

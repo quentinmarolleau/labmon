@@ -16,6 +16,12 @@ dependencies = [
 [dependency-groups]
 dev = [
     "basedpyright>=1.39.10",
+    # A CA bundle at a known path, for the two tests that check `--cacert`
+    # is actually loaded. Already present through influxdb3-python; named
+    # here because a test depends on it, and because
+    # `ssl.get_default_verify_paths()` answers None on a CI runner while
+    # typeshed declares it a str.
+    "certifi>=2026.7.22",
     "h5netcdf>=1.8.1",
     "h5py>=3.16.0",
     "pandas>=3.0.5",
