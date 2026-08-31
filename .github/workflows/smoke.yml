@@ -36,6 +36,20 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # First, because it costs 0.4s and the rest of this job costs
+      # minutes. The pre-commit hook of the same name runs the same script
+      # locally, but skips itself when the Docker daemon is down and is
+      # skipped wholesale by `--no-verify` or by never having run
+      # `pre-commit install` — so until now its claim to be backed by CI
+      # was not true of any workflow.
+      #
+      # docker-compose.client.yml is the file that needs this. The server
+      # file is parsed as a side effect of `up` a few steps down; the
+      # client file is started by nothing here, so an error in it would
+      # ship and surface on somebody's sensor machine.
+      - name: Both compose files parse
+        run: ./scripts/hooks/compose-config.sh
+
       # Deliberately the README's quickstart, command for command. A fresh
       # runner is the closest thing CI has to somebody cloning the repo, and
       # the bugs this job exists to catch only happen on the first run.
