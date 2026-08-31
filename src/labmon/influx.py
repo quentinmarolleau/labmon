@@ -23,6 +23,24 @@ def _setting(name: str, default: str) -> str:
     return os.environ.get(name) or default
 
 
+# The name of the variable, not a value. S105 matches on the name.
+AUTH_TOKEN = "INFLUXDB3_AUTH_TOKEN"  # noqa: S105
+
+
+def auth_token() -> str | None:
+    """The admin token this machine holds, or None.
+
+    `get_client` reads the same variable and raises when it is absent,
+    which is right for a command that cannot proceed without it. `labmon
+    init` can: not having a token is the ordinary state of a machine
+    about to be given one, so it asks rather than being stopped.
+
+    An empty value counts as absent, matching `_setting` and the
+    `.env.example` that ships this variable blank.
+    """
+    return os.environ.get(AUTH_TOKEN) or None
+
+
 def influx_host() -> str:
     """Where readings are written, from INFLUXDB_HOST.
 
@@ -91,7 +109,7 @@ def get_client() -> InfluxDBClient3:
 
     return InfluxDBClient3(
         host=host,
-        token=os.environ["INFLUXDB3_AUTH_TOKEN"],
+        token=os.environ[AUTH_TOKEN],
         database=influx_database(),
         **options,
     )
