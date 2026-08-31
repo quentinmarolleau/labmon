@@ -6,9 +6,6 @@ that drives it is `labmon.cli.commands.serial_sensor`.
 """
 
 import logging
-from datetime import UTC, datetime
-
-from influxdb_client_3 import Point
 
 from labmon.calibration import (
     ADC_RESOLUTION_BITS,
@@ -21,6 +18,7 @@ from labmon.calibration import (
 from labmon.gate import RecordingGate
 from labmon.influx import influx_database
 from labmon.sensors.loop import DEFAULT_SUMMARY_INTERVAL_SECONDS, SensorLoop
+from labmon.sensors.polling import build_point
 from labmon.sensors.serial_source import (
     RawSource,
 )
@@ -193,16 +191,21 @@ def run(
                 # transition the gate logged is the evidence for the gap.
                 continue
 
-            # The board has no clock, so the host stamps the reading on
-            # arrival; serial transit is negligible next to sample rates here.
-            point = (
-                Point(calibration.measurement)
-                .tag("sensor_id", calibration.sensor_id)
-                .tag("unit", calibration.unit)
-                .tag(CALIBRATION_ID_TAG, calibration.calibration_id)
-                .field(FIELD_NAME, value.magnitude)
-                .time(datetime.now(UTC), write_precision="ms")
+            # `build_point` owns the tag conventions and stamps the point.
+            # The board has no clock, so the host stamps on arrival; serial
+            # transit is negligible next to sample rates here.
+            point = build_point(
+                value.magnitude,
+                sensor_id=calibration.sensor_id,
+                measurement=calibration.measurement,
+                unit=calibration.unit,
+                field=FIELD_NAME,
+                tags={CALIBRATION_ID_TAG: calibration.calibration_id},
             )
+            # The second field is added here rather than by `build_point`,
+            # which returns the point precisely so a caller with more to
+            # record can add it without the builder growing a parameter
+            # for every shape a sensor might have.
             if calibration.store_input:
                 # Keeping the conversion's input makes a wrong calibration
                 # correctable after the fact; without it, readings already
