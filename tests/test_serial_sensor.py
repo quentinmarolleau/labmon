@@ -147,6 +147,38 @@ def test_run_writes_a_calibrated_point(
     assert "input_volts=3.3" in line
 
 
+def test_run_writes_no_unit_tag_for_a_dimensionless_channel(
+    fake_client: FakeInfluxClient, registered_handlers: dict[int, SignalHandler]
+) -> None:
+    """A ratio has no unit, and an empty unit tag is not the same as none.
+
+    This is the convention `build_point` exists to own. `serial-sensor`
+    used to tag `unit` unconditionally, and only the client's habit of
+    dropping an empty tag kept the two spellings from splitting the
+    series in two — halves that would look identical in a legend. Pinned
+    here so the guarantee rests on this repository rather than on a
+    detail of influxdb_client_3.
+    """
+    source = FakeRawSource([RawReading(channel="A0", raw_count=4095)])
+    ratio = Calibration(
+        sensor_id="beam-ratio",
+        measurement="ratio",
+        conversion=LinearConversion(factor=ureg("0.3 / volt")),
+    )
+    assert ratio.unit == "", "a dimensionless conversion should carry no unit"
+
+    with pytest.raises(_StopLoop):
+        run(source=source, calibrations={"A0": ratio})
+    with pytest.raises(SystemExit):
+        registered_handlers[signal.SIGINT](signal.SIGINT, None)
+
+    [batch] = fake_client.batches
+    [point] = batch
+    line = point.to_line_protocol()
+    assert "sensor_id=beam-ratio" in line
+    assert "unit=" not in line
+
+
 def test_run_stores_the_conversion_input_by_default(
     fake_client: FakeInfluxClient, registered_handlers: dict[int, SignalHandler]
 ) -> None:

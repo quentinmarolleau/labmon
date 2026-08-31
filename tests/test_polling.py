@@ -1,7 +1,9 @@
+import ast
 import logging
 import signal
 import time
 from collections.abc import Callable
+from pathlib import Path
 from types import FrameType
 from typing import override
 
@@ -126,6 +128,52 @@ def test_build_point_accepts_extra_tags_and_a_field_name() -> None:
 # --------------------------------------------------------------------------
 # write_reading — the one-shot path
 # --------------------------------------------------------------------------
+
+
+def test_build_point_is_the_only_place_a_point_is_constructed() -> None:
+    """No module may assemble a `Point` by hand.
+
+    `build_point` was extracted to own the tag conventions — the
+    `sensor_id` tag, the rule that an empty unit tag is not the same as
+    no unit tag, the millisecond write precision. A convention owned in
+    one place and applied in three is one that eventually differs in one
+    of them, and that failure is silent: it lands in stored data as two
+    series that look identical in a legend, and cannot be corrected
+    afterwards.
+
+    `mock_sensor` and `serial_sensor` each carried their own copy until
+    #117. A sensor with more to record than one field adds it to the
+    point `build_point` returns, the way `serial_sensor` adds
+    `input_volts` — so needing a second field is not a reason to open a
+    fourth copy.
+
+    Read with `ast` rather than by grepping, so a mention in a docstring
+    or a comment is not a finding.
+    """
+    root = Path(__file__).resolve().parent.parent / "src"
+    built_in: list[str] = []
+    for path in sorted(root.rglob("*.py")):
+        tree = ast.parse(path.read_text("utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            called = node.func
+            name = (
+                called.id
+                if isinstance(called, ast.Name)
+                else called.attr
+                if isinstance(called, ast.Attribute)
+                else ""
+            )
+            if name == "Point":
+                built_in.append(str(path.relative_to(root)))
+
+    # The file, not the line: pinning a line number would make this fail
+    # on any edit above it, which teaches people to update the number
+    # rather than to ask why it moved.
+    assert built_in == ["labmon/sensors/polling.py"], (
+        "a Point is constructed outside build_point, in " + ", ".join(built_in)
+    )
 
 
 def test_write_reading_writes_one_point(fake_client: FakeInfluxClient) -> None:
