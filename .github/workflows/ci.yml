@@ -13,6 +13,17 @@ on:
   push:
     branches: [main]
 
+# Superseded runs are work nobody will read: pushing three times to a PR
+# leaves the first two grinding on, and `smoke` has a 20-minute budget to
+# grind through. Cancelling on the same ref reclaims that.
+#
+# Only for `pull_request`, though. A push to `main` is what the branch's
+# status badge reflects and what a bisect later reads back, so those runs
+# finish even when the next push has already landed on top of them.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 # Every job here only reads the repository; Codecov uploads with its own
 # token rather than GITHUB_TOKEN. Setting this at the top means a job added
 # later starts read-only unless it says otherwise.
@@ -54,6 +65,45 @@ jobs:
           enable-cache: true
       - run: uv run --locked typos
 
+  # No uv here: this lints a Dockerfile, not Python, and pulling a small
+  # image beats provisioning an interpreter to do it. The image is pinned
+  # by digest for the same reason the actions above are — a tag on Docker
+  # Hub is mutable, and this runs arbitrary code on a runner holding a
+  # checkout of this repository.
+  dockerfiles:
+    name: dockerfiles
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # templates/custom-sensor/Dockerfile matters more than the root one:
+      # it exists to be copied into somebody else's project, so a bad
+      # instruction in it is a bad instruction reproduced by every user who
+      # follows docs/custom-sensor.md.
+      #
+      # .hadolint.yaml in the working directory is read automatically; it
+      # carries the one rule this repository turns off, with the reason.
+      - run: |
+          docker run --rm -v "$PWD:/repo" -w /repo \
+            hadolint/hadolint@sha256:a1d49ae1a4e83c1dbad26b8c1ad7588c8bd1e04f4866b34ad3cac50335198552 \
+            hadolint Dockerfile templates/custom-sensor/Dockerfile
+
+  # Pinned by digest, and run without uv, for the reasons given on the
+  # job above.
+  workflows:
+    name: workflows
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # A mistake in a workflow otherwise surfaces when the workflow runs,
+      # which for anything behind a `push: branches: [main]` filter can
+      # mean after merge. actionlint checks the expressions statically and
+      # runs shellcheck over every `run:` block, which is where most of
+      # smoke.yml lives.
+      - run: |
+          docker run --rm -v "$PWD:/repo" -w /repo \
+            rhysd/actionlint@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 \
+            -color
+
   test:
     name: test (${{ matrix.python-version }})
     runs-on: ubuntu-latest
@@ -67,7 +117,7 @@ jobs:
           version: "0.12.5"
           enable-cache: true
           python-version: ${{ matrix.python-version }}
-      - run: uv run --locked pytest --cov=src --cov-report=xml --cov-fail-under=100
+      - run: uv run --locked pytest --cov --cov-report=xml --cov-fail-under=100
       - if: matrix.python-version == '3.14'
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:

@@ -13,6 +13,17 @@ on:
   push:
     branches: [main]
 
+# Superseded runs are work nobody will read: pushing three times to a PR
+# leaves the first two grinding on, and `smoke` has a 20-minute budget to
+# grind through. Cancelling on the same ref reclaims that.
+#
+# Only for `pull_request`, though. A push to `main` is what the branch's
+# status badge reflects and what a bisect later reads back, so those runs
+# finish even when the next push has already landed on top of them.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 
@@ -25,6 +36,20 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # First, because it costs 0.4s and the rest of this job costs
+      # minutes. The pre-commit hook of the same name runs the same script
+      # locally, but skips itself when the Docker daemon is down and is
+      # skipped wholesale by `--no-verify` or by never having run
+      # `pre-commit install` — so until now its claim to be backed by CI
+      # was not true of any workflow.
+      #
+      # docker-compose.client.yml is the file that needs this. The server
+      # file is parsed as a side effect of `up` a few steps down; the
+      # client file is started by nothing here, so an error in it would
+      # ship and surface on somebody's sensor machine.
+      - name: Both compose files parse
+        run: ./scripts/hooks/compose-config.sh
+
       # Deliberately the README's quickstart, command for command. A fresh
       # runner is the closest thing CI has to somebody cloning the repo, and
       # the bugs this job exists to catch only happen on the first run.
@@ -33,9 +58,45 @@ jobs:
           cp .env.example .env
           sed -i 's/^INFLUXDB_NODE_ID=.*/INFLUXDB_NODE_ID=ci/' .env
 
-      - name: Start InfluxDB and mint an admin token
+      # The shape docs/deployment.md recommends for a real server is
+      # COMPOSE_PROFILES left unset. Every other start in this job carries
+      # `demo`, which left the recommended configuration as the one shape
+      # nobody ever started.
+      #
+      # An empty COMPOSE_PROFILES overrides the `demo` that .env.example
+      # sets rather than falling back to it, so this needs no second .env.
+      # The environment wins over the file even when what it says is
+      # nothing, which is the whole trick.
+      #
+      # It replaces the bare `up --wait influxdb` that used to open this
+      # step rather than adding a start, so it costs one extra container:
+      # InfluxDB has to be up before a token can be minted anyway, and the
+      # demo sensors join this same stack further down.
+      #
+      # Grafana therefore starts before the token exists, holding an empty
+      # INFLUXDB3_AUTH_TOKEN. The `up` that follows the minting step
+      # recreates it, because compose hashes a service's environment into
+      # the container config and a changed value is a changed service.
+      # Were that not so, every dashboard check below would query through
+      # a Grafana whose datasource had no credential.
+      - name: The server shape starts InfluxDB and Grafana, and nothing else
         run: |
-          docker compose up -d --wait influxdb
+          # Quoted empty rather than bare `COMPOSE_PROFILES=`, which
+          # SC1007 reads as a value accidentally left off.
+          COMPOSE_PROFILES='' docker compose up -d --wait
+          # Asked with every profile enabled, so a service that should
+          # have stayed down shows up here rather than being filtered out
+          # of the answer that was meant to catch it.
+          running="$(COMPOSE_PROFILES=demo,logs,tls docker compose ps \
+            --status running --format '{{.Service}}' | sort | xargs)"
+          echo "running: $running"
+          if [ "$running" != "grafana influxdb" ]; then
+            echo "wanted exactly grafana and influxdb, got: $running" >&2
+            exit 1
+          fi
+
+      - name: Mint an admin token
+        run: |
           token="$(docker compose exec -T influxdb influxdb3 create token --admin \
             | grep -oE 'apiv3_[A-Za-z0-9_-]+' | head -1)"
           if [ -z "$token" ]; then

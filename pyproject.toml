@@ -16,6 +16,12 @@ dependencies = [
 [dependency-groups]
 dev = [
     "basedpyright>=1.39.10",
+    # A CA bundle at a known path, for the two tests that check `--cacert`
+    # is actually loaded. Already present through influxdb3-python; named
+    # here because a test depends on it, and because
+    # `ssl.get_default_verify_paths()` answers None on a CI runner while
+    # typeshed declares it a str.
+    "certifi>=2026.7.22",
     "h5netcdf>=1.8.1",
     "h5py>=3.16.0",
     "pandas>=3.0.5",
@@ -149,7 +155,17 @@ stubPath = "typings"
 testpaths = ["tests"]
 
 [tool.coverage.run]
-source = ["src"]
+# Everything that ships, not just the package. `demo/`, `scripts/` and
+# `templates/` are three trees a user meets early — the demo stack
+# acquires from one, CI's own gates are two files in another, and the
+# third exists to be copied into somebody else's project — and none of
+# them was measured. That is the same blind spot #82 closed for
+# basedpyright, in the test dimension.
+#
+# Spelled here rather than as `--cov=` flags so the pre-commit hook, the
+# CI job and a bare `pytest --cov` all measure the same four trees, and
+# adding a fifth is one edit rather than three.
+source = ["src", "demo", "scripts", "templates"]
 
 [tool.typos.default.extend-identifiers]
 # Misspelled in the D3 Gauge panel plugin's own options schema, so the

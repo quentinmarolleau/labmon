@@ -20,6 +20,11 @@
 #
 # The `.` is the build context — the directory COPY can reach. A wheel
 # from your vendor has to sit next to this file; COPY cannot climb out.
+
+# `latest` on purpose, and the one place in this repo where it is right:
+# this is not a tag on a registry but the image `docker compose build`
+# leaves on your own machine, so there is no version here to pin to.
+# hadolint ignore=DL3007
 FROM labmon:latest
 
 # The base image ends as the unprivileged `labmon` user, so anything that

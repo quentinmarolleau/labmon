@@ -297,6 +297,7 @@ tui = [
 [package.dev-dependencies]
 dev = [
     { name = "basedpyright" },
+    { name = "certifi" },
     { name = "h5netcdf" },
     { name = "h5py" },
     { name = "pandas" },
@@ -332,6 +333,7 @@ provides-extras = ["spline", "netcdf", "tui"]
 [package.metadata.requires-dev]
 dev = [
     { name = "basedpyright", specifier = ">=1.39.10" },
+    { name = "certifi", specifier = ">=2026.7.22" },
     { name = "h5netcdf", specifier = ">=1.8.1" },
     { name = "h5py", specifier = ">=3.16.0" },
     { name = "pandas", specifier = ">=3.0.5" },

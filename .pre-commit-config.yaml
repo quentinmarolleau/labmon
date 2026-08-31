@@ -106,7 +106,7 @@ repos:
 
       - id: pytest
         name: pytest
-        entry: uv run --locked pytest --cov=src --cov-fail-under=100
+        entry: uv run --locked pytest --cov --cov-fail-under=100
         language: system
         pass_filenames: false
         stages: [pre-push]
