@@ -95,18 +95,37 @@ jobs:
             exit 1
           fi
 
-      - name: Mint an admin token
+      # The README installs the CLI before setting the database up, because
+      # `labmon init` is what sets it up. Installed from the checkout, so
+      # this is the package under test rather than a published one.
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.12.5"
+          enable-cache: true
+      - name: Install the command line the way the quickstart does
+        run: uv tool install --editable '.[tui]'
+
+      # The quickstart's own command. It issues the admin token, writes it
+      # into .env, and creates the database with a retention period —
+      # which is the only moment one can be set, since a database created
+      # by a write keeps readings for ever.
+      #
+      # Nothing here execs into a container. The token endpoint is HTTP
+      # like the rest, which is what lets a sensor machine across the lab
+      # run the same command; a job that kept the `docker compose exec`
+      # spelling would leave that claim untested.
+      - name: Set the instance up
         run: |
-          token="$(docker compose exec -T influxdb influxdb3 create token --admin \
-            | grep -oE 'apiv3_[A-Za-z0-9_-]+' | head -1)"
+          "$HOME/.local/bin/labmon" init --retention 1y
+          token="$(grep '^INFLUXDB3_AUTH_TOKEN=' .env | cut -d= -f2-)"
           if [ -z "$token" ]; then
-            echo "no token in the create-token output" >&2
+            echo "labmon init wrote no token into .env" >&2
             exit 1
           fi
+          # Masked as soon as it is read back. `labmon init` never prints
+          # it, but later steps pass it to commands that might, and this
+          # log is public.
           echo "::add-mask::$token"
-          grep -v '^INFLUXDB3_AUTH_TOKEN=' .env > .env.next
-          mv .env.next .env
-          printf 'INFLUXDB3_AUTH_TOKEN=%s\n' "$token" >> .env
 
       # Fails on its own if any service is unhealthy, which is what caught
       # nothing before this job existed.
