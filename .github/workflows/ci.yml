@@ -13,6 +13,17 @@ on:
   push:
     branches: [main]
 
+# Superseded runs are work nobody will read: pushing three times to a PR
+# leaves the first two grinding on, and `smoke` has a 20-minute budget to
+# grind through. Cancelling on the same ref reclaims that.
+#
+# Only for `pull_request`, though. A push to `main` is what the branch's
+# status badge reflects and what a bisect later reads back, so those runs
+# finish even when the next push has already landed on top of them.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 # Every job here only reads the repository; Codecov uploads with its own
 # token rather than GITHUB_TOKEN. Setting this at the top means a job added
 # later starts read-only unless it says otherwise.
