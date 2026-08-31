@@ -87,6 +87,23 @@ jobs:
             hadolint/hadolint@sha256:a1d49ae1a4e83c1dbad26b8c1ad7588c8bd1e04f4866b34ad3cac50335198552 \
             hadolint Dockerfile templates/custom-sensor/Dockerfile
 
+  # Pinned by digest, and run without uv, for the reasons given on the
+  # job above.
+  workflows:
+    name: workflows
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # A mistake in a workflow otherwise surfaces when the workflow runs,
+      # which for anything behind a `push: branches: [main]` filter can
+      # mean after merge. actionlint checks the expressions statically and
+      # runs shellcheck over every `run:` block, which is where most of
+      # smoke.yml lives.
+      - run: |
+          docker run --rm -v "$PWD:/repo" -w /repo \
+            rhysd/actionlint@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 \
+            -color
+
   test:
     name: test (${{ matrix.python-version }})
     runs-on: ubuntu-latest
