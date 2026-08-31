@@ -12,13 +12,11 @@ import logging
 import math
 import random
 import time
-from datetime import UTC, datetime
-
-from influxdb_client_3 import Point
 
 from labmon.influx import influx_database
 from labmon.quantise import DEFAULT_SIGNIFICANT_DIGITS, quantise
 from labmon.sensors.loop import DEFAULT_SUMMARY_INTERVAL_SECONDS, SensorLoop
+from labmon.sensors.polling import build_point
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -89,7 +87,6 @@ def run(
         },
     )
     while True:
-        reading_time = datetime.now(UTC)
         # Rounded here rather than inside the walk: quantising the walk's
         # own state would change how it reverts to the setpoint, and a
         # step coarser than the noise would freeze it outright. The gate
@@ -105,11 +102,16 @@ def run(
         # the rest of the iteration, so the pacing stays in one place and a
         # bad reading cannot turn the loop into a spin.
         if loop.admits(reading, sensor_id=sensor_id):
-            point = Point(measurement).tag("sensor_id", sensor_id)
-            if unit:
-                point = point.tag("unit", unit)
-            point = point.field(field, reading).time(reading_time, write_precision="ms")
-            loop.record(point, sensor_id)
+            loop.record(
+                build_point(
+                    reading,
+                    sensor_id=sensor_id,
+                    measurement=measurement,
+                    unit=unit,
+                    field=field,
+                ),
+                sensor_id,
+            )
             logger.debug(
                 "reading",
                 extra={"sensor_id": sensor_id, "value": f"{reading:.4g}", "unit": unit},

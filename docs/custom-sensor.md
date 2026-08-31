@@ -100,6 +100,19 @@ writer.write(
 Same tag conventions, so the readings sit alongside every other sensor's
 rather than in a shape of their own.
 
+For several numbers describing *one* reading — a value and the raw input
+it was derived from, say — add the extra field to the point rather than
+writing a second one:
+
+```python
+point = build_point(value, sensor_id="cryo-1", measurement="temperature", unit="K")
+writer.write(point.field("input_volts", volts))
+```
+
+`build_point()` returns the point for exactly this reason, so a sensor
+with more to record does not need the builder to grow a parameter for
+every shape. `labmon serial-sensor` records `input_volts` this way.
+
 </details>
 
 ## Prove the plumbing first
