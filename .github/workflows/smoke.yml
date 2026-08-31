@@ -58,6 +58,22 @@ jobs:
           cp .env.example .env
           sed -i 's/^INFLUXDB_NODE_ID=.*/INFLUXDB_NODE_ID=ci/' .env
 
+      # The README installs the CLI before starting anything, because
+      # `labmon init` is what sets the database up. Installed from the
+      # checkout, so this is the package under test rather than a
+      # published one.
+      #
+      # Before the first `docker compose up`, and that ordering is load
+      # bearing rather than cosmetic: setup-uv's cache key globs the whole
+      # working directory, and once the stack has run, `.grafana/data` is
+      # owned by uid 472 and the scan dies on EACCES.
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.12.5"
+          enable-cache: true
+      - name: Install the command line the way the quickstart does
+        run: uv tool install --editable '.[tui]'
+
       # The shape docs/deployment.md recommends for a real server is
       # COMPOSE_PROFILES left unset. Every other start in this job carries
       # `demo`, which left the recommended configuration as the one shape
@@ -94,16 +110,6 @@ jobs:
             echo "wanted exactly grafana and influxdb, got: $running" >&2
             exit 1
           fi
-
-      # The README installs the CLI before setting the database up, because
-      # `labmon init` is what sets it up. Installed from the checkout, so
-      # this is the package under test rather than a published one.
-      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
-        with:
-          version: "0.12.5"
-          enable-cache: true
-      - name: Install the command line the way the quickstart does
-        run: uv tool install --editable '.[tui]'
 
       # The quickstart's own command. It issues the admin token, writes it
       # into .env, and creates the database with a retention period —
