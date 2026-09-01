@@ -174,7 +174,7 @@ services:
   # asks for it, so a metrics-only deployment stays two containers lighter.
   # See docs/logging.md.
   loki:
-    image: grafana/loki:3.7.6
+    image: grafana/loki:3.7.7
     container_name: loki
     # Comes back after a reboot or a daemon restart, but stays down once
     # deliberately stopped. This half of the deployment is the always-on
