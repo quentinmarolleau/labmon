@@ -57,7 +57,7 @@ services:
   #
   # See docs/client-setup.md.
   alloy:
-    image: grafana/alloy:v1.18.1
+    image: grafana/alloy:v1.19.2
     container_name: labmon-alloy
     restart: unless-stopped
     profiles: [logs]

@@ -211,7 +211,7 @@ services:
     # so the seconds before Loki is ready cost nothing.
 
   alloy:
-    image: grafana/alloy:v1.18.1
+    image: grafana/alloy:v1.19.2
     container_name: alloy
     # Comes back after a reboot or a daemon restart, but stays down once
     # deliberately stopped. This half of the deployment is the always-on
