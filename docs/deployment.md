@@ -69,7 +69,10 @@ COMPOSE_PROFILES=logs
 lists Grafana panel plugins to fetch at startup, and the demo sets it to
 the one plugin its detuning gauge needs. Blank, Grafana installs nothing
 and needs no network when it boots, at the cost of that one panel not
-rendering. See
+rendering. Left set on a machine that cannot reach grafana.com, the fetch
+fails into the log and Grafana starts anyway — see [when Grafana will not
+start](grafana.md#when-grafana-will-not-start) — but there is no reason to
+retry it on every boot. See
 [`demo-stack.md`](demo-stack.md#the-dashboard-needs-one-panel-plugin).
 
 ## Opening the server to the network

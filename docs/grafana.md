@@ -212,3 +212,52 @@ to that until someone exempts it by name. Every dashboard means every
 profile behind one has to be running, so `--dashboard` narrows it to a
 subset. `scripts/smoke_logs.py` covers the half neither reaches, proving
 collection gets to Loki at all.
+
+## When Grafana will not start
+
+Grafana is the service most likely to hold up a first `docker compose up -d
+--wait`, and its failures are quiet: the command exits non-zero naming a
+container that never went healthy, and `docker compose ps` reports
+
+```
+grafana   Up 8 minutes (unhealthy)
+```
+
+on a container created twelve minutes ago. That uptime is the tell — it is
+younger than the container, because what you are looking at is the latest
+of a series of restarts rather than one long unhealthy run. The reason is
+only ever in the log:
+
+```bash
+docker compose logs grafana
+```
+
+### The plugin fetch
+
+`GRAFANA_PLUGINS` is fetched from grafana.com when Grafana boots, so a
+machine that cannot reach it — an offline bench, a proxy that intercepts
+TLS, a plugin id or version that no longer exists — fails the install. That
+failure is logged at error level and Grafana carries on serving:
+
+```
+level=error msg="Failed to install plugin" pluginId=… error="404: Plugin not found"
+```
+
+The panel that needed it reads "plugin not found"; nothing else is
+affected, and the next boot retries. To stop it retrying, blank
+`GRAFANA_PLUGINS` in `.env`, which is what a server deployment wants
+anyway — see
+[`deployment.md`](deployment.md#choosing-what-runs-compose_profiles).
+
+Compose asks for this with `GF_PLUGINS_PREINSTALL`. The `_SYNC` variant of
+the same variable installs before Grafana starts serving, and treats a
+failed install as fatal:
+
+```
+Error: ✗ invalid service state: Failed … failed to install plugin: 404: Plugin not found
+```
+
+The process exits, `restart: unless-stopped` starts it again, and the stack
+never comes up on a machine with no route to grafana.com. That is the
+crash-loop the uptime above describes, and it is why this deployment
+accepts a few seconds of missing panel instead.

@@ -112,19 +112,27 @@ defaults to empty, so a server deployment installs nothing and needs no
 network when Grafana boots. The cost of leaving it unset is that one panel
 renders as "plugin not found"; everything else works.
 
+Set, it is fetched from grafana.com the first time Grafana starts. A fetch
+that fails leaves an error in the log and nothing else: Grafana serves, and
+the gauge reads "plugin not found" until the next boot manages the
+download.
+
 <details>
 <summary><b>Three details in that one line that are easy to get wrong</b></summary>
 
 <br>
 
 
-- **The variable is `GF_PLUGINS_PREINSTALL_SYNC`, not
-  `GF_INSTALL_PLUGINS`.** The obvious spelling is deprecated in this image
-  and silently ignored unless `GF_INSTALL_PLUGINS_FORCE=true` is also set
-  — it installs nothing and reports no error.
-- **`_SYNC` rather than the async form**, so the install finishes before
-  Grafana starts serving. Otherwise provisioning can load the dashboard
-  while its panel type is still missing.
+- **The variable is `GF_PLUGINS_PREINSTALL`, not `GF_INSTALL_PLUGINS`.**
+  The obvious spelling is deprecated in this image and silently ignored
+  unless `GF_INSTALL_PLUGINS_FORCE=true` is also set — it installs nothing
+  and reports no error.
+- **The async form rather than `GF_PLUGINS_PREINSTALL_SYNC`.** The `_SYNC`
+  spelling finishes the install before Grafana serves, which reads like the
+  safer choice and is not: a download it cannot complete is fatal, so an
+  offline bench or an unreachable grafana.com stops the whole stack
+  starting. See [when Grafana will not
+  start](grafana.md#when-grafana-will-not-start).
 - **The version is pinned.** `preinstall_auto_update` defaults to true, so
   an unpinned id would silently follow upstream releases.
 
@@ -132,8 +140,11 @@ renders as "plugin not found"; everything else works.
 
 > [!NOTE]
 > If the panel still reports "plugin not found" after the container is up,
-> the tab is stale rather than the install broken. A hard reload
-> (Ctrl+Shift+R) fixes it — see below.
+> the install is either unfinished or the tab is stale — neither means it
+> is broken. Grafana serves before the download lands, and queues it
+> behind its own core plugins, so give it a moment and hard-reload
+> (Ctrl+Shift+R). `docker compose logs grafana | grep -i plugin` says
+> which of the two it is.
 
 The
 available-panels map is baked into `index.html` at page load, so a tab

@@ -93,6 +93,12 @@ so the sections below map onto commit types.
 - Simulated sensors reported full float64 precision, filling the
   database with readings no thermometer could produce.
   [#152](https://github.com/quentinmarolleau/labmon/issues/152)
+- A Grafana panel plugin that could not be fetched stopped the whole
+  stack starting, crash-looping the container behind an `unhealthy`
+  status that named no cause. The install is now asynchronous: the
+  failure is logged, Grafana serves, and the panel reads "plugin not
+  found".
+  [#186](https://github.com/quentinmarolleau/labmon/issues/186)
 
 ## [0.2.0-beta.1] — 2026-08-23
 
