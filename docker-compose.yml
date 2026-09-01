@@ -143,11 +143,17 @@ services:
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
       # Extra panel plugins, empty by default so a server install stays
       # offline-capable; the demo's .env sets it (see docs/demo-stack.md).
-      # "_SYNC" installs before Grafana starts, so a provisioned dashboard
-      # never loads while its panel type is still missing. Note that
-      # GF_INSTALL_PLUGINS is deprecated in this image and ignored unless
-      # GF_INSTALL_PLUGINS_FORCE is also set.
-      - GF_PLUGINS_PREINSTALL_SYNC=${GRAFANA_PLUGINS:-}
+      # The async form on purpose. "_SYNC" finishes the install before
+      # Grafana serves, so a provisioned dashboard never loads while its
+      # panel type is missing — but a fetch it cannot complete is fatal,
+      # and with `restart: unless-stopped` an unreachable grafana.com
+      # crash-loops the container and fails `up --wait` for the whole
+      # stack. This form logs the failure at error level and carries on.
+      # The cost is a panel reading "plugin not found" for the seconds
+      # before the install lands. Note that GF_INSTALL_PLUGINS is
+      # deprecated in this image and ignored unless GF_INSTALL_PLUGINS_FORCE
+      # is also set.
+      - GF_PLUGINS_PREINSTALL=${GRAFANA_PLUGINS:-}
     volumes:
       - type: bind
         source: ./grafana/provisioning
