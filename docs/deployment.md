@@ -296,6 +296,87 @@ docker compose exec influxdb sh -c \
 Clients buffer while they cannot write (see [`latency.md`](latency.md)), so
 a rotation completed within the queue's depth loses nothing.
 
+## Setting up, and starting over
+
+Two commands cover the database's whole lifecycle.
+
+`labmon init` prepares a fresh instance: it asks for the admin token,
+writes it into `.env`, and creates the database. Run it once per instance,
+against a server that is already up.
+
+```bash
+docker compose up -d --wait influxdb
+labmon init --retention 1y
+```
+
+`--retention` is the reason the command exists at all. A database is
+created by the first write if nothing created it first, but one that
+appears that way keeps readings for ever, and a retention period can only
+be set when the database is created. Re-running `labmon init --retention
+30d` on a database that already exists changes it, which is the one thing
+a second run does.
+
+`labmon reset-database` empties it again:
+
+```bash
+labmon reset-database              # asks you to type the database name
+labmon reset-database --yes        # for a script that means it
+```
+
+> [!WARNING]
+> This deletes every reading. The retention period is read first and put
+> back, so a database that kept a year of readings still does — but the
+> readings themselves are gone.
+
+<details>
+<summary><b>What a reset actually does to the data</b></summary>
+
+<br>
+
+`DELETE /api/v3/configure/database`, then `POST` to create it again under
+the same name. Both succeed immediately, which is what lets the two be one
+command rather than two with a wait between them.
+
+The delete is *soft*, which is InfluxDB's own default. What is on disk is
+renamed to `<name>-<timestamp>` and reclaimed by the server in its own
+time, so a reset run by mistake is recoverable from that copy for a while
+— by hand, and by someone who knows what they are doing, but recoverable.
+It also means the disk space does not come back at once. `--hard` asks for
+it now instead, which is the answer when the reason for the reset is a
+full disk.
+
+Either way the catalogue keeps a record of the deletion, which
+`influxdb3 show databases` lists alongside the live ones.
+
+**The admin token is not touched.** A token belongs to the instance rather
+than to a database, so every sensor machine's `.env` keeps working across a
+reset and no client needs visiting. That is what makes this safe to run on
+a stack with clients on it — unlike rotating the token, above.
+
+</details>
+
+<details>
+<summary><b>Why there is no "delete these readings" command</b></summary>
+
+<br>
+
+Because InfluxDB 3 Core cannot do it. Its delete granularity is a
+database, a table, a cache, a trigger or a token — there is no
+`DELETE ... WHERE`, and the query API is read-only. So a bad afternoon, or
+one sensor's history, cannot be removed by predicate the way an SQL
+database would allow.
+
+What the engine offers instead is retention, which is why `--retention`
+sits on `labmon init`: it drops anything older than the period you set,
+automatically and for ever after.
+
+For anything narrower, the shape that works is to export what you want to
+keep, reset, and write it back — [`export.md`](export.md) already selects
+by measurement, sensor and time window. It is not atomic and it is not
+quick, but it is honest about what it is doing.
+
+</details>
+
 ## Two things in the logs that look wrong
 
 <details>

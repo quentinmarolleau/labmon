@@ -76,3 +76,49 @@ def load(directory: Path | None = None) -> Path | None:
         extra={"path": str(path), "applied": len(applied)},
     )
     return path
+
+
+def write(name: str, value: str, directory: Path | None = None) -> Path:
+    """Set `name` to `value` in `./.env`, and return the file written.
+
+    An assignment that is already there is replaced where it stands, so
+    the comment above it — `.env.example` explains every setting — still
+    describes the line beneath it. Anything else in the file is left
+    exactly as it was, because Compose reads this same file and a
+    rewriter that tidied it would be rewriting a deployment's
+    configuration as a side effect of setting one value.
+
+    Created with owner-only permissions when it does not exist. The only
+    value labmon writes here is the admin token, and a token in a
+    world-readable file in a shared checkout is the kind of thing nobody
+    notices until it matters. An existing file's permissions are left
+    alone: whatever the deployment chose is not this function's to
+    override.
+    """
+    path = (directory or Path.cwd()) / ENV_FILE
+    assignment = f"{name}={value}"
+
+    if path.is_file():
+        lines = path.read_text(encoding="utf-8").splitlines()
+        prefix = f"{name}="
+        replaced = False
+        for index, line in enumerate(lines):
+            if line.startswith(prefix):
+                lines[index] = assignment
+                replaced = True
+                break
+        if not replaced:
+            lines.append(assignment)
+        _ = path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    else:
+        # Opened rather than written through `write_text`, so the mode is
+        # applied as the file is created rather than after it has briefly
+        # existed holding a token at the default umask.
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            _ = handle.write(assignment + "\n")
+
+    # The value is deliberately not logged: the one setting labmon writes
+    # here is a credential.
+    logger.info("wrote environment file", extra={"path": str(path), "setting": name})
+    return path

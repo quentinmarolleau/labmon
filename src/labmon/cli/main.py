@@ -13,9 +13,11 @@ separate to keep in step with them.
 import typer
 
 from labmon.cli.commands import export as export_command
+from labmon.cli.commands import init as init_command
 from labmon.cli.commands import mock_sensor as mock_sensor_command
 from labmon.cli.commands import monitor as monitor_command
 from labmon.cli.commands import query as query_command
+from labmon.cli.commands import reset_database as reset_database_command
 from labmon.cli.commands import sensors as sensors_command
 from labmon.cli.commands import serial_sensor as serial_sensor_command
 from labmon.cli.runtime import reporting
@@ -71,6 +73,10 @@ def build_app() -> typer.Typer:
     )
     _ = app.command("export", help=export_command.HELP)(
         reporting(export_command.export)
+    )
+    _ = app.command("init", help=init_command.HELP)(reporting(init_command.init))
+    _ = app.command("reset-database", help=reset_database_command.HELP)(
+        reporting(reset_database_command.reset_database)
     )
     _ = app.command("mock-sensor", help=mock_sensor_command.HELP)(
         reporting(mock_sensor_command.mock_sensor)

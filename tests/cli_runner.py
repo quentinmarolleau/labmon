@@ -32,9 +32,14 @@ class Invocation:
     stderr: str
 
 
-def invoke(app: typer.Typer, args: list[str]) -> Invocation:
-    """Run `app` with `args` and return its unstyled result."""
-    result = _runner.invoke(app, args)
+def invoke(app: typer.Typer, args: list[str], stdin: str | None = None) -> Invocation:
+    """Run `app` with `args` and return its unstyled result.
+
+    `stdin` answers a command that prompts — `reset-database` asks for
+    the database name before destroying it, and a test that could not
+    answer would hang rather than fail.
+    """
+    result = _runner.invoke(app, args, input=stdin)
     return Invocation(
         exit_code=result.exit_code,
         output=_ANSI.sub("", result.output),

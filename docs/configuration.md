@@ -133,6 +133,20 @@ describing hardware. Full description in
 | `--log-level` | `INFO` | `DEBUG` adds a line per reading |
 | `--summary-interval` | `30.0` | Seconds between "still writing" lines; `0` turns them off |
 
+### `labmon init` and `labmon reset-database`
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--retention` | unset | How long to keep readings — `1y`, `90d`, `24h`. Unset keeps them for ever |
+| `--database`, `-d` | `$INFLUXDB_DATABASE`, then `lab` | Which database to create or reset |
+| `--hard` | off | `reset-database` only: reclaim the disk space now, rather than leaving a copy the server clears later |
+| `--yes`, `-y` | off | `reset-database` only: skip the confirmation prompt |
+
+`--retention` is accepted only by `init`, and applies whether the database
+is being created or already exists — it is the one thing a second `init`
+changes. See
+[`deployment.md`](deployment.md#setting-up-and-starting-over).
+
 ### `labmon export` and `labmon query`
 
 Both take the same selection flags. See
