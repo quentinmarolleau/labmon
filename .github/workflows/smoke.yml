@@ -473,3 +473,89 @@ jobs:
       - name: Stop
         if: always()
         run: COMPOSE_PROFILES=demo,logs,tls docker compose down -v
+
+  # The other half of the first-run story. `cold-start` above always has a
+  # route to grafana.com, so the state a bench behind a proxy actually
+  # meets — a plugin Grafana cannot fetch — is the one no runner reaches by
+  # accident. Asked for with an id that does not exist, which fails the
+  # same way an unreachable registry does and needs no network trickery.
+  #
+  # Its own job rather than a step in `cold-start`, because it needs a .env
+  # seeded differently and a stack it is free to fail — and because a job
+  # re-runs on its own where a step in the middle of a twenty-minute
+  # sequence does not, which is why ci.yml keeps `lint`, `typecheck` and
+  # `typos` apart too.
+  #
+  # Shell in the workflow rather than a `scripts/smoke_*.py` beside the
+  # other two: anything under scripts/ sits inside the 100% coverage gate
+  # and would need a test file of its own, which is a lot of apparatus for
+  # three assertions against a running container.
+  plugin-fetch-failure:
+    name: an unfetchable plugin does not stop the stack
+    runs-on: ubuntu-latest
+    # Two containers and no build; the budget is image pulls.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Ask for a plugin that cannot be installed
+        run: |
+          cp .env.example .env
+          sed -i 's/^INFLUXDB_NODE_ID=.*/INFLUXDB_NODE_ID=ci/' .env
+          sed -i 's/^GRAFANA_PLUGINS=.*/GRAFANA_PLUGINS=labmon-no-such-panel@1.0.0/' .env
+          grep '^GRAFANA_PLUGINS=' .env
+
+      # The assertion is the exit status. With GF_PLUGINS_PREINSTALL_SYNC
+      # this step is where the job ends: Grafana exits on the failed
+      # install, `restart: unless-stopped` starts it again, and --wait
+      # times out on a container that is never healthy.
+      - name: The stack still comes up
+        run: COMPOSE_PROFILES='' docker compose up -d --wait
+
+      - name: Grafana answers /api/health
+        run: |
+          code="$(curl -s -o /dev/null -w '%{http_code}' \
+            http://127.0.0.1:3000/api/health)"
+          echo "/api/health: HTTP $code"
+          [ "$code" = "200" ]
+
+      # Without this the job would pass identically against a plugin id
+      # that quietly installed, having proved nothing. The log line is the
+      # evidence that the failure happened and was survived.
+      #
+      # Waited for rather than read once. Grafana queues this install
+      # behind its own core plugins and works through them in an order
+      # that varies run to run, so the healthcheck can go green a minute
+      # before ours is even attempted.
+      - name: The install did fail, and was survived
+        run: |
+          deadline=$((SECONDS + 240))
+          until docker compose logs grafana --no-color \
+                | grep -q 'Failed to install plugin'; do
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "no failed install logged in 240s; either the plugin id is" >&2
+              echo "installable or it was never attempted, and either way this" >&2
+              echo "job proves nothing" >&2
+              exit 1
+            fi
+            sleep 5
+          done
+          docker compose logs grafana --no-color \
+            | grep 'Failed to install plugin' | tail -1
+          # A container that died and came back reads healthy a minute
+          # later, so uptime alone would not catch the crash-loop this job
+          # exists to pin. The restart count does.
+          restarts="$(docker inspect grafana --format '{{.RestartCount}}')"
+          echo "grafana restarts: $restarts"
+          if [ "$restarts" != "0" ]; then
+            echo "grafana restarted $restarts times on a failed plugin fetch" >&2
+            exit 1
+          fi
+
+      - name: Logs
+        if: failure()
+        run: docker compose logs --no-color --tail 200
+
+      - name: Stop
+        if: always()
+        run: docker compose down -v
