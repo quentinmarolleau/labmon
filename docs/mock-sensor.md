@@ -13,20 +13,20 @@ an actual board, see [`serial-sensor.md`](serial-sensor.md).
 ```bash
 # --measurement and --unit are required; the rest default to sensor-id
 # "mock-sensor-1", setpoint 21, one reading every 5s
-uv run labmon mock-sensor --measurement temperature --unit "°C"
+labmon mock-sensor --measurement temperature --unit "°C"
 
 # A second room thermometer, sampled every second
-uv run labmon mock-sensor --sensor-id room-2 --measurement temperature \
+labmon mock-sensor --sensor-id room-2 --measurement temperature \
   --setpoint 22 --interval 1 --unit "°C"
 
 # A cryogenic sensor
-uv run labmon mock-sensor --sensor-id cryo-77k --measurement temperature \
+labmon mock-sensor --sensor-id cryo-77k --measurement temperature \
   --setpoint 77 --noise 0.3 --unit K
 
 # A vacuum gauge. Values spanning orders of magnitude need --log-scale,
 # so noise and mean-reversion scale multiplicatively rather than by a
 # fixed absolute amount.
-uv run labmon mock-sensor --sensor-id chamber-1 --measurement pressure \
+labmon mock-sensor --sensor-id chamber-1 --measurement pressure \
   --setpoint 1e-7 --noise 0.05 --log-scale --unit mbar
 ```
 
@@ -76,7 +76,7 @@ readings are rounded before they are written.
 instrument with a fixed least-significant digit is described:
 
 ```bash
-uv run labmon mock-sensor --sensor-id cryo-77k --measurement temperature \
+labmon mock-sensor --sensor-id cryo-77k --measurement temperature \
   --setpoint 77 --unit K \
   --resolution 0.001        # 76.85006139177405 -> 76.85
 ```
@@ -148,7 +148,7 @@ directory holding it (see [`configuration.md`](configuration.md)):
 > (`http://influxdb:8181`, set in `docker-compose.yml`), while a host-side
 > run needs `http://localhost:8181`. One `.env` value cannot satisfy both,
 > so set it inline for an ad-hoc host-side run:
-> `INFLUXDB_HOST=http://elsewhere:8181 uv run labmon mock-sensor …`
+> `INFLUXDB_HOST=http://elsewhere:8181 labmon mock-sensor …`
 
 ## Checking what was written
 

@@ -1,7 +1,7 @@
 # Example systemd unit for running a sensor directly on a client machine
 # (bare install, no Docker) — see docs/client-setup.md. Copy this file to
-# /etc/systemd/system/labmon-sensor.service, edit the paths/command below
-# for your setup, then:
+# /etc/systemd/system/labmon-sensor.service, edit the user and the
+# command below for your setup, then:
 #
 #   sudo systemctl daemon-reload
 #   sudo systemctl enable --now labmon-sensor.service
@@ -17,9 +17,12 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=pi
-WorkingDirectory=/home/pi/labmon
-EnvironmentFile=/home/pi/labmon/.env
-ExecStart=/home/pi/labmon/.venv/bin/labmon mock-sensor --sensor-id=CHANGE-ME --measurement=CHANGE-ME --unit=CHANGE-ME
+WorkingDirectory=/home/pi
+EnvironmentFile=/home/pi/.config/labmon/sensor.env
+# Where `uv tool install labmon` puts it. A checkout installed with
+# `uv sync` instead has it at <checkout>/.venv/bin/labmon; systemd needs
+# an absolute path either way, since it runs with no PATH of its own.
+ExecStart=/home/pi/.local/bin/labmon mock-sensor --sensor-id=CHANGE-ME --measurement=CHANGE-ME --unit=CHANGE-ME
 Restart=on-failure
 RestartSec=5
 

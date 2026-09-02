@@ -1,11 +1,14 @@
 # Getting the data out
 
-The commands run on your machine, not in a container, so install them
-first:
+The commands run on your machine, not in a container, and need no
+repository — they speak HTTP to the server like any other client:
 
 ```bash
-uv tool install --editable '.[tui]'
+uv tool install 'labmon[tui]'
 ```
+
+From a checkout, `uv tool install --editable '.[tui]'` installs the same
+thing and follows the working tree.
 
 Two of them read recorded readings, and they differ only in what they do
 with the answer:
@@ -94,7 +97,7 @@ CSV, Parquet and Feather need no extra install — `pyarrow` arrives with the
 InfluxDB client. netCDF does:
 
 ```bash
-uv tool install --editable '.[tui,netcdf]'
+uv tool install 'labmon[tui,netcdf]'
 ```
 
 Loading looks like this:
@@ -532,5 +535,5 @@ attaches completions to a command word, and `uv run labmon …` is the
 command `uv`. Installing it as a tool puts it on the PATH:
 
 ```bash
-uv tool install --editable '.[tui]'
+uv tool install 'labmon[tui]'
 ```

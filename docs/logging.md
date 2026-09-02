@@ -141,9 +141,9 @@ different situations, and only the last produces no line at all.
 To see every reading while bringing a board up:
 
 ```bash
-uv run labmon mock-sensor --measurement temperature --unit "°C" \
+labmon mock-sensor --measurement temperature --unit "°C" \
   --log-level debug
-uv run labmon serial-sensor --port … --calibration … --log-level debug
+labmon serial-sensor --port … --calibration … --log-level debug
 ```
 
 ## Where it collects from

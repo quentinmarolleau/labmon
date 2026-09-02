@@ -129,9 +129,10 @@ def monitor(
         raise typer.BadParameter(
             "labmon monitor needs Textual, which is not installed in"
             + f" {sys.executable}."
-            + " Install it with: pip install 'labmon[tui]' — or, for an"
-            + " editable checkout installed as a tool,"
-            + " uv tool install --editable '.[tui]' --force"
+            + " Add the extra the way labmon itself was installed:"
+            + " uv tool install 'labmon[tui]' --force,"
+            + " pip install 'labmon[tui]', or"
+            + " uv tool install --editable '.[tui]' --force from a checkout"
         ) from error
 
     # Checked here rather than left to Textual, which refuses an unknown

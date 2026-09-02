@@ -59,6 +59,12 @@ come pre-configured, so neither needs setting up by hand.
 You need [Docker](https://docs.docker.com/get-started/get-docker/) and
 [uv](https://docs.astral.sh/uv/). Nothing else — no sensors, no hardware.
 
+This sets up the whole stack — database, dashboards, log collection — so it
+starts from the repository. If you already have an InfluxDB 3 instance and
+want only the command line against it, that is `uv tool install
+'labmon[tui]'` and three environment variables; see
+[Reading the data](#reading-the-data).
+
 **1. Get the repository and its settings file.**
 
 ```bash
@@ -72,6 +78,10 @@ cp .env.example .env
 ```bash
 uv tool install --editable '.[tui]'
 ```
+
+`--editable` installs it from the checkout you just made, so `labmon`
+follows the working tree. Elsewhere it comes from PyPI, as
+`uv tool install 'labmon[tui]'`.
 
 **3. Start InfluxDB and set it up.**
 
@@ -205,6 +215,19 @@ Three commands, one job each. `query` and `export` ask the database the
 same question and share the same four selection flags —
 `--measurement`, `--sensor-id`, `--since`, `--until` — so learning one
 teaches the other.
+
+They are a client and nothing more: they speak HTTP to the server, so the
+machine they run on needs no container, no repository and no InfluxDB of
+its own.
+
+```bash
+uv tool install 'labmon[tui]'    # or: pip install 'labmon[tui]'
+```
+
+Then `INFLUXDB_HOST`, `INFLUXDB_DATABASE` and `INFLUXDB3_AUTH_TOKEN`,
+in the environment or in a `.env` beside you —
+[`docs/configuration.md`](docs/configuration.md). The `tui` extra is
+Textual, which only `labmon monitor` needs.
 
 ### `labmon query` — a table, now
 
@@ -482,8 +505,8 @@ a small network:
 | **Client** | A sensor script, on whatever machine the instrument is wired to — a Raspberry Pi, a lab PC | [`docs/client-setup.md`](docs/client-setup.md) |
 | **Viewer** | A browser | nothing |
 
-A client can be a Docker container or a plain Python install; both are
-documented. A board can equally well be plugged straight into the server,
+A client can be a Docker container or a plain `uv tool install labmon`;
+both are documented. A board can equally well be plugged straight into the server,
 in which case there is no client machine at all.
 
 ### Opening the server to the network
