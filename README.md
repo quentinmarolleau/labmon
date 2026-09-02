@@ -3,6 +3,10 @@
 </h1>
 
 <p align="center">
+  <a href="https://git.io/typing-svg"><img alt="Welcome to the labmon project — self-hosted monitoring system" src="https://readme-typing-svg.herokuapp.com?font=Fira+Code&amp;pause=1000&amp;vCenter=true&amp;width=435&amp;lines=Welcome+to+the+labmon+project;Self-hosted+monitoring+system"></a>
+</p>
+
+<p align="center">
   <a href="https://github.com/quentinmarolleau/labmon/actions/workflows/ci.yml"><img alt="Tests" src="https://img.shields.io/github/actions/workflow/status/quentinmarolleau/labmon/ci.yml?branch=main&amp;label=tests&amp;logo=githubactions&amp;logoColor=white"></a>
   <a href="https://codecov.io/gh/quentinmarolleau/labmon"><img alt="Coverage" src="https://img.shields.io/codecov/c/github/quentinmarolleau/labmon?logo=codecov&amp;logoColor=white"></a>
   <a href="https://github.com/DetachHead/basedpyright"><img alt="Checked with basedpyright" src="https://img.shields.io/badge/types-basedpyright-FFD43B?logo=python&amp;logoColor=white"></a>
