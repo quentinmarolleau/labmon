@@ -65,6 +65,14 @@ want only the command line against it, that is `uv tool install
 'labmon[tui]'` and three environment variables; see
 [Reading the data](#reading-the-data).
 
+![The whole Quickstart in one terminal session: cloning the repository, copying the settings file, installing the released command line from PyPI with uv, starting InfluxDB, issuing the admin token and creating the database with labmon init, bringing the rest of the stack up, and querying the readings the demo sensors have already written](docs/assets/images/quickstart.gif)
+
+The recording installs the released `labmon` from PyPI. Step 2 below uses
+`--editable` instead, which is the better default when you already have the
+checkout in front of you; either works.
+
+The four steps below, one at a time.
+
 **1. Get the repository and its settings file.**
 
 ```bash
@@ -237,6 +245,11 @@ labmon query --sensor-id cryo-77k --since 24h --limit 50
 labmon query latest
 ```
 
+![Completing labmon query -- at the prompt, which lists every flag with its help text alongside; then a filtered query printing a table of temperature readings; then labmon query latest --stats, one row per sensor with its average, standard deviation and reading count, the two silent sensors in red](docs/assets/images/query.gif)
+
+The flag list at the start is tab completion, one command to install —
+see [Tab completion](#tab-completion) below.
+
 `latest` answers a different question: what every sensor reads right now,
 and how long ago each last spoke, so a silent one shows up with its last
 reading rather than disappearing.
@@ -283,47 +296,19 @@ into pandas, polars and xarray, and covers reshaping once it is there.
 Useful for the terminal already open next to the experiment, and over a
 bare SSH session where a browser is not an option.
 
-```bash
-labmon monitor
-```
-
-```
-                           labmon · lab @ http://localhost:8181
-╭─────────────┬──────────────┬─────────────────┬──────┬────────┬──────────┬─────────┬─────╮
-│ measurement │ sensor       │           value │ unit │ age    │  average │       σ │   N │
-├─────────────┼──────────────┼─────────────────┼──────┼────────┼──────────┼─────────┼─────┤
-│ frequency   │ wavemeter-1  │ 2.765612936e+14 │ Hz   │ 5m ago │          │         │     │
-├─────────────┼──────────────┼─────────────────┼──────┼────────┼──────────┼─────────┼─────┤
-│ position    │ beam-x       │            10.7 │ µm   │ 1s ago │        6 │      10 │ 298 │
-│             │ beam-y       │           12.94 │ µm   │ 1s ago │       -6 │      11 │ 298 │
-├─────────────┼──────────────┼─────────────────┼──────┼────────┼──────────┼─────────┼─────┤
-│ power       │ laser-1      │           85.63 │ mW   │ 1s ago │     95.1 │     8.8 │ 298 │
-├─────────────┼──────────────┼─────────────────┼──────┼────────┼──────────┼─────────┼─────┤
-│ pressure    │ chamber-1    │     1.35284e-07 │ mbar │ 4s ago │ 1.50e-07 │ 1.0e-08 │  60 │
-│             │ pirani-1     │        1.59e-09 │ mbar │ 1s ago │  4.6e-08 │ 3.8e-08 │ 298 │
-├─────────────┼──────────────┼─────────────────┼──────┼────────┼──────────┼─────────┼─────┤
-│ temperature │ cryo-4k      │           3.865 │ K    │ 4s ago │    3.793 │   0.093 │  60 │
-│             │ cryo-77k     │          77.533 │ K    │ 4s ago │    77.23 │    0.44 │  60 │
-│             │ cryo-diode   │           34.48 │ K    │ 1s ago │       30 │      11 │ 298 │
-│             │ room-1       │          21.075 │ °C   │ 4s ago │    20.70 │    0.24 │  60 │
-│             │ room-2       │           22.07 │ °C   │ 5m ago │          │         │     │
-├─────────────┼──────────────┼─────────────────┼──────┼────────┼──────────┼─────────┼─────┤
-│ voltage     │ bias-monitor │           -2.79 │ V    │ 1s ago │      0.4 │     2.2 │ 298 │
-╰─────────────┴──────────────┴─────────────────┴──────┴────────┴──────────┴─────────┴─────╯
-                   12 sensors, 2 quiet · window 5m · every 2s · 08:29:01
-```
+![The fallback table, refreshing in place: every sensor the database has, grouped by measurement, with value, unit, age, average, standard deviation and reading count; two sensors that stopped reporting are marked in red](docs/assets/images/monitor-table.gif)
 
 It redraws in place, colours a sensor amber then red as it goes quiet, and
 keeps the last good table on screen when the database is briefly
 unreachable.
 
-Name the handful of things you actually care about and it becomes a grid
-of tiles instead — value large enough to read across the room, unit, age,
-and a colour change when it leaves the range you set:
+Name the handful of things you actually care about — in a layout passed
+with `--config`, or under `[monitor]` in the configuration file when it
+should apply to every run — and it becomes a grid of tiles instead: the
+value large enough to read across the room, the unit, the age, and a
+colour change when a reading leaves the range you set:
 
-```bash
-labmon monitor --config monitor.example.toml
-```
+![The same panel as a grid of nine tiles: a laser diode tile framed in red because its temperature is over the threshold, and a tile for a sensor that stopped reporting a day ago, dimmed and marked, still showing its last reading](docs/assets/images/monitor-tiles.gif)
 
 ### Tab completion
 
