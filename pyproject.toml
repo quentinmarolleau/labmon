@@ -2,8 +2,39 @@
 name = "labmon"
 version = "0.2.0b1"
 description = "Flexible laboratory monitoring system"
-readme = "README.md"
+# Not README.md. That file is written for GitHub — a header image, four
+# terminal recordings, and two dozen links relative to the repository
+# root, every one of which 404s on a PyPI project page, which has no
+# repository behind it to resolve them against.
+readme = "README.pypi.md"
 requires-python = ">=3.12"
+# PEP 639 spelling: an SPDX expression plus the files it refers to. The
+# `License :: OSI Approved ::` classifier is the older way of saying the
+# same thing and is deprecated; the two must not both appear, so the
+# classifier list below deliberately has no license entry.
+license = "GPL-3.0-only"
+license-files = ["LICENSE"]
+authors = [{ name = "Quentin Marolleau", email = "q.marolleau-dev@pm.me" }]
+keywords = [
+    "laboratory",
+    "monitoring",
+    "time-series",
+    "influxdb",
+    "sensors",
+    "physics",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Science/Research",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering",
+    "Topic :: System :: Monitoring",
+    "Typing :: Typed",
+]
 dependencies = [
     "asteval>=1.0.9",
     "influxdb3-python>=0.20.0",
@@ -12,6 +43,12 @@ dependencies = [
     "python-dotenv>=1.2.3",
     "typer>=0.27.1",
 ]
+
+[project.urls]
+Homepage = "https://github.com/quentinmarolleau/labmon"
+Documentation = "https://github.com/quentinmarolleau/labmon/tree/main/docs"
+Changelog = "https://github.com/quentinmarolleau/labmon/blob/main/CHANGELOG.md"
+Issues = "https://github.com/quentinmarolleau/labmon/issues"
 
 [dependency-groups]
 dev = [
@@ -67,8 +104,38 @@ tui = [
 ]
 
 [build-system]
-requires = ["hatchling"]
+# 1.27 is where PEP 639 landed; an older hatchling rejects the `license`
+# expression and `license-files` above.
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+# Hatchling infers this from the project name under a src layout. Spelled
+# out because the inference is silent when it goes wrong, and because
+# py.typed is only picked up if the package directory is the unit being
+# copied.
+packages = ["src/labmon"]
+
+[tool.hatch.build.targets.sdist]
+# Without an include list hatchling ships everything git does not ignore,
+# which measured 1.9 MB: docs/ and its screenshots and recordings, the
+# firmware tree, the type stubs, and whatever a manual `labmon export`
+# had last left in the working tree.
+#
+# tests/ is left out on purpose rather than by omission. The suite checks
+# the repository, not the package: test_dashboard.py reads grafana/,
+# test_alloy_config.py reads alloy/, test_calibration.py reads demo/ and
+# calibration.example.toml. Shipping it would mean shipping those trees
+# too, which is the whole repository again by a longer route.
+#
+# README.md is not here either. It is the GitHub page, it links to images
+# and docs that are not in the sdist, and README.pypi.md reaches it by
+# absolute URL rather than by path.
+include = [
+    "/src",
+    "/README.pypi.md",
+    "/CHANGELOG.md",
+]
 
 [tool.ruff]
 # Matches requires-python above. Without it ruff infers a target from
