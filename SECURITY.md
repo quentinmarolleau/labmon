@@ -24,15 +24,15 @@ credit in the release notes, and say how you want to be named.
 
 ## Supported versions
 
-labmon is pre-1.0 and there are no released tags yet, so there is exactly
-one supported version: **the latest commit on `main`**. Fixes land there.
-There are no backports and no security support for a checkout held at an
-older commit.
+labmon is pre-1.0, so there is one supported version: **[the latest
+release][latest]**, along with the `main` branch it was cut from. Fixes
+land on `main` and reach users in the next release.
 
-That changes when the [v0.2.0-beta milestone][milestone] ships, and this
-section will name the supported tags then.
+There are no backports. A checkout held at an older commit, and any
+earlier tag or PyPI release, have no security support — including
+v0.2.0-beta.1.
 
-[milestone]: https://github.com/quentinmarolleau/labmon/milestone/1
+[latest]: https://github.com/quentinmarolleau/labmon/releases/latest
 
 ## Threat model
 
