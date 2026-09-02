@@ -152,7 +152,7 @@ Three HTTP calls to InfluxDB, and one edit to a file:
 
 Running it again is safe, and does almost nothing: the server answers
 `409` to a second token and to a second database of the same name, and
-`init` reports both rather than failing. The one thing a re-run *will*
+`init` reports both rather than failing. The one thing a re-run _will_
 change is the retention, if you pass `--retention` — that is a property of
 the database rather than of its creation, so it stays adjustable.
 
@@ -208,7 +208,7 @@ The `demo` profile is on by default, and it starts two different things:
   sensors, a vacuum gauge and a wavemeter — inventing readings already in
   physical units. [`docs/mock-sensor.md`](docs/mock-sensor.md) covers
   adding more or changing what they simulate.
-- **Six calibrated channels** running the *real* acquisition path: raw
+- **Six calibrated channels** running the _real_ acquisition path: raw
   ADC counts stream over TCP in the firmware's wire format, and
   `serial-sensor` converts them exactly as it would for a board on a
   serial port. Nothing is mocked but the board itself —
@@ -354,21 +354,21 @@ whole room can see, and for alerting.
 
 ![The Lab Overview dashboard: a row of current-value tiles for cold finger, chamber pressure, laser power and bias rail; a panel plotting a calibrated temperature against the raw ADC voltage it came from; cryogenic and room temperature, vacuum and laser power time series; a needle dial for laser detuning; an XY plot of beam position; and a table listing every sensor with its unit, raw input, calibration id and whether it is simulated or calibrated](docs/assets/images/lab-overview-screenshot.png)
 
-*The **Lab Overview** dashboard, provisioned out of the box and shown here
-against the demo stack.*
+_The **Lab Overview** dashboard, provisioned out of the box and shown here
+against the demo stack._
 
 The frontend **is** Grafana, not a wrapper around it, so everything
 Grafana does is available immediately — labmon supplies the data and a
 starting dashboard.
 
-| What | Use in a lab | Docs |
-|---|---|---|
-| **Panels** | Time series, gauges, histograms, heatmaps, state timelines — built by clicking, not by writing plotting code | [Panels](https://grafana.com/docs/grafana/latest/panels-visualizations/) |
-| **Explore** | Ad-hoc digging without touching a saved dashboard | [Explore](https://grafana.com/docs/grafana/latest/explore/) |
-| **Alerting** | Email, Slack or Telegram when a reading leaves its range, or when a sensor goes silent | [Alerting](https://grafana.com/docs/grafana/latest/alerting/) |
-| **Snapshots** | Freeze a dashboard and send the link — for a logbook entry or a group meeting | [Sharing](https://grafana.com/docs/grafana/latest/dashboards/share-dashboards-panels/) |
-| **Annotations** | Mark the moment you opened a valve, so the event sits on the plot next to its consequence | [Annotations](https://grafana.com/docs/grafana/latest/dashboards/build-dashboards/annotate-visualizations/) |
-| **Variables** | One dashboard with a "which cryostat?" dropdown, instead of one per instrument | [Variables](https://grafana.com/docs/grafana/latest/dashboards/variables/) |
+| What            | Use in a lab                                                                                                 | Docs                                                                                                        |
+| --------------- | ------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| **Panels**      | Time series, gauges, histograms, heatmaps, state timelines — built by clicking, not by writing plotting code | [Panels](https://grafana.com/docs/grafana/latest/panels-visualizations/)                                    |
+| **Explore**     | Ad-hoc digging without touching a saved dashboard                                                            | [Explore](https://grafana.com/docs/grafana/latest/explore/)                                                 |
+| **Alerting**    | Email, Slack or Telegram when a reading leaves its range, or when a sensor goes silent                       | [Alerting](https://grafana.com/docs/grafana/latest/alerting/)                                               |
+| **Snapshots**   | Freeze a dashboard and send the link — for a logbook entry or a group meeting                                | [Sharing](https://grafana.com/docs/grafana/latest/dashboards/share-dashboards-panels/)                      |
+| **Annotations** | Mark the moment you opened a valve, so the event sits on the plot next to its consequence                    | [Annotations](https://grafana.com/docs/grafana/latest/dashboards/build-dashboards/annotate-visualizations/) |
+| **Variables**   | One dashboard with a "which cryostat?" dropdown, instead of one per instrument                               | [Variables](https://grafana.com/docs/grafana/latest/dashboards/variables/)                                  |
 
 A dashboard you build in the browser can be exported as JSON and dropped
 into `grafana/dashboards/`, which puts it under version control and brings
@@ -393,7 +393,7 @@ reference board — plugged into a USB port.
                                           what a count means, per channel
 ```
 
-The board only ever sends **raw ADC counts**. What a count *means* lives on
+The board only ever sends **raw ADC counts**. What a count _means_ lives on
 the computer, in a small text file, so recalibrating never means reflashing
 the board:
 
@@ -406,13 +406,13 @@ conversion_factor = "42.5 kelvin / volt"
 
 Real sensors are rarely that obliging, so there are five conversion modes:
 
-| Mode | For a response that is | You provide |
-|---|---|---|
-| `linear` | proportional | one dimensioned factor |
-| `affine` | a straight line with an offset | factor and offset |
-| `spline` | smoothly curved | measured points; a cubic is fitted |
-| `piecewise_linear` | curved, with few points | measured points; straight segments between |
-| `expression` | a known formula | e.g. `10**(1.667*v - 11.33)` |
+| Mode               | For a response that is         | You provide                                |
+| ------------------ | ------------------------------ | ------------------------------------------ |
+| `linear`           | proportional                   | one dimensioned factor                     |
+| `affine`           | a straight line with an offset | factor and offset                          |
+| `spline`           | smoothly curved                | measured points; a cubic is fitted         |
+| `piecewise_linear` | curved, with few points        | measured points; straight segments between |
+| `expression`       | a known formula                | e.g. `10**(1.667*v - 11.33)`               |
 
 Every conversion is checked and trial-applied when the file loads, so a
 typo or a dimensional mistake fails immediately instead of recording wrong
@@ -505,11 +505,11 @@ a small network:
                                               └────────────────────────────┘
 ```
 
-| Role | Runs | Setup |
-|---|---|---|
-| **Server** | InfluxDB + Grafana, plus Loki and Alloy with the `logs` profile | [`docs/deployment.md`](docs/deployment.md) |
+| Role       | Runs                                                                                       | Setup                                          |
+| ---------- | ------------------------------------------------------------------------------------------ | ---------------------------------------------- |
+| **Server** | InfluxDB + Grafana, plus Loki and Alloy with the `logs` profile                            | [`docs/deployment.md`](docs/deployment.md)     |
 | **Client** | A sensor script, on whatever machine the instrument is wired to — a Raspberry Pi, a lab PC | [`docs/client-setup.md`](docs/client-setup.md) |
-| **Viewer** | A browser | nothing |
+| **Viewer** | A browser                                                                                  | nothing                                        |
 
 A client can be a Docker container or a plain `uv tool install labmon`;
 both are documented. A board can equally well be plugged straight into the server,
@@ -678,7 +678,7 @@ Planned work lives in
 [issues](https://github.com/quentinmarolleau/labmon/issues), grouped into
 [milestones](https://github.com/quentinmarolleau/labmon/milestones). Every
 open issue carries a decision: `validated` is agreed and scheduled,
-`waiting-for-need` is understood and wanted *if* a concrete case appears.
+`waiting-for-need` is understood and wanted _if_ a concrete case appears.
 
 [`CHANGELOG.md`](CHANGELOG.md) records what changed in each release.
 
