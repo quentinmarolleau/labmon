@@ -65,15 +65,11 @@ You need [Docker](https://docs.docker.com/get-started/get-docker/) and
 
 This sets up the whole stack — database, dashboards, log collection — so it
 starts from the repository. If you already have an InfluxDB 3 instance and
-want only the command line against it, that is `uv tool install
-'labmon[tui]'` and three environment variables; see
+want only the command line against it, no clone is needed at all — that is
+the same `uv tool install` below plus three environment variables; see
 [Reading the data](#reading-the-data).
 
 ![The whole Quickstart in one terminal session: cloning the repository, copying the settings file, installing the released command line from PyPI with uv, starting InfluxDB, issuing the admin token and creating the database with labmon init, bringing the rest of the stack up, and querying the readings the demo sensors have already written](docs/assets/images/quickstart.gif)
-
-The recording installs the released `labmon` from PyPI. Step 2 below uses
-`--editable` instead, which is the better default when you already have the
-checkout in front of you; either works.
 
 The four steps below, one at a time.
 
@@ -85,15 +81,37 @@ cd labmon
 cp .env.example .env
 ```
 
+The command line itself comes from PyPI in the next step — the clone is for
+everything around it: the Compose file, the provisioned Grafana dashboards,
+the Alloy configuration and `.env.example`. That is what makes this a
+running stack rather than a client against somebody else's. It is also
+where a real deployment starts, since those files are meant to be edited
+rather than written from scratch.
+
 **2. Install the command line.**
+
+```bash
+uv tool install 'labmon[tui]'
+```
+
+The released package from PyPI, independent of the clone above.
+
+<details>
+<summary><b>Running the checkout instead</b></summary>
+
+<br>
+
+To edit labmon's own source, install it from the directory you just cloned
+and `labmon` follows the working tree:
 
 ```bash
 uv tool install --editable '.[tui]'
 ```
 
-`--editable` installs it from the checkout you just made, so `labmon`
-follows the working tree. Elsewhere it comes from PyPI, as
-`uv tool install 'labmon[tui]'`.
+Add `--force` to replace an install you already have. The two are the same
+package, so only one of them can own the `labmon` on your PATH.
+
+</details>
 
 **3. Start InfluxDB and set it up.**
 
