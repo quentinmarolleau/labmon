@@ -17,13 +17,13 @@ a `Categorical` in polars rather than as an object column.
 import json
 from collections.abc import Sequence
 from datetime import UTC, datetime
-from importlib import metadata
 from typing import cast
 
 import pyarrow as pa
 import pyarrow.compute as pc
 
 from labmon.export.window import Window
+from labmon.version import installed_version
 
 # Column order every export uses, whichever format it lands in. Time
 # first, then what the reading is of, then the number, then provenance.
@@ -53,13 +53,6 @@ TIME_TYPE: pa.DataType = pa.timestamp("ms", tz="UTC")
 _LABEL_TYPE: pa.DataType = pa.dictionary(pa.int32(), pa.string())
 
 _METADATA_KEY = b"labmon"
-
-
-def _labmon_version() -> str:
-    try:
-        return metadata.version("labmon")
-    except metadata.PackageNotFoundError:  # pragma: no cover - installed in CI
-        return "unknown"
 
 
 def _utc_time_column(column: pa.ChunkedArray) -> pa.ChunkedArray:
@@ -217,7 +210,7 @@ def attach_metadata(table: pa.Table, window: Window) -> pa.Table:
     """
     units = units_by_sensor(table)
     manifest = {
-        "labmon_version": _labmon_version(),
+        "labmon_version": installed_version(),
         "exported_at": datetime.now(UTC).isoformat(),
         "window_since": window.since.isoformat(),
         "window_until": window.until.isoformat(),
