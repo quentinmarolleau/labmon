@@ -18,9 +18,12 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=pi
-WorkingDirectory=/home/pi/labmon
-EnvironmentFile=/home/pi/labmon/.env
-ExecStart=/home/pi/labmon/.venv/bin/labmon serial-sensor --port /dev/labmon-due --calibration /home/pi/labmon/calibration.toml
+WorkingDirectory=/home/pi
+EnvironmentFile=/home/pi/.config/labmon/sensor.env
+# Where `uv tool install labmon` puts it. A checkout installed with
+# `uv sync` instead has it at <checkout>/.venv/bin/labmon; systemd needs
+# an absolute path either way, since it runs with no PATH of its own.
+ExecStart=/home/pi/.local/bin/labmon serial-sensor --port /dev/labmon-due --calibration /home/pi/.config/labmon/calibration.toml
 Restart=on-failure
 RestartSec=5
 

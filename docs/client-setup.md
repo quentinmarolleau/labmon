@@ -72,22 +72,35 @@ Better on a resource-constrained device, or where a container runtime is
 unwelcome.
 
 ```bash
-git clone https://github.com/quentinmarolleau/labmon.git && cd labmon
-uv sync --no-dev
-cp .env.client.example .env      # fill in INFLUXDB_HOST and INFLUXDB3_AUTH_TOKEN
-set -a && source .env && set +a
-uv run labmon mock-sensor --sensor-id=CHANGE-ME --measurement=CHANGE-ME --unit=CHANGE-ME
+uv tool install labmon
+mkdir -p ~/.config/labmon
+curl -o ~/.config/labmon/sensor.env \
+  https://raw.githubusercontent.com/quentinmarolleau/labmon/main/.env.client.example
+# fill in INFLUXDB_HOST and INFLUXDB3_AUTH_TOKEN
+set -a && source ~/.config/labmon/sensor.env && set +a
+labmon mock-sensor --sensor-id=CHANGE-ME --measurement=CHANGE-ME --unit=CHANGE-ME
 ```
 
+No repository. The sensor commands are a client, and `uv tool install`
+puts `labmon` on the PATH. Serial support is part of the base install;
+add an extra only for what the machine actually does —
+`labmon[spline]` for spline calibration, `labmon[tui]` to run
+`labmon monitor` on the same box.
+
 To survive a reboot, use the example unit at
-[`deploy/labmon-sensor.service`](../deploy/labmon-sensor.service) — edit the
-paths, `User` and `ExecStart` for your setup:
+[`deploy/labmon-sensor.service`](../deploy/labmon-sensor.service) — edit
+`User` and `ExecStart` for your setup:
 
 ```bash
-sudo cp deploy/labmon-sensor.service /etc/systemd/system/
+curl -O https://raw.githubusercontent.com/quentinmarolleau/labmon/main/deploy/labmon-sensor.service
+sudo cp labmon-sensor.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now labmon-sensor.service
 ```
+
+The unit reads `~/.config/labmon/sensor.env` and runs
+`~/.local/bin/labmon`, which is where `uv tool install` puts it. systemd
+starts with no PATH of its own, so that has to be an absolute path.
 
 For a second sensor on the same device, copy the unit under a different
 name with its own `ExecStart`.
