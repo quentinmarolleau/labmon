@@ -37,6 +37,7 @@ body:
         - Everything on one machine (the quickstart)
         - Server on one machine, sensors on another
         - Bare install, no Docker
+        - Command line only, installed from PyPI
         - Other
     validations:
       required: true
@@ -83,8 +84,9 @@ body:
     attributes:
       label: Versions
       description: >-
-        `docker compose version`, the image tags from your `docker compose ps`,
-        and your OS. Add `python --version` for a bare install.
+        `labmon --version` and your OS, always. Add `docker compose version`
+        and the image tags from your `docker compose ps` if the stack is
+        involved, and `python --version` for a bare install.
       render: shell
     validations:
       required: true
