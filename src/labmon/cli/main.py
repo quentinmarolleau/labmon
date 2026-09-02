@@ -4,11 +4,14 @@
     labmon export --measurement temperature --since 5m --format feather -o test
     labmon mock-sensor --sensor-id room-1 --setpoint 21 --unit °C
     labmon --install-completion fish
+    labmon --version
 
 Built on Typer: the help text, the choice validation and the shell
 completion all come from the command signatures, so there is nothing
 separate to keep in step with them.
 """
+
+from typing import Annotated
 
 import typer
 
@@ -21,6 +24,7 @@ from labmon.cli.commands import reset_database as reset_database_command
 from labmon.cli.commands import sensors as sensors_command
 from labmon.cli.commands import serial_sensor as serial_sensor_command
 from labmon.cli.runtime import reporting
+from labmon.version import installed_version
 
 HELP = (
     "[bold]labmon[/bold] — laboratory monitoring."
@@ -33,6 +37,33 @@ HELP = (
     + "Run [bold]labmon --install-completion[/bold] once to get tab"
     + " completion, which shows each flag's help text as you type it."
 )
+
+
+def _report_version(requested: bool) -> None:
+    """Print the installed version and stop.
+
+    Eager, so `labmon --version` answers without Typer first deciding
+    that no subcommand was given and printing the help instead.
+    """
+    if requested:
+        typer.echo(f"labmon {installed_version()}")
+        raise typer.Exit
+
+
+def _root(
+    _version: Annotated[
+        bool,
+        typer.Option(
+            "--version",
+            callback=_report_version,
+            is_eager=True,
+            help="Show the installed version and exit.",
+        ),
+    ] = False,
+) -> None:
+    """Carry the options that belong to `labmon` itself rather than to a
+    subcommand. Typer has one place to put those, and this is it.
+    """
 
 
 def build_app() -> typer.Typer:
@@ -84,6 +115,7 @@ def build_app() -> typer.Typer:
     _ = app.command("serial-sensor", help=serial_sensor_command.HELP)(
         reporting(serial_sensor_command.serial_sensor)
     )
+    _ = app.callback()(_root)
     return app
 
 

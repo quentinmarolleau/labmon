@@ -23,8 +23,10 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 RUN uv sync --locked --no-install-project --no-dev
 
-# hatchling's build needs README.md present (pyproject.toml: readme = "README.md").
-COPY README.md ./
+# hatchling's build reads whatever file `readme` names in pyproject.toml,
+# and fails if it is not there. That is README.pypi.md, not README.md —
+# the long README is written for GitHub and does not render on an index.
+COPY README.pypi.md ./
 COPY src ./src
 RUN uv sync --locked --no-dev
 
