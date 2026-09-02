@@ -1,4 +1,4 @@
-# labmon v0.2.0-beta.1
+# labmon v0.3.0
 
 labmon records any quantity of interest — e.g. cryostat temperature,
 chamber pressure, laser power, a magnet's current etc. — into a time-series
@@ -7,173 +7,213 @@ browser. It is built from [InfluxDB 3](https://docs.influxdata.com/influxdb3/cor
 and [Grafana](https://grafana.com/docs/grafana/latest/), wired together and
 pre-configured so neither has to be set up by hand.
 
-This is the first beta: the feature set is settled, the interfaces may still
-move, and everything below runs today.
+The beta could record and display. This release adds the third thing a lab
+actually does with its measurements: read them back at a prompt. It also
+stops requiring a clone to do it.
 
 ## Trying it
 
-Two commands and a browser tab, no hardware:
+Unchanged from the beta — two commands and a browser tab, no hardware:
 
 ```bash
 cp .env.example .env
 docker compose up -d --wait
 ```
 
-Nine channels start writing immediately. Five are simulated. The other four
-run the *real* acquisition path — raw ADC counts arriving in the reference
-firmware's wire format, converted exactly as they would be from a board on a
-serial port. Only the board itself is simulated, so the demo exercises the
-code that matters rather than a mock of it.
+If you already have an InfluxDB 3 instance and want only the command line
+against it, that is now one line and no repository:
 
-## What is in the beta
+```bash
+uv tool install 'labmon[tui]'
+```
 
-### Recording
+## Installing it
 
-- **Three ways in.** A board over serial (raw ADC counts, converted on the
-  computer); an instrument with its own SDK, REST endpoint or CLI, through a
-  copyable template; and simulated sensors for trying things out.
-  [`docs/serial-sensor.md`](docs/serial-sensor.md) ·
-  [`docs/custom-sensor.md`](docs/custom-sensor.md) ·
-  [`docs/mock-sensor.md`](docs/mock-sensor.md) —
-  [#23](https://github.com/quentinmarolleau/labmon/pull/23), [#38](https://github.com/quentinmarolleau/labmon/pull/38), [#11](https://github.com/quentinmarolleau/labmon/pull/11)
-- **Calibration in a small text file**, with five conversion modes — linear,
-  affine, spline, piecewise-linear, and arbitrary expressions.
-  [`docs/serial-sensor.md`](docs/serial-sensor.md) ·
-  [`calibration.example.toml`](calibration.example.toml) — [#21](https://github.com/quentinmarolleau/labmon/pull/21)
-- **Units checked by dimensional analysis.** Declare a channel as
-  `42.5 kelvin / volt` and the result is derived in kelvin. Adding millibars
-  to kelvin fails when the file loads, not after a week of recording.
-  [`docs/serial-sensor.md`](docs/serial-sensor.md) — [#21](https://github.com/quentinmarolleau/labmon/pull/21)
-- **Every conversion trial-applied at load time**, so a typo or a dimensional
-  mistake fails immediately with a clear message rather than silently
-  recording wrong numbers.
-  [`docs/serial-sensor.md`](docs/serial-sensor.md) — [#21](https://github.com/quentinmarolleau/labmon/pull/21), [#69](https://github.com/quentinmarolleau/labmon/pull/69)
-- **Recording stops while an instrument is off**, rather than filling the
-  database with a flat line that means nothing.
-  [`docs/serial-sensor.md`](docs/serial-sensor.md) ·
-  [`docs/configuration.md`](docs/configuration.md) — [#76](https://github.com/quentinmarolleau/labmon/pull/76)
+**labmon is on PyPI.** `uv tool install labmon`, or `pip install labmon`.
+The commands are a client — they speak HTTP to the server, read nothing
+from the repository, and work on a machine with neither a container nor a
+copy of the source. A sensor host used to need a full development checkout
+to run one command; it now needs the package and three environment
+variables.
+[`docs/client-setup.md`](docs/client-setup.md) —
+[#169](https://github.com/quentinmarolleau/labmon/issues/169)
 
-### Not losing data
+The stack still comes from the repository. A compose file, Grafana's
+provisioning and the demo feeder are not things an installer can usefully
+deliver, so `git clone` remains the answer for anyone standing the server
+up.
 
-- **A queue-backed writer** between the sampling loop and the database. A
-  single InfluxDB write costs about a second, because the database waits until
-  the data is on disk; batching turns that into a millisecond per point, and
-  the queue means the sampling loop never waits on the network at all.
-  [`docs/latency.md`](docs/latency.md#why-the-influxdb-write-costs-a-second)
-- **Outages are ridden out.** Writes are retried with backoff while sensors
-  keep sampling, and the backlog drains afterwards.
-  [`docs/latency.md`](docs/latency.md) — [#16](https://github.com/quentinmarolleau/labmon/pull/16)
-- **Load is shed, not blocked.** If an outage outlasts the queue, the oldest
-  point is dropped so acquisition continues — and the drops are counted,
-  warned about once, and reported every summary window, so it is never silent.
-  [`docs/latency.md`](docs/latency.md) ·
-  [`docs/configuration.md`](docs/configuration.md) — [#142](https://github.com/quentinmarolleau/labmon/pull/142)
-- **A channel that goes quiet is distinguishable from one reading zero.**
-  Every sensor appears in the periodic summary even when it wrote nothing,
-  which is the case most worth seeing: the trace is flat either way.
-  [`docs/logging.md`](docs/logging.md) — [#121](https://github.com/quentinmarolleau/labmon/pull/121), [#99](https://github.com/quentinmarolleau/labmon/pull/99)
+Extras split the Raspberry Pi from the analysis laptop: `labmon[tui]` for
+the terminal panel, `labmon[netcdf]` for netCDF export, `labmon[spline]`
+for spline calibration. Serial support is in the base install.
 
-### Seeing it
+## Reading the data
 
-- **Two provisioned dashboards** — Lab Overview and Logs — restored
-  automatically on a fresh install rather than living in one browser's memory.
-  [`docs/grafana.md`](docs/grafana.md) — [#13](https://github.com/quentinmarolleau/labmon/pull/13), [#30](https://github.com/quentinmarolleau/labmon/pull/30), [#72](https://github.com/quentinmarolleau/labmon/pull/72)
-- **Grafana itself is the front end**, so alerting, Explore, annotations,
-  snapshots and variables are available immediately.
-  [`docs/grafana.md`](docs/grafana.md)
-- **Dashboards built in the browser can be committed** to
-  `grafana/dashboards/` and come back on every install.
-  [`docs/grafana.md`](docs/grafana.md) — [#6](https://github.com/quentinmarolleau/labmon/pull/6)
+- **`labmon query`** prints readings as a table, and **`labmon export`**
+  writes the same selection to CSV, Parquet, Feather or netCDF. They share
+  one set of selection flags — `--measurement`, `--sensor-id`, `--since`,
+  `--until` — so learning one teaches the other, and the unit travels with
+  the readings in every format.
+  [`docs/export.md`](docs/export.md) ·
+  [`docs/loading-exports.md`](docs/loading-exports.md) —
+  [#154](https://github.com/quentinmarolleau/labmon/pull/154)
+- **`labmon query latest`** answers a different question: what every sensor
+  reads right now, and how long ago each last spoke, so a silent one shows
+  up with its last reading rather than disappearing. `--stats` adds the
+  window's average, deviation and count, the average rounded against the
+  deviation.
+  [#164](https://github.com/quentinmarolleau/labmon/pull/164),
+  [#171](https://github.com/quentinmarolleau/labmon/pull/171)
+- **`labmon sensors`** lists every sensor labmon has seen, cached between
+  runs, so one that has stopped reporting is still listed.
+  [#165](https://github.com/quentinmarolleau/labmon/pull/165)
+- **`labmon monitor`** redraws in place, for the terminal already open
+  beside the experiment and for a bare SSH session where a browser is not
+  an option. Name the handful of things you care about and it becomes a
+  grid of tiles — the value large enough to read across the room, with a
+  colour change when a reading leaves the range you set. Name nothing and
+  it draws a table of everything.
+  [`docs/monitor.md`](docs/monitor.md) —
+  [#172](https://github.com/quentinmarolleau/labmon/pull/172),
+  [#177](https://github.com/quentinmarolleau/labmon/pull/177)
+- **Tab completion** for bash, zsh, fish and powershell, through
+  `labmon --install-completion`. Generated from the command signatures, so
+  a new flag is completable with no second step.
+  [#154](https://github.com/quentinmarolleau/labmon/pull/154)
 
-### Logs
+## Setting the database up
 
-- **Log aggregation behind a profile.** Loki stores lines; Alloy collects them
-  from every container and from systemd units on the host.
-  [`docs/logging.md`](docs/logging.md) — [#39](https://github.com/quentinmarolleau/labmon/pull/39), [#65](https://github.com/quentinmarolleau/labmon/pull/65)
-- **Lines are labelled by the reading they describe**, not the container that
-  emitted them, so `{sensor_id="cryo-77k"}` finds a sensor's logs wherever it
-  runs — including one process reporting several channels.
-  [`docs/logging.md`](docs/logging.md#the-sensor_id-label) — [#133](https://github.com/quentinmarolleau/labmon/pull/133)
-- **Client machines ship to the same store**, over an authenticated endpoint,
-  so one query answers "why did this stop" for the whole lab.
-  [`docs/logging.md`](docs/logging.md#logs-from-other-machines) ·
-  [`docs/client-setup.md`](docs/client-setup.md) — [#134](https://github.com/quentinmarolleau/labmon/pull/134)
-- **Structured, severity-tagged output** in logfmt, queryable by field.
-  [`docs/logging.md`](docs/logging.md#what-a-sensor-line-looks-like) —
-  [#75](https://github.com/quentinmarolleau/labmon/pull/75), [#132](https://github.com/quentinmarolleau/labmon/pull/132)
+- **`labmon init`** asks the server for its admin token, writes it into
+  `.env`, and creates the database. It replaces exec'ing into the container
+  and copying the token out of the terminal, and works from a machine that
+  has no container to exec into. `--retention` sets how long readings are
+  kept, which can only be decided when a database is created.
+  [`docs/deployment.md`](docs/deployment.md#setting-up-and-starting-over)
+- **`labmon reset-database`** empties the database and creates it again,
+  keeping its retention. The admin token is untouched, so clients keep
+  writing. `docker compose down -v` does not do this: InfluxDB's data is a
+  bind mount rather than a named volume.
+  [`docs/deployment.md`](docs/deployment.md#setting-up-and-starting-over)
 
-### Running it across a lab
+There is no delete-by-time and no delete-by-sensor, and there will not be
+under the current schema. InfluxDB 3 Core's query API is read-only, and
+what it can drop is a whole database or a whole table — nothing finer.
 
-- **Server, clients and viewers.** Database and dashboards on one always-on
-  machine; sensor scripts wherever the instrument is wired; a browser for
-  everyone else.
-  [`docs/deployment.md`](docs/deployment.md) ·
-  [`docs/client-setup.md`](docs/client-setup.md) — [#17](https://github.com/quentinmarolleau/labmon/pull/17), [#18](https://github.com/quentinmarolleau/labmon/pull/18)
-- **Clients run as containers or as a plain Python install**, both documented,
-  with systemd units for machines that cannot run containers.
-  [`docs/client-setup.md`](docs/client-setup.md) · [`deploy/`](deploy) —
-  [#18](https://github.com/quentinmarolleau/labmon/pull/18), [#65](https://github.com/quentinmarolleau/labmon/pull/65)
-- **TLS behind a profile** for networks where the trusted-LAN assumption does
-  not hold: a reverse proxy with its own CA in front of InfluxDB, Grafana and
-  Loki's push endpoint, without disturbing clients that have not moved yet.
-  [`docs/deployment.md`](docs/deployment.md#encrypting-client-and-viewer-traffic)
-  — [#73](https://github.com/quentinmarolleau/labmon/pull/73), [#134](https://github.com/quentinmarolleau/labmon/pull/134)
+## Recording
 
-## Security posture
+- **A per-user configuration file** at `$XDG_CONFIG_HOME/labmon/labmon.toml`
+  carries the display timezone and the `[monitor]` section the panel reads,
+  so a preference is written once rather than passed on every invocation.
+  [`docs/configuration.md`](docs/configuration.md) —
+  [#170](https://github.com/quentinmarolleau/labmon/pull/170)
+- **Simulated readings are rounded to a plausible instrument resolution**,
+  through `--resolution` or `--significant-digits`. A mock sensor was
+  filling the database with float64 digits no thermometer could produce.
+  [#153](https://github.com/quentinmarolleau/labmon/pull/153)
+- **A calibrated reading is stored at the resolution of its input** rather
+  than at full float64 precision. A 60 µm/V conversion turns four honest
+  digits into seventeen, and only the first four mean anything.
+  [#175](https://github.com/quentinmarolleau/labmon/pull/175)
+- **Commands read `.env` from the directory they run in**, so a token set
+  for Compose also reaches a `labmon` typed at a prompt. The process
+  environment still wins.
+  [#185](https://github.com/quentinmarolleau/labmon/issues/185)
+- **Startup no longer imports what the command will not use.** pyarrow,
+  pint, numpy and the InfluxDB client are pulled in by the commands that
+  need them: `labmon query --help` goes from 0.79 s to 0.19 s.
 
-Plaintext ports bind to loopback by default, so a fresh install publishes
-nothing to the network around it. The LAN-facing path is the `tls` profile,
-which is encrypted and authenticated throughout — and with it active the
-plaintext ports stay closed, so the proxy is the only way in.
-[`docs/deployment.md`](docs/deployment.md#exposing-the-server-to-the-lan) —
-[#138](https://github.com/quentinmarolleau/labmon/pull/138), [#73](https://github.com/quentinmarolleau/labmon/pull/73)
+## Security
 
-Loki is never published. Its push endpoint is reachable only through the
-proxy, behind a credential, and only for writing: the same host and port
-answers 404 to every read.
-[`docs/logging.md`](docs/logging.md#logs-from-other-machines) — [#134](https://github.com/quentinmarolleau/labmon/pull/134)
+- **Containers run as an unprivileged user.** The image had no `USER`, so
+  every container built from it ran as uid 0 — six mock sensors, the demo
+  feeder, `serial-sensor`. None of them needs it. Serial access now comes
+  from `dialout` membership; a host that numbers that group differently
+  passes its own gid with `group_add`.
+  [`docs/serial-sensor.md`](docs/serial-sensor.md) —
+  [#116](https://github.com/quentinmarolleau/labmon/issues/116)
+- **The server's Alloy UI binds loopback**, as the client's has since the
+  beta. It has no authentication and describes the deployment, so reaching
+  it from a workstation now needs `ssh -L 12345:127.0.0.1:12345 <host>` —
+  the same habit [`docs/client-setup.md`](docs/client-setup.md) already
+  prescribed for the client's.
+  [#136](https://github.com/quentinmarolleau/labmon/issues/136)
 
-[`SECURITY.md`](SECURITY.md) carries the private disclosure route and the
-three assumptions the design rests on, written down in
-[`docs/deployment.md`](docs/deployment.md) — [#124](https://github.com/quentinmarolleau/labmon/pull/124), [#129](https://github.com/quentinmarolleau/labmon/pull/129)
+The rest of the posture is unchanged from the beta: plaintext ports bind to
+loopback by default, the LAN-facing path is the `tls` profile, and Loki is
+reachable only through the proxy, behind a credential, for writing only.
+[`SECURITY.md`](SECURITY.md) carries the private disclosure route.
+
+## Fixed
+
+- **A Grafana panel plugin that could not be fetched stopped the whole
+  stack starting**, crash-looping the container behind an `unhealthy`
+  status that named no cause — on an offline bench, behind an intercepting
+  proxy, or whenever grafana.com was unreachable. The install is now
+  asynchronous: the failure is logged, Grafana serves, and the panel reads
+  "plugin not found".
+  [#186](https://github.com/quentinmarolleau/labmon/issues/186)
+- **`labmon mock-sensor` given neither `--measurement` nor `--unit`** wrote
+  to `temperature` with no unit. Both are now required.
+  [#158](https://github.com/quentinmarolleau/labmon/issues/158)
+
+## Upgrading from v0.2.0-beta.1
+
+`mock-sensor` and `serial-sensor` are now `labmon mock-sensor` and
+`labmon serial-sensor`. The old spellings still work and warn once at
+startup, because they shipped in the beta and are therefore in compose
+files and systemd units labmon does not control. They go in 1.0.
+
+Nothing else is a breaking change. Recorded data, the schema and the
+dashboards are untouched.
 
 ## Known limits
 
-- **The serial path has never met a physical board.** It is tested end to end
-  against a virtual serial port and against a feeder speaking the firmware's
-  wire format, but the last centimetre is unproven. Check readings against a
-  known voltage before trusting them.
+- **The serial path has never met a physical board.** It is tested end to
+  end against a virtual serial port and against a feeder speaking the
+  firmware's wire format, but the last centimetre is unproven. Check
+  readings against a known voltage before trusting them.
   [`docs/serial-sensor.md`](docs/serial-sensor.md) ·
   [`docs/demo-stack.md`](docs/demo-stack.md)
 - **Traffic is plaintext unless the `tls` profile is on.** Deliberate — it
   assumes a trusted lab network — and it is a setting, not a rewrite.
   [`docs/deployment.md`](docs/deployment.md#encrypting-client-and-viewer-traffic)
-- **No export command yet.** Getting data out means SQL or Grafana's per-panel
-  CSV export, neither of which suits pulling a run into a notebook. A
-  `labmon export` CLI is the next release's headline — [#58](https://github.com/quentinmarolleau/labmon/issues/58)
-- **A long outage is recorded as its final stretch.** The queue holds a fixed
-  number of points, so what survives is the most recent window rather than the
-  whole gap. Keeping the entire window at reduced resolution is tracked in
-  [#141](https://github.com/quentinmarolleau/labmon/issues/141).
+- **A long outage is recorded as its final stretch.** The queue holds a
+  fixed number of points, so what survives is the most recent window rather
+  than the whole gap. Keeping the entire window at reduced resolution is
+  tracked in [#141](https://github.com/quentinmarolleau/labmon/issues/141).
+- **A sensor reports one value per reading.** An instrument that measures
+  several quantities at once needs one sensor process per quantity, which
+  is tracked in
+  [#168](https://github.com/quentinmarolleau/labmon/issues/168).
+- **There is no hosted documentation site.** Everything is markdown in
+  `docs/`, read on GitHub — [#55](https://github.com/quentinmarolleau/labmon/issues/55).
 
 ## What 1.0 means
 
-Verified against real hardware, and running in at least two different labs for
-at least six months.
+Verified against real hardware, and running in at least two different labs
+for at least six months.
 
-Deliberately slow. Monitoring software is trusted by default once installed —
-nobody re-derives whether the number on the dashboard is right — and the
-failure mode of getting it wrong is a plausible-looking number that is quietly
-incorrect. The version number should stay honest about how much has been
-proven outside one bench.
+Deliberately slow. Monitoring software is trusted by default once installed
+— nobody re-derives whether the number on the dashboard is right — and the
+failure mode of getting it wrong is a plausible-looking number that is
+quietly incorrect. The version number should stay honest about how much has
+been proven outside one bench.
 
 ## Quality bar
 
-100% test coverage, basedpyright on its strictest preset with zero errors and
-zero warnings, ruff, and a cold-start job that builds the whole stack from
-nothing on every push and asserts that data arrives, that both dashboards'
-queries execute, and that the TLS and log paths behave — including the
-negative cases, so a proxy serving no TLS at all would fail rather than pass.
+100% test coverage, now measured over `demo/`, `scripts/` and `templates/`
+as well as the package — three trees a user meets early and none of which
+was previously measured. basedpyright on its strictest preset with zero
+errors and zero warnings, and nine more ruff rule families than the beta
+shipped with.
 
-[`CONTRIBUTING.md`](CONTRIBUTING.md) has the reasoning and the workflow —
-[#33](https://github.com/quentinmarolleau/labmon/pull/33), [#71](https://github.com/quentinmarolleau/labmon/pull/71), [#32](https://github.com/quentinmarolleau/labmon/pull/32), [#101](https://github.com/quentinmarolleau/labmon/pull/101)
+The cold-start job still builds the whole stack from nothing on every push
+and asserts that data arrives, that every dashboard's queries execute, and
+that the TLS and log paths behave — including the negative cases, so a
+proxy serving no TLS at all would fail rather than pass.
+[#85](https://github.com/quentinmarolleau/labmon/issues/85),
+[#88](https://github.com/quentinmarolleau/labmon/issues/88),
+[#118](https://github.com/quentinmarolleau/labmon/issues/118),
+[#135](https://github.com/quentinmarolleau/labmon/issues/135)
+
+[`CONTRIBUTING.md`](CONTRIBUTING.md) has the reasoning and the workflow.

@@ -1,6 +1,6 @@
 [project]
 name = "labmon"
-version = "0.2.0b1"
+version = "0.3.0"
 description = "Flexible laboratory monitoring system"
 # Not README.md. That file is written for GitHub — a header image, four
 # terminal recordings, and two dozen links relative to the repository
