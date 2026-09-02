@@ -5,7 +5,7 @@ InfluxDB. This is the non-mock counterpart to
 [`docs/mock-sensor.md`](mock-sensor.md), which simulates readings instead.
 
 ```bash
-uv run labmon serial-sensor --port /dev/labmon-due --calibration calibration.toml
+labmon serial-sensor --port /dev/labmon-due --calibration calibration.toml
 ```
 
 ## How a reading becomes a data point
@@ -382,7 +382,8 @@ to be written backwards. They differ in two ways worth knowing:
   and **extrapolates** beyond the measured range. `piecewise_linear`
   joins the points with straight lines and **clamps** to the end values
   instead — safer when a reading strays outside what was characterised.
-- `spline` needs scipy: `uv sync --extra spline`. `piecewise_linear` needs
+- `spline` needs scipy: `uv tool install 'labmon[spline]'`, or
+  `uv sync --extra spline` from a checkout. `piecewise_linear` needs
   nothing beyond the base install, which matters on a small client.
   Note that the `Dockerfile` installs the base dependencies only, so a
   containerized `serial-sensor` cannot use `spline` until that extra is
@@ -573,7 +574,7 @@ exercises the tty layer:
 socat -d -d pty,raw,echo=0 pty,raw,echo=0
 
 # Terminal 2 — read one end
-uv run labmon serial-sensor --port /dev/pts/N --calibration calibration.toml
+labmon serial-sensor --port /dev/pts/N --calibration calibration.toml
 
 # Terminal 3 — feed the other end
 printf 'A0,2048\r\n' > /dev/pts/M

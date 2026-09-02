@@ -59,9 +59,9 @@ jobs:
           sed -i 's/^INFLUXDB_NODE_ID=.*/INFLUXDB_NODE_ID=ci/' .env
 
       # The README installs the CLI before starting anything, because
-      # `labmon init` is what sets the database up. Installed from the
-      # checkout, so this is the package under test rather than a
-      # published one.
+      # `labmon init` is what sets the database up. Editable, from the
+      # checkout: the quickstart's own spelling, and the one that tests
+      # this commit rather than whatever is on PyPI.
       #
       # Before the first `docker compose up`, and that ordering is load
       # bearing rather than cosmetic: setup-uv's cache key globs the whole
