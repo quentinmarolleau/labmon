@@ -9,6 +9,10 @@ so the sections below map onto commit types.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.3.0] — 2026-09-02
+
 ### Added
 
 #### The command line
@@ -64,6 +68,16 @@ so the sections below map onto commit types.
 - Simulated readings are rounded to a plausible instrument resolution,
   through `--resolution` or `--significant-digits`.
   [#153](https://github.com/quentinmarolleau/labmon/pull/153)
+- **labmon is on PyPI.** `uv tool install labmon` (or
+  `pip install labmon`) puts the command line on a machine with no
+  checkout, which is all a sensor host or an analysis laptop ever
+  needed. The stack still comes from the repository — a compose file is
+  not something an installer can usefully deliver.
+  [`docs/client-setup.md`](docs/client-setup.md) —
+  [#169](https://github.com/quentinmarolleau/labmon/issues/169)
+- **`labmon --version`**, and a `py.typed` marker so an installed
+  labmon's annotations reach a downstream type checker.
+  [#169](https://github.com/quentinmarolleau/labmon/issues/169)
 
 ### Changed
 
@@ -84,6 +98,12 @@ so the sections below map onto commit types.
   [#185](https://github.com/quentinmarolleau/labmon/issues/185)
 - `INFLUXDB_NODE_ID` defaults to `node0`, leaving the token as the only
   value the quickstart has to fill in.
+- `query latest` asks `information_schema` once for every table rather
+  than once per table. A `labmon monitor` tick goes from 83 ms to
+  60 ms against the demo stack, and the saving grows with the number of
+  measurements a deployment writes.
+  [#179](https://github.com/quentinmarolleau/labmon/pull/179)
+- Grafana 13.2.0, Loki 3.7.7, Alloy 1.19.2, Caddy 2.11.
 
 ### Fixed
 
@@ -100,10 +120,29 @@ so the sections below map onto commit types.
   found".
   [#186](https://github.com/quentinmarolleau/labmon/issues/186)
 
+### Security
+
+- Containers built from the labmon image run as an unprivileged system
+  user rather than as root. Serial access comes from `dialout`
+  membership; a host that numbers that group differently passes its own
+  gid with `group_add`.
+  [`docs/serial-sensor.md`](docs/serial-sensor.md) —
+  [#116](https://github.com/quentinmarolleau/labmon/issues/116)
+- The server's Alloy UI binds loopback, as the client's has since
+  [#63](https://github.com/quentinmarolleau/labmon/pull/63).
+  It has no authentication and describes the deployment, so reaching it
+  from a workstation now needs
+  `ssh -L 12345:127.0.0.1:12345 <host>` — the instruction
+  [`docs/client-setup.md`](docs/client-setup.md) already gave for the
+  client's.
+  [#136](https://github.com/quentinmarolleau/labmon/issues/136)
+
 ## [0.2.0-beta.1] — 2026-08-23
 
-The first beta. See
-[`RELEASE_NOTE.md`](RELEASE_NOTE.md) for the full announcement.
+The first beta. `RELEASE_NOTE.md` carries whichever release is current,
+so the beta's announcement is on
+[its release page](https://github.com/quentinmarolleau/labmon/releases/tag/v0.2.0-beta.1).
 
-[Unreleased]: https://github.com/quentinmarolleau/labmon/compare/v0.2.0-beta.1...HEAD
+[Unreleased]: https://github.com/quentinmarolleau/labmon/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/quentinmarolleau/labmon/releases/tag/v0.3.0
 [0.2.0-beta.1]: https://github.com/quentinmarolleau/labmon/releases/tag/v0.2.0-beta.1
