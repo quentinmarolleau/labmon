@@ -5,39 +5,41 @@
 # The same keys go under [monitor] in ~/.config/labmon/labmon.toml when
 # they should apply to every run rather than to one procedure. A file
 # with no [[panels]] at all is valid and gives the fallback table.
+#
+# Every key the panel understands is exercised here, against the sensors
+# the demo stack writes.
 
-refresh = "2s"   # how often to redraw
-window  = "15m"  # how much history the statistics cover
-theme   = "nord" # any of Textual's themes; `m` lists them, and previews
-                 # each one as the selector passes over it
+refresh = "1s"                # how often to redraw
+window  = "15m"               # how much history the statistics cover
+theme   = "catppuccin-frappe" # any of Textual's themes; `m` lists them,
+                              # previewing each as the selector passes
 
-# How many digits a sensor is worth, wherever it appears — the fallback
-# table as well as any tile. Readings are otherwise shown exactly as
-# stored, which is honest and is more digits than anybody reads at a
-# glance for anything behind a calibration: a conversion turns four
-# meaningful digits into seventeen.
+
+# --------------------------------------------------------------------------
+# Display rules — how many digits an instrument is worth, wherever it is
+# printed: the fallback table and any tile that does not say otherwise.
+# Readings are otherwise shown exactly as stored, which is honest and is
+# more digits than anybody reads at a glance for anything behind a
+# calibration, where a conversion turns four meaningful digits into
+# seventeen.
 #
 # `precision` is decimal places, or — with `format = "scientific"` —
 # digits after the point of the mantissa, which is what asking for two
 # digits of a pressure means.
-[[sensors]]
-sensor_id = "beam-x"
-precision = 2
+# --------------------------------------------------------------------------
 
+# The wavemeter reads to the hertz on a 276 THz carrier. Sixteen digits
+# is the honest reading and nobody reads it at a glance, so the table
+# gets six and the tile below gets three.
 [[sensors]]
-sensor_id = "beam-y"
-precision = 2
+sensor_id = "wavemeter-1"
+format = "scientific"
+precision = 6
 
+# A gauge is read in decades, not decimals.
 [[sensors]]
-sensor_id = "cryo-diode"
-precision = 2
-
-[[sensors]]
-sensor_id = "laser-1"
-precision = 1
-
-[[sensors]]
-sensor_id = "bias-monitor"
+sensor_id = "chamber-1"
+format = "scientific"
 precision = 3
 
 [[sensors]]
@@ -45,36 +47,131 @@ sensor_id = "pirani-1"
 format = "scientific"
 precision = 2
 
+# The beam channels are the case that motivated display rules: a 60 µm/V
+# conversion turns four honest digits into seventeen. The beam-x tile
+# asks for two decimals and wins there; the table keeps one.
+[[sensors]]
+sensor_id = "beam-x"
+precision = 1
+
+[[sensors]]
+sensor_id = "beam-y"
+precision = 1
+
+[[sensors]]
+sensor_id = "cryo-diode"
+precision = 1
+
+[[sensors]]
+sensor_id = "room-1"
+precision = 2
+
+[[sensors]]
+sensor_id = "room-2"
+precision = 2
+
+# `plain` never uses an exponent, whatever the magnitude — for a rail
+# that sits near zero and would otherwise flip into scientific notation
+# the moment it crosses under 1e-4.
+[[sensors]]
+sensor_id = "bias-monitor"
+format = "plain"
+precision = 3
+
+# A rule naming `measurement` wins over one that does not, which is how
+# a probe writing to two tables is given different digits in each.
+[[sensors]]
+sensor_id = "dual-probe"
+measurement = "pressure"
+format = "scientific"
+precision = 2
+
+[[sensors]]
+sensor_id = "dual-probe"
+measurement = "temperature"
+precision = 2
+
+
+# --------------------------------------------------------------------------
+# Tiles — what to watch, in the order they are read. Three to a row,
+# three rows.
+# Delete the lot and the panel falls back to the table of everything.
+#
 # Only `sensor_id` is required. Everything else refines how the tile
 # reads.
-[[panels]]
-sensor_id = "cryo-77k"
-title = "Cold finger"   # what to write above the number
-precision = 3           # decimal places, trailing zeros included
-warn_above = 80.0       # colour the tile when the reading goes over
+# --------------------------------------------------------------------------
 
 [[panels]]
 sensor_id = "cryo-4k"
-title = "4 K stage"
-precision = 3
-warn_above = 4.5
+title = "4 K stage"     # what to write above the number
+precision = 3           # decimal places, trailing zeros included
+warn_above = 4.6        # colour the tile when the reading goes over
+warn_below = 3.6        # and when it drops under
+
+[[panels]]
+sensor_id = "cryo-77k"
+title = "Cold finger"
+precision = 2
+warn_above = 80.0
+warn_below = 74.0
+
+# Held well above its threshold by the demo stack, so this tile is
+# always in alarm — which is the point of having it here. The footer
+# swaps the measurement for the threshold that fired.
+[[panels]]
+sensor_id = "cryo-diode"
+title = "Laser diode"
+precision = 1
+warn_above = 10.0
 
 [[panels]]
 sensor_id = "chamber-1"
 title = "Chamber"
 format = "scientific"   # auto, plain or scientific
+precision = 2
+warn_above = 5e-07
 
 [[panels]]
 sensor_id = "laser-1"
 title = "Laser"
 precision = 1
 warn_below = 80.0
+warn_above = 110.0
 
+# Three digits of mantissa rather than the six the table gets: a tile is
+# read from across the room, and `Digits` is three columns per character.
+[[panels]]
+sensor_id = "wavemeter-1"
+title = "Wavemeter"
+format = "scientific"
+precision = 3
+
+# `precision` here beats the sensor rule above, for this tile only.
+# `beam-y` has no tile and keeps the rule's one decimal in the table.
+[[panels]]
+sensor_id = "beam-x"
+title = "Beam X"
+precision = 2
+warn_above = 30.0
+warn_below = -30.0
+
+[[panels]]
+sensor_id = "bias-monitor"
+title = "Bias rail"
+format = "plain"
+precision = 3
+warn_above = 6.0
+warn_below = -6.0
+
+# Nothing is writing to `dual-probe`, and the tile is here on purpose: a
+# configured sensor that is not reporting still gets a tile, marked, so
+# the absence is visible rather than silent. Delete it for a clean grid.
+#
 # `measurement` is how a sensor that writes to more than one table says
 # which of them this tile is for. Most sensors write to one and can
 # leave it out; the tile prints whichever it settled on either way.
 [[panels]]
 sensor_id = "dual-probe"
 measurement = "pressure"
-title = "Probe pressure"
+title = "Dead sensor"
 format = "scientific"

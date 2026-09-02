@@ -3,6 +3,10 @@
 </h1>
 
 <p align="center">
+  <a href="https://git.io/typing-svg"><img alt="Welcome to the labmon project — self-hosted monitoring system" src="https://readme-typing-svg.herokuapp.com?font=Fira+Code&amp;pause=1000&amp;vCenter=true&amp;width=435&amp;lines=Welcome+to+the+labmon+project;Self-hosted+monitoring+system"></a>
+</p>
+
+<p align="center">
   <a href="https://github.com/quentinmarolleau/labmon/actions/workflows/ci.yml"><img alt="Tests" src="https://img.shields.io/github/actions/workflow/status/quentinmarolleau/labmon/ci.yml?branch=main&amp;label=tests&amp;logo=githubactions&amp;logoColor=white"></a>
   <a href="https://codecov.io/gh/quentinmarolleau/labmon"><img alt="Coverage" src="https://img.shields.io/codecov/c/github/quentinmarolleau/labmon?logo=codecov&amp;logoColor=white"></a>
   <a href="https://github.com/DetachHead/basedpyright"><img alt="Checked with basedpyright" src="https://img.shields.io/badge/types-basedpyright-FFD43B?logo=python&amp;logoColor=white"></a>
@@ -61,9 +65,13 @@ You need [Docker](https://docs.docker.com/get-started/get-docker/) and
 
 This sets up the whole stack — database, dashboards, log collection — so it
 starts from the repository. If you already have an InfluxDB 3 instance and
-want only the command line against it, that is `uv tool install
-'labmon[tui]'` and three environment variables; see
+want only the command line against it, no clone is needed at all — that is
+the same `uv tool install` below plus three environment variables; see
 [Reading the data](#reading-the-data).
+
+![The whole Quickstart in one terminal session: cloning the repository, copying the settings file, installing the released command line from PyPI with uv, starting InfluxDB, issuing the admin token and creating the database with labmon init, bringing the rest of the stack up, and querying the readings the demo sensors have already written](docs/assets/images/quickstart.gif)
+
+The four steps below, one at a time.
 
 **1. Get the repository and its settings file.**
 
@@ -73,15 +81,37 @@ cd labmon
 cp .env.example .env
 ```
 
+The command line itself comes from PyPI in the next step — the clone is for
+everything around it: the Compose file, the provisioned Grafana dashboards,
+the Alloy configuration and `.env.example`. That is what makes this a
+running stack rather than a client against somebody else's. It is also
+where a real deployment starts, since those files are meant to be edited
+rather than written from scratch.
+
 **2. Install the command line.**
+
+```bash
+uv tool install 'labmon[tui]'
+```
+
+The released package from PyPI, independent of the clone above.
+
+<details>
+<summary><b>Running the checkout instead</b></summary>
+
+<br>
+
+To edit labmon's own source, install it from the directory you just cloned
+and `labmon` follows the working tree:
 
 ```bash
 uv tool install --editable '.[tui]'
 ```
 
-`--editable` installs it from the checkout you just made, so `labmon`
-follows the working tree. Elsewhere it comes from PyPI, as
-`uv tool install 'labmon[tui]'`.
+Add `--force` to replace an install you already have. The two are the same
+package, so only one of them can own the `labmon` on your PATH.
+
+</details>
 
 **3. Start InfluxDB and set it up.**
 
@@ -122,7 +152,7 @@ Three HTTP calls to InfluxDB, and one edit to a file:
 
 Running it again is safe, and does almost nothing: the server answers
 `409` to a second token and to a second database of the same name, and
-`init` reports both rather than failing. The one thing a re-run *will*
+`init` reports both rather than failing. The one thing a re-run _will_
 change is the retention, if you pass `--retention` — that is a property of
 the database rather than of its creation, so it stays adjustable.
 
@@ -178,7 +208,7 @@ The `demo` profile is on by default, and it starts two different things:
   sensors, a vacuum gauge and a wavemeter — inventing readings already in
   physical units. [`docs/mock-sensor.md`](docs/mock-sensor.md) covers
   adding more or changing what they simulate.
-- **Six calibrated channels** running the *real* acquisition path: raw
+- **Six calibrated channels** running the _real_ acquisition path: raw
   ADC counts stream over TCP in the firmware's wire format, and
   `serial-sensor` converts them exactly as it would for a board on a
   serial port. Nothing is mocked but the board itself —
@@ -237,6 +267,11 @@ labmon query --sensor-id cryo-77k --since 24h --limit 50
 labmon query latest
 ```
 
+![Completing labmon query -- at the prompt, which lists every flag with its help text alongside; then a filtered query printing a table of temperature readings; then labmon query latest --stats, one row per sensor with its average, standard deviation and reading count, the two silent sensors in red](docs/assets/images/query.gif)
+
+The flag list at the start is tab completion, one command to install —
+see [Tab completion](#tab-completion) below.
+
 `latest` answers a different question: what every sensor reads right now,
 and how long ago each last spoke, so a silent one shows up with its last
 reading rather than disappearing.
@@ -283,47 +318,18 @@ into pandas, polars and xarray, and covers reshaping once it is there.
 Useful for the terminal already open next to the experiment, and over a
 bare SSH session where a browser is not an option.
 
-```bash
-labmon monitor
-```
-
-```
-                           labmon · lab @ http://localhost:8181
-╭─────────────┬──────────────┬─────────────────┬──────┬────────┬──────────┬─────────┬─────╮
-│ measurement │ sensor       │           value │ unit │ age    │  average │       σ │   N │
-├─────────────┼──────────────┼─────────────────┼──────┼────────┼──────────┼─────────┼─────┤
-│ frequency   │ wavemeter-1  │ 2.765612936e+14 │ Hz   │ 5m ago │          │         │     │
-├─────────────┼──────────────┼─────────────────┼──────┼────────┼──────────┼─────────┼─────┤
-│ position    │ beam-x       │            10.7 │ µm   │ 1s ago │        6 │      10 │ 298 │
-│             │ beam-y       │           12.94 │ µm   │ 1s ago │       -6 │      11 │ 298 │
-├─────────────┼──────────────┼─────────────────┼──────┼────────┼──────────┼─────────┼─────┤
-│ power       │ laser-1      │           85.63 │ mW   │ 1s ago │     95.1 │     8.8 │ 298 │
-├─────────────┼──────────────┼─────────────────┼──────┼────────┼──────────┼─────────┼─────┤
-│ pressure    │ chamber-1    │     1.35284e-07 │ mbar │ 4s ago │ 1.50e-07 │ 1.0e-08 │  60 │
-│             │ pirani-1     │        1.59e-09 │ mbar │ 1s ago │  4.6e-08 │ 3.8e-08 │ 298 │
-├─────────────┼──────────────┼─────────────────┼──────┼────────┼──────────┼─────────┼─────┤
-│ temperature │ cryo-4k      │           3.865 │ K    │ 4s ago │    3.793 │   0.093 │  60 │
-│             │ cryo-77k     │          77.533 │ K    │ 4s ago │    77.23 │    0.44 │  60 │
-│             │ cryo-diode   │           34.48 │ K    │ 1s ago │       30 │      11 │ 298 │
-│             │ room-1       │          21.075 │ °C   │ 4s ago │    20.70 │    0.24 │  60 │
-│             │ room-2       │           22.07 │ °C   │ 5m ago │          │         │     │
-├─────────────┼──────────────┼─────────────────┼──────┼────────┼──────────┼─────────┼─────┤
-│ voltage     │ bias-monitor │           -2.79 │ V    │ 1s ago │      0.4 │     2.2 │ 298 │
-╰─────────────┴──────────────┴─────────────────┴──────┴────────┴──────────┴─────────┴─────╯
-                   12 sensors, 2 quiet · window 5m · every 2s · 08:29:01
-```
+![The fallback table, refreshing in place: every sensor the database has, grouped by measurement, with value, unit, age, average, standard deviation and reading count; two sensors that stopped reporting are marked in red](docs/assets/images/monitor-table.gif)
 
 It redraws in place, colours a sensor amber then red as it goes quiet, and
 keeps the last good table on screen when the database is briefly
 unreachable.
 
-Name the handful of things you actually care about and it becomes a grid
-of tiles instead — value large enough to read across the room, unit, age,
-and a colour change when it leaves the range you set:
+It is also possible to adopt a tiled layout, where one selects a handful of
+sensors to monitor and they are displayed in a grid of tiles instead of a table.
+This is handled by the toml configuration file loaded by the `labmon monitor`
+command, see [`monitor.example.toml`](monitor.example.toml) for example.
 
-```bash
-labmon monitor --config monitor.example.toml
-```
+![The same panel as a grid of nine tiles: a laser diode tile framed in red because its temperature is over the threshold, and a tile for a sensor that stopped reporting a day ago, dimmed and marked, still showing its last reading](docs/assets/images/monitor-tiles.gif)
 
 ### Tab completion
 
@@ -348,21 +354,21 @@ whole room can see, and for alerting.
 
 ![The Lab Overview dashboard: a row of current-value tiles for cold finger, chamber pressure, laser power and bias rail; a panel plotting a calibrated temperature against the raw ADC voltage it came from; cryogenic and room temperature, vacuum and laser power time series; a needle dial for laser detuning; an XY plot of beam position; and a table listing every sensor with its unit, raw input, calibration id and whether it is simulated or calibrated](docs/assets/images/lab-overview-screenshot.png)
 
-*The **Lab Overview** dashboard, provisioned out of the box and shown here
-against the demo stack.*
+_The **Lab Overview** dashboard, provisioned out of the box and shown here
+against the demo stack._
 
 The frontend **is** Grafana, not a wrapper around it, so everything
 Grafana does is available immediately — labmon supplies the data and a
 starting dashboard.
 
-| What | Use in a lab | Docs |
-|---|---|---|
-| **Panels** | Time series, gauges, histograms, heatmaps, state timelines — built by clicking, not by writing plotting code | [Panels](https://grafana.com/docs/grafana/latest/panels-visualizations/) |
-| **Explore** | Ad-hoc digging without touching a saved dashboard | [Explore](https://grafana.com/docs/grafana/latest/explore/) |
-| **Alerting** | Email, Slack or Telegram when a reading leaves its range, or when a sensor goes silent | [Alerting](https://grafana.com/docs/grafana/latest/alerting/) |
-| **Snapshots** | Freeze a dashboard and send the link — for a logbook entry or a group meeting | [Sharing](https://grafana.com/docs/grafana/latest/dashboards/share-dashboards-panels/) |
-| **Annotations** | Mark the moment you opened a valve, so the event sits on the plot next to its consequence | [Annotations](https://grafana.com/docs/grafana/latest/dashboards/build-dashboards/annotate-visualizations/) |
-| **Variables** | One dashboard with a "which cryostat?" dropdown, instead of one per instrument | [Variables](https://grafana.com/docs/grafana/latest/dashboards/variables/) |
+| What            | Use in a lab                                                                                                 | Docs                                                                                                        |
+| --------------- | ------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| **Panels**      | Time series, gauges, histograms, heatmaps, state timelines — built by clicking, not by writing plotting code | [Panels](https://grafana.com/docs/grafana/latest/panels-visualizations/)                                    |
+| **Explore**     | Ad-hoc digging without touching a saved dashboard                                                            | [Explore](https://grafana.com/docs/grafana/latest/explore/)                                                 |
+| **Alerting**    | Email, Slack or Telegram when a reading leaves its range, or when a sensor goes silent                       | [Alerting](https://grafana.com/docs/grafana/latest/alerting/)                                               |
+| **Snapshots**   | Freeze a dashboard and send the link — for a logbook entry or a group meeting                                | [Sharing](https://grafana.com/docs/grafana/latest/dashboards/share-dashboards-panels/)                      |
+| **Annotations** | Mark the moment you opened a valve, so the event sits on the plot next to its consequence                    | [Annotations](https://grafana.com/docs/grafana/latest/dashboards/build-dashboards/annotate-visualizations/) |
+| **Variables**   | One dashboard with a "which cryostat?" dropdown, instead of one per instrument                               | [Variables](https://grafana.com/docs/grafana/latest/dashboards/variables/)                                  |
 
 A dashboard you build in the browser can be exported as JSON and dropped
 into `grafana/dashboards/`, which puts it under version control and brings
@@ -387,7 +393,7 @@ reference board — plugged into a USB port.
                                           what a count means, per channel
 ```
 
-The board only ever sends **raw ADC counts**. What a count *means* lives on
+The board only ever sends **raw ADC counts**. What a count _means_ lives on
 the computer, in a small text file, so recalibrating never means reflashing
 the board:
 
@@ -400,13 +406,13 @@ conversion_factor = "42.5 kelvin / volt"
 
 Real sensors are rarely that obliging, so there are five conversion modes:
 
-| Mode | For a response that is | You provide |
-|---|---|---|
-| `linear` | proportional | one dimensioned factor |
-| `affine` | a straight line with an offset | factor and offset |
-| `spline` | smoothly curved | measured points; a cubic is fitted |
-| `piecewise_linear` | curved, with few points | measured points; straight segments between |
-| `expression` | a known formula | e.g. `10**(1.667*v - 11.33)` |
+| Mode               | For a response that is         | You provide                                |
+| ------------------ | ------------------------------ | ------------------------------------------ |
+| `linear`           | proportional                   | one dimensioned factor                     |
+| `affine`           | a straight line with an offset | factor and offset                          |
+| `spline`           | smoothly curved                | measured points; a cubic is fitted         |
+| `piecewise_linear` | curved, with few points        | measured points; straight segments between |
+| `expression`       | a known formula                | e.g. `10**(1.667*v - 11.33)`               |
 
 Every conversion is checked and trial-applied when the file loads, so a
 typo or a dimensional mistake fails immediately instead of recording wrong
@@ -499,11 +505,11 @@ a small network:
                                               └────────────────────────────┘
 ```
 
-| Role | Runs | Setup |
-|---|---|---|
-| **Server** | InfluxDB + Grafana, plus Loki and Alloy with the `logs` profile | [`docs/deployment.md`](docs/deployment.md) |
+| Role       | Runs                                                                                       | Setup                                          |
+| ---------- | ------------------------------------------------------------------------------------------ | ---------------------------------------------- |
+| **Server** | InfluxDB + Grafana, plus Loki and Alloy with the `logs` profile                            | [`docs/deployment.md`](docs/deployment.md)     |
 | **Client** | A sensor script, on whatever machine the instrument is wired to — a Raspberry Pi, a lab PC | [`docs/client-setup.md`](docs/client-setup.md) |
-| **Viewer** | A browser | nothing |
+| **Viewer** | A browser                                                                                  | nothing                                        |
 
 A client can be a Docker container or a plain `uv tool install labmon`;
 both are documented. A board can equally well be plugged straight into the server,
@@ -672,7 +678,7 @@ Planned work lives in
 [issues](https://github.com/quentinmarolleau/labmon/issues), grouped into
 [milestones](https://github.com/quentinmarolleau/labmon/milestones). Every
 open issue carries a decision: `validated` is agreed and scheduled,
-`waiting-for-need` is understood and wanted *if* a concrete case appears.
+`waiting-for-need` is understood and wanted _if_ a concrete case appears.
 
 [`CHANGELOG.md`](CHANGELOG.md) records what changed in each release.
 
