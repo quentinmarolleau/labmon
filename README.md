@@ -324,11 +324,10 @@ It redraws in place, colours a sensor amber then red as it goes quiet, and
 keeps the last good table on screen when the database is briefly
 unreachable.
 
-Name the handful of things you actually care about — in a layout passed
-with `--config`, or under `[monitor]` in the configuration file when it
-should apply to every run — and it becomes a grid of tiles instead: the
-value large enough to read across the room, the unit, the age, and a
-colour change when a reading leaves the range you set:
+It is also possible to adopt a tiled layout, where one selects a handful of
+sensors to monitor and they are displayed in a grid of tiles instead of a table.
+This is handled by the toml configuration file loaded by the `labmon monitor`
+command, see [`monitor.example.toml`](monitor.example.toml) for example.
 
 ![The same panel as a grid of nine tiles: a laser diode tile framed in red because its temperature is over the threshold, and a tile for a sensor that stopped reporting a day ago, dimmed and marked, still showing its last reading](docs/assets/images/monitor-tiles.gif)
 
