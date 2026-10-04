@@ -80,6 +80,9 @@ class Table:
     def append_column(
         self, field_: str | Field, column: Array | ChunkedArray
     ) -> Table: ...
+    def set_column(
+        self, i: int, field_: str | Field, column: Array | ChunkedArray
+    ) -> Table: ...
     @staticmethod
     def from_arrays(
         arrays: Sequence[ChunkedArray | Array], names: Sequence[str]

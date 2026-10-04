@@ -3,8 +3,10 @@
 import io
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import BinaryIO
 
 import pyarrow as pa
+import pyarrow.csv as pacsv
 import pyarrow.parquet as pq
 import pytest
 from pyarrow import ipc as pa_ipc
@@ -123,6 +125,43 @@ def test_csv_carries_the_unit_as_a_column(tmp_path: Path) -> None:
     text = target.read_text(encoding="utf-8")
     assert "unit" in text.splitlines()[0]
     assert "K" in text
+
+
+def test_csv_timestamps_are_utc_with_a_z_suffix(tmp_path: Path) -> None:
+    target = tmp_path / "out.csv"
+
+    write(_table(), target, "csv")
+
+    rows = target.read_text(encoding="utf-8").splitlines()[1:]
+    assert [row.split(",")[0] for row in rows] == [
+        '"1970-01-01 00:00:00.000Z"',
+        '"1970-01-01 00:00:01.000Z"',
+    ]
+
+
+def test_csv_is_written_without_the_timezone_database(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Arrow formats a tz-aware timestamp through the system timezone
+    # database, which NixOS does not have where Arrow looks. CI does, so
+    # the failure is reproduced: a zoned column reaching the CSV writer
+    # fails as it would there.
+    real = pacsv.write_csv
+
+    def without_tzdb(table: pa.Table, sink: BinaryIO) -> None:
+        for field_ in table.schema:
+            if isinstance(field_.type, pa.TimestampType) and field_.type.tz:
+                raise pa.ArrowInvalid(
+                    f"Cannot locate or parse timezone '{field_.type.tz}'"
+                )
+        real(table, sink)
+
+    monkeypatch.setattr(pacsv, "write_csv", without_tzdb)
+    target = tmp_path / "out.csv"
+
+    write(_table(), target, "csv")
+
+    assert "1970-01-01 00:00:01.000Z" in target.read_text(encoding="utf-8")
 
 
 def test_netcdf_gives_each_sensor_its_own_time_axis(tmp_path: Path) -> None:

@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, BinaryIO, cast
 
 import pyarrow as pa
+import pyarrow.compute as pc
 import pyarrow.csv as pacsv
 import pyarrow.parquet as pq
 from pyarrow import ipc as pa_ipc
@@ -74,7 +75,21 @@ def _write_csv(table: pa.Table, sink: BinaryIO) -> None:
     # Dictionary columns and null columns both write fine; timestamps come
     # out as "2026-08-01 12:00:00.000Z", which pandas and polars both
     # parse without being told a format.
-    pacsv.write_csv(table, sink)
+    pacsv.write_csv(_utc_as_text(table), sink)
+
+
+def _utc_as_text(table: pa.Table) -> pa.Table:
+    # Arrow formats a tz-aware timestamp by looking its zone up in the
+    # system timezone database, even for UTC, and fails where it finds
+    # none (NixOS, slim images). The stored values are UTC whatever the
+    # label, so dropping the zone and appending "Z" gives the same text
+    # with nothing to look up. Being a string, it is now quoted.
+    for index, field_ in enumerate(table.schema):
+        if isinstance(field_.type, pa.TimestampType) and field_.type.tz is not None:
+            naive = table.column(index).cast(pa.timestamp(field_.type.unit))
+            text = pc.binary_join_element_wise(naive.cast(pa.string()), "Z", "")
+            table = table.set_column(index, field_.name, text)
+    return table
 
 
 def _write_parquet(table: pa.Table, sink: BinaryIO) -> None:
