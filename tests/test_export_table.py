@@ -3,6 +3,8 @@
 from datetime import UTC, datetime
 
 import pyarrow as pa
+import pyarrow.compute as pc
+import pytest
 
 from labmon.export.table import (
     EXPORT_COLUMNS,
@@ -59,6 +61,27 @@ def test_timestamps_are_utc_milliseconds() -> None:
 
 
 def test_a_naive_timestamp_is_read_as_utc_without_shifting() -> None:
+    stamp = int(datetime(2026, 8, 1, 12, 0, tzinfo=UTC).timestamp()) * _ONE_SECOND
+
+    table = normalise(_influx_like([stamp], ["a"], [1.0]), "temperature")
+
+    assert table.column("time").to_pylist() == [datetime(2026, 8, 1, 12, 0, tzinfo=UTC)]
+
+
+def test_a_naive_timestamp_is_read_as_utc_without_the_timezone_database(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # NixOS has no /usr/share/zoneinfo, the one place Arrow looks on Linux,
+    # so there every named zone fails to resolve — "UTC" included. CI has
+    # the database, so the failure is reproduced rather than relied on.
+    real = pc.assume_timezone
+
+    def without_tzdb(values: pa.ChunkedArray, timezone: str) -> pa.ChunkedArray:
+        if not timezone.startswith(("+", "-")):
+            raise pa.ArrowInvalid(f"Cannot locate or parse timezone '{timezone}'")
+        return real(values, timezone)
+
+    monkeypatch.setattr(pc, "assume_timezone", without_tzdb)
     stamp = int(datetime(2026, 8, 1, 12, 0, tzinfo=UTC).timestamp()) * _ONE_SECOND
 
     table = normalise(_influx_like([stamp], ["a"], [1.0]), "temperature")

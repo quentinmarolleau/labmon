@@ -9,6 +9,8 @@ when a new call needs one is cheaper than tracking the whole library.
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from typing import Any, Self
 
+class ArrowInvalid(ValueError): ...
+
 class DataType:
     def __eq__(self, other: object) -> bool: ...
 

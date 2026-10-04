@@ -65,6 +65,12 @@ def _utc_time_column(column: pa.ChunkedArray) -> pa.ChunkedArray:
     for a column that really was local. `assume_timezone` says which
     reading is intended rather than relying on that.
 
+    The zone is given as the offset `+00:00` rather than the name `UTC`.
+    Arrow resolves a name through the system timezone database, which it
+    looks for only at `/usr/share/zoneinfo` on Linux and so misses on
+    NixOS and on slim images; an offset it parses itself. The cast below
+    still labels the result `UTC`, which is metadata and looks nothing up.
+
     The narrowing cast is `safe=False`, which truncates. Arrow's default
     raises instead, so a single stamp not landing on a whole millisecond
     would fail the whole export. Every labmon sensor writes with
@@ -74,7 +80,7 @@ def _utc_time_column(column: pa.ChunkedArray) -> pa.ChunkedArray:
     """
     if isinstance(column.type, pa.TimestampType) and column.type.tz is not None:
         return column.cast(TIME_TYPE, safe=False)
-    localized = pc.assume_timezone(column, "UTC")
+    localized = pc.assume_timezone(column, "+00:00")
     return localized.cast(TIME_TYPE, safe=False)
 
 
