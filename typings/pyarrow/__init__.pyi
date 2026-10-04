@@ -9,6 +9,8 @@ when a new call needs one is cheaper than tracking the whole library.
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from typing import Any, Self
 
+class ArrowInvalid(ValueError): ...
+
 class DataType:
     def __eq__(self, other: object) -> bool: ...
 
@@ -77,6 +79,9 @@ class Table:
     def drop_columns(self, columns: str | Sequence[str]) -> Table: ...
     def append_column(
         self, field_: str | Field, column: Array | ChunkedArray
+    ) -> Table: ...
+    def set_column(
+        self, i: int, field_: str | Field, column: Array | ChunkedArray
     ) -> Table: ...
     @staticmethod
     def from_arrays(

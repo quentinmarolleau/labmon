@@ -9,7 +9,14 @@ so the sections below map onto commit types.
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- `labmon query` and `labmon export` failed with `Cannot locate or parse
+  timezone 'UTC'` on a host with no timezone database at
+  `/usr/share/zoneinfo`, the only place Arrow looks on Linux — NixOS
+  among them. UTC is now given to Arrow as an offset, which it parses
+  without a lookup, and CSV timestamps are formatted by labmon rather
+  than by Arrow. They read the same, but are now quoted.
 
 ## [0.3.0] — 2026-09-02
 
