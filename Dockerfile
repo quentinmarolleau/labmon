@@ -11,7 +11,7 @@
 # with every `git pull`. Put those in your own copy of
 # templates/custom-sensor/Dockerfile, which starts FROM this image.
 
-FROM python:3.14-slim-trixie
+FROM python:3.15-slim-trixie
 # Pinned like every other executable this build pulls in. `latest` has
 # broken builds before, and a build that breaks with no change in the
 # repository is expensive to diagnose precisely because the diff is empty.
