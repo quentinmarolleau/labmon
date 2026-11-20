@@ -12,9 +12,7 @@ import pytest
 # An autouse fixture is called by pytest, never by name, so a checker
 # reasonably reports it as unused.
 @pytest.fixture(autouse=True)
-def _isolated_cache(  # pyright: ignore[reportUnusedFunction]
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def _isolated_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Point the roster cache inside the test's own directory.
 
     `labmon query --latest` remembers the sensors it saw, and without
@@ -28,9 +26,7 @@ def _isolated_cache(  # pyright: ignore[reportUnusedFunction]
 
 
 @pytest.fixture(autouse=True)
-def _isolated_config(  # pyright: ignore[reportUnusedFunction]
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def _isolated_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Point the configuration file inside the test's own directory.
 
     Every command reads it, so without this the suite's behaviour
@@ -41,7 +37,7 @@ def _isolated_config(  # pyright: ignore[reportUnusedFunction]
 
 
 @pytest.fixture(autouse=True)
-def _isolated_working_directory(  # pyright: ignore[reportUnusedFunction]
+def _isolated_working_directory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Run each test somewhere that is not the repository.

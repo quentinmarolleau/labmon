@@ -48,7 +48,7 @@ def _returning(value: float | None) -> Callable[..., float | None]:
 
 
 @pytest.fixture
-def _quiet_logging(  # pyright: ignore[reportUnusedFunction]
+def _quiet_logging(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Stop `logs.configure()` reconfiguring the suite's own logging.

@@ -46,7 +46,7 @@ def _free_port() -> int:
 
 
 @pytest.fixture
-def _restored_level_names() -> Iterator[None]:  # pyright: ignore[reportUnusedFunction]
+def _restored_level_names() -> Iterator[None]:
     """Undo the feeder's global rename of every logging level.
 
     `addLevelName` is process-wide and permanent, so without this the

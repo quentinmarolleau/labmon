@@ -41,7 +41,7 @@ def _absent(*_args: object, **_kwargs: object) -> bool:
 
 
 @pytest.fixture(autouse=True)
-def _local_host(  # pyright: ignore[reportUnusedFunction]
+def _local_host(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A host and no inherited token, whatever the machine running this.
